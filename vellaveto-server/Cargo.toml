@@ -38,7 +38,7 @@ anyhow = { workspace = true }
 
 arc-swap = "1"
 axum = "0.8"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 toml = "1.0"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = { workspace = true }
@@ -71,7 +71,7 @@ rustls = "0.23"
 x509-parser = "0.18"
 reqwest = { workspace = true }
 base64 = "0.22"
-rand = "0.8"
+rand = "0.9"
 flate2 = { version = "1.0", features = ["zlib"] }
 roxmltree = "0.21"
 # SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)
@@ -85,4 +85,4 @@ tokio-util = { workspace = true }
 argon2 = { workspace = true }
 password-hash = { workspace = true }
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = "3.26"

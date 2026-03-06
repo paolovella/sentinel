@@ -7926,9 +7926,8 @@ fn test_ssrf_ipv4_multicast_blocked() {
 #[test]
 fn test_ssrf_percent_encoded_metadata_ip_rejected() {
     // R231-TYP-6: %31%36%39.%32%35%34.%31%36%39.%32%35%34 = 169.254.169.254
-    let result = validate_url_no_ssrf(
-        "http://%31%36%39.%32%35%34.%31%36%39.%32%35%34/latest/meta-data/",
-    );
+    let result =
+        validate_url_no_ssrf("http://%31%36%39.%32%35%34.%31%36%39.%32%35%34/latest/meta-data/");
     assert!(
         result.is_err(),
         "Percent-encoded metadata IP (169.254.169.254) must be rejected"
@@ -7938,8 +7937,7 @@ fn test_ssrf_percent_encoded_metadata_ip_rejected() {
 #[test]
 fn test_ssrf_percent_encoded_localhost_rejected() {
     // R231-TYP-6: %6c%6f%63%61%6c%68%6f%73%74 = localhost
-    let result =
-        validate_url_no_ssrf("http://%6c%6f%63%61%6c%68%6f%73%74/secret");
+    let result = validate_url_no_ssrf("http://%6c%6f%63%61%6c%68%6f%73%74/secret");
     assert!(
         result.is_err(),
         "Percent-encoded 'localhost' must be rejected"
@@ -7949,8 +7947,7 @@ fn test_ssrf_percent_encoded_localhost_rejected() {
 #[test]
 fn test_ssrf_percent_encoded_private_ip_rejected() {
     // R231-TYP-6: %31%30.%30.%30.%31 = 10.0.0.1
-    let result =
-        validate_url_no_ssrf("http://%31%30.%30.%30.%31/internal");
+    let result = validate_url_no_ssrf("http://%31%30.%30.%30.%31/internal");
     assert!(
         result.is_err(),
         "Percent-encoded private IP (10.0.0.1) must be rejected"
@@ -7960,8 +7957,7 @@ fn test_ssrf_percent_encoded_private_ip_rejected() {
 #[test]
 fn test_ssrf_percent_encoded_127_rejected() {
     // R231-TYP-6: %31%32%37.%30.%30.%31 = 127.0.0.1
-    let result =
-        validate_url_no_ssrf("http://%31%32%37.%30.%30.%31/");
+    let result = validate_url_no_ssrf("http://%31%32%37.%30.%30.%31/");
     assert!(
         result.is_err(),
         "Percent-encoded loopback (127.0.0.1) must be rejected"
@@ -7971,8 +7967,7 @@ fn test_ssrf_percent_encoded_127_rejected() {
 #[test]
 fn test_ssrf_percent_encoded_public_ip_allowed() {
     // R231-TYP-6: %38.%38.%38.%38 = 8.8.8.8 — public, should be allowed.
-    let result =
-        validate_url_no_ssrf("http://%38.%38.%38.%38/ok");
+    let result = validate_url_no_ssrf("http://%38.%38.%38.%38/ok");
     assert!(
         result.is_ok(),
         "Percent-encoded public IP (8.8.8.8) should be allowed"

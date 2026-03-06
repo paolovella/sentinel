@@ -81,10 +81,7 @@ impl LocalAuditManager {
     }
 
     /// Generate a Merkle inclusion proof for entry at the given index.
-    pub fn generate_proof(
-        &self,
-        index: u64,
-    ) -> Result<vellaveto_audit::MerkleProof, ShieldError> {
+    pub fn generate_proof(&self, index: u64) -> Result<vellaveto_audit::MerkleProof, ShieldError> {
         let merkle = self
             .merkle
             .as_ref()

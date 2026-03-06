@@ -149,10 +149,10 @@ pub use metering::MeteringConfig;
 pub use policy_lifecycle::PolicyLifecycleConfig;
 pub use policy_rule::PolicyRule;
 pub use projector::ProjectorConfig;
+pub use shield::{ShieldConfig, ShieldCustomPiiPattern};
 pub use tool_registry::ToolRegistryConfig;
 pub use topology::TopologyConfig;
 pub use transport::TransportConfig;
-pub use shield::{ShieldConfig, ShieldCustomPiiPattern};
 pub use zk_audit::ZkAuditConfig;
 
 use serde::{Deserialize, Serialize};

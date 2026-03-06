@@ -305,7 +305,10 @@ fn test_guard_upsert_server_into_empty() {
     };
     guard.upsert_server(decl).unwrap();
 
-    assert!(matches!(guard.check("tool_a"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("tool_a"),
+        TopologyVerdict::Known { .. }
+    ));
 }
 
 #[test]
@@ -314,10 +317,16 @@ fn test_guard_upsert_server_new_server() {
     guard.load(make_test_topology());
 
     // Existing tool should be known (ambiguous since both fs and git have read_file)
-    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("commit"),
+        TopologyVerdict::Known { .. }
+    ));
 
     // New server's tool should be unknown
-    assert!(matches!(guard.check("new_tool"), TopologyVerdict::Unknown { .. }));
+    assert!(matches!(
+        guard.check("new_tool"),
+        TopologyVerdict::Unknown { .. }
+    ));
 
     // Upsert a new server
     let decl = StaticServerDecl {
@@ -332,8 +341,14 @@ fn test_guard_upsert_server_new_server() {
     guard.upsert_server(decl).unwrap();
 
     // Both old and new tools should be known
-    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
-    assert!(matches!(guard.check("new_tool"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("commit"),
+        TopologyVerdict::Known { .. }
+    ));
+    assert!(matches!(
+        guard.check("new_tool"),
+        TopologyVerdict::Known { .. }
+    ));
 }
 
 #[test]
@@ -342,7 +357,10 @@ fn test_guard_upsert_server_replace_existing() {
     guard.load(make_test_topology());
 
     // Verify fs server has write_file (unique to fs)
-    assert!(matches!(guard.check("write_file"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("write_file"),
+        TopologyVerdict::Known { .. }
+    ));
 
     // Replace fs server with different tools
     let decl = StaticServerDecl {
@@ -357,10 +375,19 @@ fn test_guard_upsert_server_replace_existing() {
     guard.upsert_server(decl).unwrap();
 
     // Old fs tool should be gone, new one should be known
-    assert!(matches!(guard.check("write_file"), TopologyVerdict::Unknown { .. }));
-    assert!(matches!(guard.check("new_fs_tool"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("write_file"),
+        TopologyVerdict::Unknown { .. }
+    ));
+    assert!(matches!(
+        guard.check("new_fs_tool"),
+        TopologyVerdict::Known { .. }
+    ));
     // Git server preserved
-    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("commit"),
+        TopologyVerdict::Known { .. }
+    ));
 }
 
 #[test]
@@ -387,7 +414,16 @@ fn test_guard_upsert_server_preserves_other_servers() {
     assert_eq!(after.server_count(), before_count + 1);
 
     // All original tools still work
-    assert!(matches!(guard.check("write_file"), TopologyVerdict::Known { .. }));
-    assert!(matches!(guard.check("commit"), TopologyVerdict::Known { .. }));
-    assert!(matches!(guard.check("third_tool"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("write_file"),
+        TopologyVerdict::Known { .. }
+    ));
+    assert!(matches!(
+        guard.check("commit"),
+        TopologyVerdict::Known { .. }
+    ));
+    assert!(matches!(
+        guard.check("third_tool"),
+        TopologyVerdict::Known { .. }
+    ));
 }

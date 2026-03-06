@@ -93,12 +93,7 @@ impl ContextIsolator {
     /// Record a context entry for a session (e.g., a user message or assistant response).
     ///
     /// Text should already be PII-sanitized before calling this.
-    pub fn record(
-        &self,
-        session_id: &str,
-        role: &str,
-        text: &str,
-    ) -> Result<(), ShieldError> {
+    pub fn record(&self, session_id: &str, role: &str, text: &str) -> Result<(), ShieldError> {
         if text.len() > MAX_CONTEXT_ENTRY_LEN {
             return Err(ShieldError::Config(format!(
                 "context entry too large ({} bytes, max {})",
@@ -107,9 +102,10 @@ impl ContextIsolator {
             )));
         }
 
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("context lock poisoned: {e}"))
-        })?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("context lock poisoned: {e}")))?;
 
         // Create session if needed
         if !sessions.contains_key(session_id) {
@@ -167,9 +163,10 @@ impl ContextIsolator {
         session_id: &str,
         max_entries: usize,
     ) -> Result<Vec<(String, String)>, ShieldError> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("context lock poisoned: {e}"))
-        })?;
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("context lock poisoned: {e}")))?;
 
         let ctx = sessions.get(session_id).ok_or_else(|| {
             ShieldError::SessionIsolation(format!("unknown context session: {session_id}"))

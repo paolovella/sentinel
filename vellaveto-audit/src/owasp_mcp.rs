@@ -269,7 +269,8 @@ impl OwaspMcpRegistry {
                 id: "MCP01-C01".to_string(),
                 category: McpCategory::Mcp01,
                 name: "Server Identity Verification".to_string(),
-                description: "Verify MCP server identity via allowlist or registry lookup".to_string(),
+                description: "Verify MCP server identity via allowlist or registry lookup"
+                    .to_string(),
                 vellaveto_mitigations: vec![
                     "governance.require_server_registration".to_string(),
                     "SANDWORM-001 server allowlist enforcement".to_string(),
@@ -282,7 +283,7 @@ impl OwaspMcpRegistry {
                 name: "A2A Agent Card Signature".to_string(),
                 description: "Verify Ed25519 signatures on A2A Agent Cards".to_string(),
                 vellaveto_mitigations: vec![
-                    "a2a/signature.rs — Agent Card Ed25519 enforcement".to_string(),
+                    "a2a/signature.rs — Agent Card Ed25519 enforcement".to_string()
                 ],
             },
             // ── MCP02: Tool Poisoning ───────────────────────────────────────
@@ -290,7 +291,9 @@ impl OwaspMcpRegistry {
                 id: "MCP02-C01".to_string(),
                 category: McpCategory::Mcp02,
                 name: "Tool Description Injection Scanning".to_string(),
-                description: "Scan tool descriptions for injection patterns and cross-tool references".to_string(),
+                description:
+                    "Scan tool descriptions for injection patterns and cross-tool references"
+                        .to_string(),
                 vellaveto_mitigations: vec![
                     "inspection/tool_description.rs — FSP scanning".to_string(),
                     "R226 MCP-ITP cross-tool reference detection".to_string(),
@@ -300,7 +303,8 @@ impl OwaspMcpRegistry {
                 id: "MCP02-C02".to_string(),
                 category: McpCategory::Mcp02,
                 name: "Schema Poisoning Detection".to_string(),
-                description: "Detect malicious inputSchema fields including nested descriptions".to_string(),
+                description: "Detect malicious inputSchema fields including nested descriptions"
+                    .to_string(),
                 vellaveto_mitigations: vec![
                     "inspection/tool_description.rs — recursive schema scanning".to_string(),
                     "collect_schema_descriptions — allOf/anyOf/oneOf/patternProperties".to_string(),
@@ -310,9 +314,10 @@ impl OwaspMcpRegistry {
                 id: "MCP02-C03".to_string(),
                 category: McpCategory::Mcp02,
                 name: "Rug-Pull Detection".to_string(),
-                description: "Detect tool annotation and schema changes after initial registration".to_string(),
+                description: "Detect tool annotation and schema changes after initial registration"
+                    .to_string(),
                 vellaveto_mitigations: vec![
-                    "tool_registry.rs — supply chain hash comparison".to_string(),
+                    "tool_registry.rs — supply chain hash comparison".to_string()
                 ],
             },
             // ── MCP03: Excessive Permissions ────────────────────────────────
@@ -332,7 +337,7 @@ impl OwaspMcpRegistry {
                 name: "Capability Token Scoping".to_string(),
                 description: "Scoped capability tokens with delegation constraints".to_string(),
                 vellaveto_mitigations: vec![
-                    "capability_token.rs — delegation depth limits".to_string(),
+                    "capability_token.rs — delegation depth limits".to_string()
                 ],
             },
             // ── MCP04: Tool Shadowing ───────────────────────────────────────
@@ -352,7 +357,7 @@ impl OwaspMcpRegistry {
                 name: "Tool Squatting Detection".to_string(),
                 description: "Detect homoglyph and typosquat tool name attacks".to_string(),
                 vellaveto_mitigations: vec![
-                    "tool_registry.rs — NFKC + homoglyph comparison".to_string(),
+                    "tool_registry.rs — NFKC + homoglyph comparison".to_string()
                 ],
             },
             // ── MCP05: Indirect Prompt Injection ────────────────────────────
@@ -371,7 +376,8 @@ impl OwaspMcpRegistry {
                 id: "MCP05-C02".to_string(),
                 category: McpCategory::Mcp05,
                 name: "Memory Poisoning Detection".to_string(),
-                description: "Detect injection via conversation memory and tool output poisoning".to_string(),
+                description: "Detect injection via conversation memory and tool output poisoning"
+                    .to_string(),
                 vellaveto_mitigations: vec![
                     "proxy/bridge/relay.rs — memory poisoning fingerprint tracking".to_string(),
                 ],
@@ -383,14 +389,15 @@ impl OwaspMcpRegistry {
                 name: "DLP Parameter Scanning".to_string(),
                 description: "Scan tool parameters and responses for leaked secrets".to_string(),
                 vellaveto_mitigations: vec![
-                    "inspection/dlp.rs — 5-layer decode pipeline".to_string(),
+                    "inspection/dlp.rs — 5-layer decode pipeline".to_string()
                 ],
             },
             McpControl {
                 id: "MCP06-C02".to_string(),
                 category: McpCategory::Mcp06,
                 name: "URL Exfiltration Detection".to_string(),
-                description: "Detect data encoded in outbound URL query strings and paths".to_string(),
+                description: "Detect data encoded in outbound URL query strings and paths"
+                    .to_string(),
                 vellaveto_mitigations: vec![
                     "R226 detect_url_data_exfiltration — Shannon entropy analysis".to_string(),
                 ],
@@ -400,7 +407,8 @@ impl OwaspMcpRegistry {
                 id: "MCP07-C01".to_string(),
                 category: McpCategory::Mcp07,
                 name: "Secret Redaction in Logs".to_string(),
-                description: "Redact API keys and credentials from audit logs and error messages".to_string(),
+                description: "Redact API keys and credentials from audit logs and error messages"
+                    .to_string(),
                 vellaveto_mitigations: vec![
                     "PII redaction in audit entries".to_string(),
                     "Custom Debug impls redacting secrets".to_string(),
@@ -410,7 +418,8 @@ impl OwaspMcpRegistry {
                 id: "MCP07-C02".to_string(),
                 category: McpCategory::Mcp07,
                 name: "NHI Ephemeral Credentials".to_string(),
-                description: "Non-human identity lifecycle with ephemeral credential rotation".to_string(),
+                description: "Non-human identity lifecycle with ephemeral credential rotation"
+                    .to_string(),
                 vellaveto_mitigations: vec![
                     "nhi.rs — ephemeral credential issuance and rotation enforcement".to_string(),
                 ],
@@ -441,7 +450,8 @@ impl OwaspMcpRegistry {
                 id: "MCP09-C02".to_string(),
                 category: McpCategory::Mcp09,
                 name: "OCSF/CEF Export".to_string(),
-                description: "Export audit events in standardized formats for SIEM integration".to_string(),
+                description: "Export audit events in standardized formats for SIEM integration"
+                    .to_string(),
                 vellaveto_mitigations: vec![
                     "export/ocsf.rs — OCSF format".to_string(),
                     "CEF, JSONL, webhook, syslog export".to_string(),
@@ -453,17 +463,16 @@ impl OwaspMcpRegistry {
                 category: McpCategory::Mcp10,
                 name: "Rate Limiting".to_string(),
                 description: "Per-IP, per-principal, and per-agent rate limiting".to_string(),
-                vellaveto_mitigations: vec![
-                    "Rate limiting middleware on all endpoints".to_string(),
-                ],
+                vellaveto_mitigations: vec!["Rate limiting middleware on all endpoints".to_string()],
             },
             McpControl {
                 id: "MCP10-C02".to_string(),
                 category: McpCategory::Mcp10,
                 name: "Circuit Breaker".to_string(),
-                description: "Cascading failure circuit breakers for downstream dependencies".to_string(),
+                description: "Cascading failure circuit breakers for downstream dependencies"
+                    .to_string(),
                 vellaveto_mitigations: vec![
-                    "engine/cascading.rs — circuit breaker state machine".to_string(),
+                    "engine/cascading.rs — circuit breaker state machine".to_string()
                 ],
             },
         ];
@@ -490,7 +499,10 @@ mod tests {
     #[test]
     fn test_registry_creates_successfully() {
         let registry = OwaspMcpRegistry::new();
-        assert!(!registry.controls().is_empty(), "Registry must have controls");
+        assert!(
+            !registry.controls().is_empty(),
+            "Registry must have controls"
+        );
     }
 
     #[test]
@@ -561,23 +573,13 @@ mod tests {
         let mut unique = ids.clone();
         unique.sort();
         unique.dedup();
-        assert_eq!(
-            ids.len(),
-            unique.len(),
-            "Control IDs must be unique"
-        );
+        assert_eq!(ids.len(), unique.len(), "Control IDs must be unique");
     }
 
     #[test]
     fn test_category_display() {
-        assert_eq!(
-            McpCategory::Mcp01.to_string(),
-            "MCP01: Server Spoofing"
-        );
-        assert_eq!(
-            McpCategory::Mcp10.to_string(),
-            "MCP10: Resource Exhaustion"
-        );
+        assert_eq!(McpCategory::Mcp01.to_string(), "MCP01: Server Spoofing");
+        assert_eq!(McpCategory::Mcp10.to_string(), "MCP10: Resource Exhaustion");
     }
 
     #[test]

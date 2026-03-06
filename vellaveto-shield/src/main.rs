@@ -110,10 +110,7 @@ async fn main() -> Result<()> {
         let enc_path = config_dir.join("shield-audit.enc");
         let store = vellaveto_mcp_shield::EncryptedAuditStore::new(enc_path, &passphrase)
             .context("Failed to initialize encrypted audit store")?;
-        let manager = vellaveto_mcp_shield::LocalAuditManager::new(
-            audit_path.clone(),
-            store,
-        );
+        let manager = vellaveto_mcp_shield::LocalAuditManager::new(audit_path.clone(), store);
         let manager = if policy_config.shield.merkle_proofs {
             manager.with_merkle()
         } else {
@@ -124,8 +121,7 @@ async fn main() -> Result<()> {
     }
 
     // Set up shield sanitizer
-    let shield_sanitizer = if policy_config.shield.enabled
-        && policy_config.shield.sanitize_queries
+    let shield_sanitizer = if policy_config.shield.enabled && policy_config.shield.sanitize_queries
     {
         let custom_patterns: Vec<vellaveto_audit::CustomPiiPattern> = policy_config
             .shield
@@ -148,8 +144,8 @@ async fn main() -> Result<()> {
     if let Some(canary_path) = &cli.canary {
         let canary_json = std::fs::read_to_string(canary_path)
             .context(format!("Failed to read canary file: {}", canary_path))?;
-        let canary: vellaveto_canary::WarrantCanary = serde_json::from_str(&canary_json)
-            .context("Failed to parse canary JSON")?;
+        let canary: vellaveto_canary::WarrantCanary =
+            serde_json::from_str(&canary_json).context("Failed to parse canary JSON")?;
         match vellaveto_canary::verify_canary(&canary) {
             Ok(verification) => {
                 if !verification.signature_valid {
@@ -342,9 +338,8 @@ async fn main() -> Result<()> {
         && !passphrase.is_empty()
     {
         let vault_path = config_dir.join("shield-credentials.enc");
-        let vault_store =
-            vellaveto_mcp_shield::EncryptedAuditStore::new(vault_path, &passphrase)
-                .context("Failed to initialize credential vault")?;
+        let vault_store = vellaveto_mcp_shield::EncryptedAuditStore::new(vault_path, &passphrase)
+            .context("Failed to initialize credential vault")?;
         let vault = vellaveto_mcp_shield::CredentialVault::new(
             vault_store,
             policy_config.shield.credential_pool_size,

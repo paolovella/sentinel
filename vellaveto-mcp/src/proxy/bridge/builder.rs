@@ -311,10 +311,7 @@ impl ProxyBridge {
     /// When set, tools from `tools/list` responses are automatically indexed
     /// for later discovery/search queries via natural language.
     #[cfg(feature = "discovery")]
-    pub fn with_discovery_engine(
-        mut self,
-        engine: Arc<crate::discovery::DiscoveryEngine>,
-    ) -> Self {
+    pub fn with_discovery_engine(mut self, engine: Arc<crate::discovery::DiscoveryEngine>) -> Self {
         self.discovery_engine = Some(engine);
         self
     }

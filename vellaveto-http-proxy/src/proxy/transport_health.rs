@@ -522,11 +522,11 @@ impl TransportHealthTracker {
     }
 }
 
-/// Thread-local mock clock for deterministic tests.
-///
-/// Each test thread gets its own independent clock, so parallel tests
-/// don't interfere. Use `MockTimeGuard::new(start)` to activate and
-/// `advance_mock_time(secs)` to advance. The guard clears the mock on drop.
+// Thread-local mock clock for deterministic tests.
+//
+// Each test thread gets its own independent clock, so parallel tests
+// don't interfere. Use `MockTimeGuard::new(start)` to activate and
+// `advance_mock_time(secs)` to advance. The guard clears the mock on drop.
 #[cfg(test)]
 thread_local! {
     static MOCK_NOW: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
@@ -535,7 +535,9 @@ thread_local! {
 #[cfg(test)]
 fn advance_mock_time(secs: u64) {
     MOCK_NOW.with(|c| {
-        let current = c.get().expect("advance_mock_time called without MockTimeGuard");
+        let current = c
+            .get()
+            .expect("advance_mock_time called without MockTimeGuard");
         c.set(Some(current + secs));
     });
 }

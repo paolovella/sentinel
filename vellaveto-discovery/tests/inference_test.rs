@@ -265,6 +265,9 @@ fn test_infer_edges_recomputes_fingerprint() {
     // Fingerprint should change if any edges were added
     if graph.edge_count() > 4 {
         // More than just Owns
-        assert_ne!(fp_before, fp_after, "Fingerprint should change after adding edges");
+        assert_ne!(
+            fp_before, fp_after,
+            "Fingerprint should change after adding edges"
+        );
     }
 }

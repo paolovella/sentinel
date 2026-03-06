@@ -40,7 +40,10 @@ fn make_server(name: &str, tools: Vec<(&str, &str)>) -> StaticServerDecl {
 async fn test_probe_crawl_guard_pipeline() {
     // 1. Create a static probe with two servers
     let probe = Arc::new(StaticProbe::new(vec![
-        make_server("fs", vec![("read_file", "Read a file"), ("write_file", "Write a file")]),
+        make_server(
+            "fs",
+            vec![("read_file", "Read a file"), ("write_file", "Write a file")],
+        ),
         make_server("web", vec![("fetch_url", "Fetch a URL")]),
     ]));
 
@@ -60,18 +63,26 @@ async fn test_probe_crawl_guard_pipeline() {
     guard.update(result.topology);
 
     // 5. Verify lookups
-    assert!(matches!(guard.check("read_file"), TopologyVerdict::Known { server, .. } if server == "fs"));
-    assert!(matches!(guard.check("fetch_url"), TopologyVerdict::Known { server, .. } if server == "web"));
-    assert!(matches!(guard.check("nonexistent"), TopologyVerdict::Unknown { .. }));
+    assert!(
+        matches!(guard.check("read_file"), TopologyVerdict::Known { server, .. } if server == "fs")
+    );
+    assert!(
+        matches!(guard.check("fetch_url"), TopologyVerdict::Known { server, .. } if server == "web")
+    );
+    assert!(matches!(
+        guard.check("nonexistent"),
+        TopologyVerdict::Unknown { .. }
+    ));
 }
 
 /// Incremental update: upsert a server via the guard after initial crawl.
 #[tokio::test]
 async fn test_incremental_upsert_after_crawl() {
     // Initial crawl
-    let probe = Arc::new(StaticProbe::new(vec![
-        make_server("fs", vec![("read_file", "Read a file")]),
-    ]));
+    let probe = Arc::new(StaticProbe::new(vec![make_server(
+        "fs",
+        vec![("read_file", "Read a file")],
+    )]));
     let crawler = TopologyCrawler::new(
         Arc::clone(&probe) as Arc<dyn McpServerProbe>,
         CrawlConfig::default(),
@@ -82,24 +93,37 @@ async fn test_incremental_upsert_after_crawl() {
     guard.update(result.topology);
 
     // Verify initial state
-    assert!(matches!(guard.check("read_file"), TopologyVerdict::Known { .. }));
-    assert!(matches!(guard.check("new_tool"), TopologyVerdict::Unknown { .. }));
+    assert!(matches!(
+        guard.check("read_file"),
+        TopologyVerdict::Known { .. }
+    ));
+    assert!(matches!(
+        guard.check("new_tool"),
+        TopologyVerdict::Unknown { .. }
+    ));
 
     // Upsert a new server (simulating relay intercept)
     let decl = make_server("relay_server", vec![("new_tool", "A new tool")]);
     guard.upsert_server(decl).unwrap();
 
     // Both old and new tools should be known
-    assert!(matches!(guard.check("read_file"), TopologyVerdict::Known { .. }));
-    assert!(matches!(guard.check("new_tool"), TopologyVerdict::Known { .. }));
+    assert!(matches!(
+        guard.check("read_file"),
+        TopologyVerdict::Known { .. }
+    ));
+    assert!(matches!(
+        guard.check("new_tool"),
+        TopologyVerdict::Known { .. }
+    ));
 }
 
 /// Verify that StaticProbe updates are reflected in subsequent crawls.
 #[tokio::test]
 async fn test_probe_upsert_affects_next_crawl() {
-    let probe = Arc::new(StaticProbe::new(vec![
-        make_server("initial", vec![("tool_a", "Tool A")]),
-    ]));
+    let probe = Arc::new(StaticProbe::new(vec![make_server(
+        "initial",
+        vec![("tool_a", "Tool A")],
+    )]));
 
     // First crawl
     let crawler = TopologyCrawler::new(
@@ -145,9 +169,10 @@ async fn test_to_static_preserves_graph_content() {
 /// Guard check returns Known for qualified and unqualified names after crawl.
 #[tokio::test]
 async fn test_guard_check_qualified_and_unqualified() {
-    let probe = Arc::new(StaticProbe::new(vec![
-        make_server("server_a", vec![("unique_tool", "A unique tool")]),
-    ]));
+    let probe = Arc::new(StaticProbe::new(vec![make_server(
+        "server_a",
+        vec![("unique_tool", "A unique tool")],
+    )]));
     let crawler = TopologyCrawler::new(
         Arc::clone(&probe) as Arc<dyn McpServerProbe>,
         CrawlConfig::default(),

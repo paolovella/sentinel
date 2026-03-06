@@ -166,11 +166,7 @@ impl InferenceEngine {
         let index = graph.name_index().clone();
         for (source, target, to_param, confidence, reason) in edges_to_add {
             if let (Some(&src_idx), Some(&tgt_idx)) = (index.get(&source), index.get(&target)) {
-                let from_field = source
-                    .split("::")
-                    .last()
-                    .unwrap_or(&source)
-                    .to_string();
+                let from_field = source.split("::").last().unwrap_or(&source).to_string();
                 graph.graph_mut().add_edge(
                     src_idx,
                     tgt_idx,
@@ -296,10 +292,12 @@ impl InferenceEngine {
     ) -> f32 {
         // If source description mentions returning arrays/strings/objects
         // and target expects compatible types
-        let source_returns_strings = source
-            .description_tokens
-            .iter()
-            .any(|t| matches!(t.as_str(), "returns" | "path" | "paths" | "file" | "url" | "name"));
+        let source_returns_strings = source.description_tokens.iter().any(|t| {
+            matches!(
+                t.as_str(),
+                "returns" | "path" | "paths" | "file" | "url" | "name"
+            )
+        });
 
         let target_needs_strings = target
             .param_types
@@ -383,14 +381,14 @@ fn extract_param_types(schema: &serde_json::Value) -> Vec<String> {
 /// Tokenize a description into lowercase words, filtering stopwords.
 fn tokenize(text: &str) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
-        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has",
-        "had", "do", "does", "did", "will", "would", "shall", "should", "may", "might", "can",
-        "could", "must", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into",
-        "through", "during", "before", "after", "above", "below", "between", "and", "but", "or",
-        "nor", "not", "so", "yet", "both", "either", "neither", "each", "every", "all", "any",
-        "few", "more", "most", "other", "some", "such", "no", "only", "own", "same", "than",
-        "too", "very", "just", "because", "if", "when", "where", "how", "what", "which", "who",
-        "whom", "this", "that", "these", "those", "it", "its",
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+        "do", "does", "did", "will", "would", "shall", "should", "may", "might", "can", "could",
+        "must", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+        "during", "before", "after", "above", "below", "between", "and", "but", "or", "nor", "not",
+        "so", "yet", "both", "either", "neither", "each", "every", "all", "any", "few", "more",
+        "most", "other", "some", "such", "no", "only", "own", "same", "than", "too", "very",
+        "just", "because", "if", "when", "where", "how", "what", "which", "who", "whom", "this",
+        "that", "these", "those", "it", "its",
     ];
 
     text.to_lowercase()

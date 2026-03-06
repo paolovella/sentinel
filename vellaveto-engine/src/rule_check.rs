@@ -65,7 +65,10 @@ impl PolicyEngine {
                     // R230-ENG-4: Log pattern server-side; do not expose to clients
                     tracing::debug!(path = %normalized, pattern = %pattern, policy = %cp.policy.name, "Path blocked by pattern");
                     return Some(Verdict::Deny {
-                        reason: format!("Path '{}' blocked by policy '{}'", normalized, cp.policy.name),
+                        reason: format!(
+                            "Path '{}' blocked by policy '{}'",
+                            normalized, cp.policy.name
+                        ),
                     });
                 }
             }
@@ -136,7 +139,10 @@ impl PolicyEngine {
                 if Self::match_domain_pattern(&domain, pattern) {
                     tracing::debug!(domain = %domain, pattern = %pattern, policy = %cp.policy.name, "Domain blocked by pattern");
                     return Some(Verdict::Deny {
-                        reason: format!("Domain '{}' blocked by policy '{}'", domain, cp.policy.name),
+                        reason: format!(
+                            "Domain '{}' blocked by policy '{}'",
+                            domain, cp.policy.name
+                        ),
                     });
                 }
             }
@@ -222,7 +228,10 @@ impl PolicyEngine {
                 if cidr.contains(&ip) {
                     tracing::debug!(ip = %ip, cidr = %cidr, policy = %cp.policy.name, "IP in blocked CIDR");
                     return Some(Verdict::Deny {
-                        reason: format!("Resolved IP '{}' in blocked CIDR for policy '{}'", ip, cp.policy.name),
+                        reason: format!(
+                            "Resolved IP '{}' in blocked CIDR for policy '{}'",
+                            ip, cp.policy.name
+                        ),
                     });
                 }
             }

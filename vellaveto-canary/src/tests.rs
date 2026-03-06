@@ -23,12 +23,8 @@ fn other_signing_key() -> String {
 #[test]
 fn test_create_verify_roundtrip() {
     let key = test_signing_key();
-    let canary = create_canary(
-        "No government surveillance orders received.",
-        90,
-        &key,
-    )
-    .expect("create should succeed");
+    let canary = create_canary("No government surveillance orders received.", 90, &key)
+        .expect("create should succeed");
 
     assert_eq!(canary.version, CANARY_VERSION);
     assert!(!canary.signature.is_empty());
@@ -42,8 +38,7 @@ fn test_create_verify_roundtrip() {
 #[test]
 fn test_expired_canary_detected() {
     let key = test_signing_key();
-    let mut canary = create_canary("Test statement.", 90, &key)
-        .expect("create should succeed");
+    let mut canary = create_canary("Test statement.", 90, &key).expect("create should succeed");
 
     // Manually set expires_date to the past
     canary.expires_date = "2020-01-01".to_string();
@@ -51,7 +46,12 @@ fn test_expired_canary_detected() {
     let key_bytes = hex::decode(&key).unwrap();
     let key_array: [u8; 32] = key_bytes.try_into().unwrap();
     let signing_key = SigningKey::from_bytes(&key_array);
-    let payload = canonical_payload(canary.version, &canary.signed_date, &canary.expires_date, &canary.statement);
+    let payload = canonical_payload(
+        canary.version,
+        &canary.signed_date,
+        &canary.expires_date,
+        &canary.statement,
+    );
     let sig = signing_key.sign(&payload);
     canary.signature = hex::encode(sig.to_bytes());
 
@@ -64,13 +64,15 @@ fn test_expired_canary_detected() {
 #[test]
 fn test_tampered_statement_rejected() {
     let key = test_signing_key();
-    let mut canary = create_canary("Original statement.", 90, &key)
-        .expect("create should succeed");
+    let mut canary = create_canary("Original statement.", 90, &key).expect("create should succeed");
 
     canary.statement = "Tampered statement.".to_string();
 
     let verification = verify_canary(&canary).expect("verify should succeed");
-    assert!(!verification.signature_valid, "tampered canary should fail verification");
+    assert!(
+        !verification.signature_valid,
+        "tampered canary should fail verification"
+    );
 }
 
 #[test]
@@ -78,18 +80,20 @@ fn test_wrong_key_rejected() {
     let key = test_signing_key();
     let other_key = other_signing_key();
 
-    let canary = create_canary("Test statement.", 90, &key)
-        .expect("create should succeed");
+    let canary = create_canary("Test statement.", 90, &key).expect("create should succeed");
 
     // Create a new canary with a different key and swap the verifying key
-    let other_canary = create_canary("Test statement.", 90, &other_key)
-        .expect("create should succeed");
+    let other_canary =
+        create_canary("Test statement.", 90, &other_key).expect("create should succeed");
 
     let mut tampered = canary.clone();
     tampered.verifying_key = other_canary.verifying_key;
 
     let verification = verify_canary(&tampered).expect("verify should succeed");
-    assert!(!verification.signature_valid, "wrong key should fail verification");
+    assert!(
+        !verification.signature_valid,
+        "wrong key should fail verification"
+    );
 }
 
 #[test]

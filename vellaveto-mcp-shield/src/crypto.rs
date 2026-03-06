@@ -62,8 +62,13 @@ impl EncryptedAuditStore {
 
     /// Derive a 32-byte key from passphrase and salt via Argon2id.
     fn derive_key(passphrase: &str, salt: &[u8; SALT_LEN]) -> Result<[u8; 32], ShieldError> {
-        let params = argon2::Params::new(ARGON2_MEM_COST, ARGON2_TIME_COST, ARGON2_PARALLELISM, Some(32))
-            .map_err(|e| ShieldError::KeyDerivation(format!("argon2 params: {e}")))?;
+        let params = argon2::Params::new(
+            ARGON2_MEM_COST,
+            ARGON2_TIME_COST,
+            ARGON2_PARALLELISM,
+            Some(32),
+        )
+        .map_err(|e| ShieldError::KeyDerivation(format!("argon2 params: {e}")))?;
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let mut output = [0u8; 32];
         argon2
@@ -76,7 +81,9 @@ impl EncryptedAuditStore {
     fn read_salt(path: &PathBuf) -> Result<[u8; SALT_LEN], ShieldError> {
         let data = std::fs::read(path).map_err(ShieldError::Io)?;
         if data.len() < 1 + SALT_LEN {
-            return Err(ShieldError::Decryption("file too short for header".to_string()));
+            return Err(ShieldError::Decryption(
+                "file too short for header".to_string(),
+            ));
         }
         if data[0] != FORMAT_VERSION {
             return Err(ShieldError::Decryption(format!(
@@ -110,7 +117,9 @@ impl EncryptedAuditStore {
     /// Decrypt a ciphertext entry (nonce || ciphertext || tag).
     pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, ShieldError> {
         if data.len() < NONCE_LEN {
-            return Err(ShieldError::Decryption("data too short for nonce".to_string()));
+            return Err(ShieldError::Decryption(
+                "data too short for nonce".to_string(),
+            ));
         }
         let cipher = XChaCha20Poly1305::new((&self.key).into());
         let nonce = XNonce::from_slice(&data[..NONCE_LEN]);

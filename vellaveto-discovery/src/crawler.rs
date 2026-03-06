@@ -176,36 +176,34 @@ impl TopologyCrawler {
             let timeout = self.config.server_timeout;
             let sem = Arc::clone(&semaphore);
 
-            let handle: tokio::task::JoinHandle<Result<ServerCrawlResult, (String, DiscoveryError)>> =
-                tokio::spawn(async move {
-                    let _permit = sem.acquire().await.map_err(|_| {
-                        (
-                            server_info.id.clone(),
-                            DiscoveryError::ServerError {
-                                server: server_info.id.clone(),
-                                reason: "Semaphore closed".to_string(),
-                            },
-                        )
-                    })?;
-
-                    let result = tokio::time::timeout(
-                        timeout,
-                        crawl_single_server(&probe, &server_info),
+            let handle: tokio::task::JoinHandle<
+                Result<ServerCrawlResult, (String, DiscoveryError)>,
+            > = tokio::spawn(async move {
+                let _permit = sem.acquire().await.map_err(|_| {
+                    (
+                        server_info.id.clone(),
+                        DiscoveryError::ServerError {
+                            server: server_info.id.clone(),
+                            reason: "Semaphore closed".to_string(),
+                        },
                     )
-                    .await;
+                })?;
 
-                    match result {
-                        Ok(Ok(server_result)) => Ok(server_result),
-                        Ok(Err(e)) => Err((server_info.id.clone(), e)),
-                        Err(_) => Err((
-                            server_info.id.clone(),
-                            DiscoveryError::ServerTimeout {
-                                server: server_info.id,
-                                timeout_ms: timeout.as_millis() as u64,
-                            },
-                        )),
-                    }
-                });
+                let result =
+                    tokio::time::timeout(timeout, crawl_single_server(&probe, &server_info)).await;
+
+                match result {
+                    Ok(Ok(server_result)) => Ok(server_result),
+                    Ok(Err(e)) => Err((server_info.id.clone(), e)),
+                    Err(_) => Err((
+                        server_info.id.clone(),
+                        DiscoveryError::ServerTimeout {
+                            server: server_info.id,
+                            timeout_ms: timeout.as_millis() as u64,
+                        },
+                    )),
+                }
+            });
             handles.push(handle);
         }
 
@@ -250,10 +248,7 @@ impl TopologyCrawler {
     }
 
     /// Crawl a single server (for targeted re-crawl after failure).
-    pub async fn crawl_server(
-        &self,
-        server_id: &str,
-    ) -> Result<ServerCrawlResult, DiscoveryError> {
+    pub async fn crawl_server(&self, server_id: &str) -> Result<ServerCrawlResult, DiscoveryError> {
         let start = Instant::now();
 
         let servers = self.probe.list_servers().await?;
@@ -405,9 +400,10 @@ impl StaticProbe {
 #[async_trait]
 impl McpServerProbe for StaticProbe {
     async fn list_servers(&self) -> Result<Vec<ServerInfo>, DiscoveryError> {
-        let servers = self.servers.read().map_err(|_| {
-            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
-        })?;
+        let servers = self
+            .servers
+            .read()
+            .map_err(|_| DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string()))?;
         Ok(servers
             .iter()
             .map(|s| ServerInfo {
@@ -419,9 +415,10 @@ impl McpServerProbe for StaticProbe {
     }
 
     async fn list_tools(&self, server_id: &str) -> Result<Vec<ToolInfo>, DiscoveryError> {
-        let servers = self.servers.read().map_err(|_| {
-            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
-        })?;
+        let servers = self
+            .servers
+            .read()
+            .map_err(|_| DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string()))?;
         let server = servers
             .iter()
             .find(|s| s.name == server_id)
@@ -438,9 +435,10 @@ impl McpServerProbe for StaticProbe {
     }
 
     async fn list_resources(&self, server_id: &str) -> Result<Vec<ResourceInfo>, DiscoveryError> {
-        let servers = self.servers.read().map_err(|_| {
-            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
-        })?;
+        let servers = self
+            .servers
+            .read()
+            .map_err(|_| DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string()))?;
         let server = servers
             .iter()
             .find(|s| s.name == server_id)
@@ -460,9 +458,10 @@ impl McpServerProbe for StaticProbe {
         &self,
         server_id: &str,
     ) -> Result<ServerCapabilities, DiscoveryError> {
-        let servers = self.servers.read().map_err(|_| {
-            DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string())
-        })?;
+        let servers = self
+            .servers
+            .read()
+            .map_err(|_| DiscoveryError::GraphError("StaticProbe RwLock poisoned".to_string()))?;
         let server = servers
             .iter()
             .find(|s| s.name == server_id)

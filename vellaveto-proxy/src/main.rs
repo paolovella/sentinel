@@ -85,10 +85,9 @@ async fn main() -> Result<()> {
     let audit = Arc::new(AuditLogger::new(audit_path.clone()));
 
     // SECURITY (R230-PROXY-1): Fail-closed — refuse to start with broken audit chain.
-    audit
-        .initialize_chain()
-        .await
-        .context("Failed to initialize audit chain — refusing to start with potentially tampered audit log")?;
+    audit.initialize_chain().await.context(
+        "Failed to initialize audit chain — refusing to start with potentially tampered audit log",
+    )?;
     tracing::info!("Audit log: {}", audit_path.display());
 
     // Verify child binary integrity before spawn (supply chain protection)

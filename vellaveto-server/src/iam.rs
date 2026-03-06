@@ -13,10 +13,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use base64::{
-    engine::general_purpose::URL_SAFE_NO_PAD,
-    Engine,
-};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
@@ -133,7 +130,9 @@ impl SamlState {
             .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?;
         let content_length = response.content_length().unwrap_or(0);
         if content_length > MAX_SAML_METADATA_SIZE {
-            return Err(IamError::Saml("SAML metadata response too large".to_string()));
+            return Err(IamError::Saml(
+                "SAML metadata response too large".to_string(),
+            ));
         }
         let body_bytes = response
             .bytes()
@@ -307,9 +306,7 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "Conditions")))
             .ok_or_else(|| {
-                IamError::Saml(
-                    "SAML Conditions element missing (fail-closed)".to_string(),
-                )
+                IamError::Saml("SAML Conditions element missing (fail-closed)".to_string())
             })?;
         let now = Utc::now();
         if let Some(not_before) = conditions.attribute("NotBefore") {
@@ -364,9 +361,7 @@ impl SamlState {
             .descendants()
             .find(|node| node.has_tag_name((SAML_ASSERTION_NS, "SubjectConfirmation")))
             .ok_or_else(|| {
-                IamError::Saml(
-                    "SAML SubjectConfirmation element missing (fail-closed)".to_string(),
-                )
+                IamError::Saml("SAML SubjectConfirmation element missing (fail-closed)".to_string())
             })?;
         // Require bearer method.
         let method = confirmation.attribute("Method").unwrap_or("");
@@ -589,7 +584,9 @@ impl IamState {
                 if s.len() < MIN_M2M_JWT_SECRET_LEN {
                     return Err(IamError::M2mTokenGeneration(format!(
                         "{} must be at least {} bytes, got {}",
-                        M2M_JWT_SECRET_ENV, MIN_M2M_JWT_SECRET_LEN, s.len()
+                        M2M_JWT_SECRET_ENV,
+                        MIN_M2M_JWT_SECRET_LEN,
+                        s.len()
                     )));
                 }
             }
@@ -873,7 +870,11 @@ impl IamState {
         response.json::<JwkSet>().await
     }
 
-    pub fn create_session(&self, claims: RoleClaims, scopes: Vec<String>) -> Result<IamSession, IamError> {
+    pub fn create_session(
+        &self,
+        claims: RoleClaims,
+        scopes: Vec<String>,
+    ) -> Result<IamSession, IamError> {
         let role = claims.effective_role().unwrap_or(Role::Viewer);
         let now = Instant::now();
         let session = IamSession {
@@ -892,7 +893,9 @@ impl IamState {
                 max = Self::MAX_SESSIONS,
                 "Session capacity reached, rejecting new session creation"
             );
-            return Err(IamError::Session("Session capacity reached — try again later".to_string()));
+            return Err(IamError::Session(
+                "Session capacity reached — try again later".to_string(),
+            ));
         }
         self.sessions.insert(session.id.clone(), session.clone());
         self.trim_sessions_for_subject(session.subject.as_deref());
@@ -1923,9 +1926,7 @@ fn map_digest_algorithm(uri: &str) -> Result<&'static digest::Algorithm, IamErro
         "http://www.w3.org/2001/04/xmlenc#sha256" => Ok(&digest::SHA256),
         "http://www.w3.org/2001/04/xmlenc#sha384" => Ok(&digest::SHA384),
         "http://www.w3.org/2001/04/xmlenc#sha512" => Ok(&digest::SHA512),
-        _ => Err(IamError::Saml(
-            "Unsupported digest algorithm".to_string(),
-        )),
+        _ => Err(IamError::Saml("Unsupported digest algorithm".to_string())),
     }
 }
 
@@ -1994,8 +1995,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
     }
     // SECURITY (R229-SRV-3): Bound decompression via take() to prevent decompression bombs.
     let mut buffer = String::new();
-    let mut zlib_decoder = ZlibDecoder::new(Cursor::new(decoded.clone()))
-        .take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut zlib_decoder =
+        ZlibDecoder::new(Cursor::new(decoded.clone())).take(MAX_SAML_DECOMPRESSED_SIZE);
     if zlib_decoder.read_to_string(&mut buffer).is_ok() {
         if buffer.len() as u64 >= MAX_SAML_DECOMPRESSED_SIZE {
             return Err(IamError::Saml(
@@ -2005,8 +2006,8 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
         return Ok(buffer);
     }
     buffer.clear();
-    let mut deflate_decoder = DeflateDecoder::new(Cursor::new(decoded))
-        .take(MAX_SAML_DECOMPRESSED_SIZE);
+    let mut deflate_decoder =
+        DeflateDecoder::new(Cursor::new(decoded)).take(MAX_SAML_DECOMPRESSED_SIZE);
     deflate_decoder
         .read_to_string(&mut buffer)
         .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {}", e)))?;
@@ -2385,6 +2386,189 @@ pub fn build_step_up_response(
     )
 }
 
+fn resolve_scim_token(config: &ScimConfig) -> Result<String, IamError> {
+    if let Some(token) = &config.bearer_token {
+        return Ok(token.clone());
+    }
+    if let Some(env_var) = &config.bearer_token_env {
+        return env::var(env_var).map_err(|e| {
+            IamError::Scim(format!(
+                "Failed to read iam.scim.bearer_token_env '{}': {}",
+                env_var, e
+            ))
+        });
+    }
+    Err(IamError::Scim(
+        "iam.scim.bearer_token or iam.scim.bearer_token_env is required".to_string(),
+    ))
+}
+
+fn spawn_scim_sync(
+    client: Client,
+    endpoint: String,
+    token: String,
+    interval_secs: u64,
+    status: Arc<RwLock<ScimStatus>>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let period = Duration::from_secs(interval_secs);
+        loop {
+            let sync_start = Instant::now();
+            let now = Utc::now();
+            let sync_result = fetch_scim_user_count(&client, &endpoint, &token).await;
+            let duration_ms = sync_start.elapsed().as_millis();
+            match &sync_result {
+                Ok(count) => info!(
+                    target: "iam",
+                    endpoint = endpoint.as_str(),
+                    count = count,
+                    "SCIM sync recorded users"
+                ),
+                Err(err) => warn!(
+                    target: "iam",
+                    endpoint = endpoint.as_str(),
+                    err = err,
+                    "SCIM sync failed"
+                ),
+            }
+            {
+                let mut guard = status.write().await;
+                guard.last_sync = Some(now);
+                guard.last_sync_duration_ms = Some(duration_ms);
+                match sync_result {
+                    Ok(count) => {
+                        guard.last_user_count = Some(count);
+                        guard.last_error = None;
+                    }
+                    Err(err) => {
+                        guard.last_error = Some(err);
+                    }
+                }
+            }
+            sleep(period).await;
+        }
+    })
+}
+
+async fn fetch_scim_user_count(
+    client: &Client,
+    endpoint: &str,
+    token: &str,
+) -> Result<usize, String> {
+    // SECURITY (R231-SRV-5): Bound SCIM response size and add timeout
+    // to prevent memory exhaustion from a malicious SCIM endpoint.
+    const MAX_SCIM_RESPONSE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+    let response = client
+        .get(endpoint)
+        .header(reqwest_header::AUTHORIZATION, format!("Bearer {}", token))
+        .header(
+            reqwest_header::ACCEPT,
+            "application/scim+json, application/json",
+        )
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("SCIM request failed: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("SCIM endpoint error: {}", e))?;
+    let content_length = response.content_length().unwrap_or(0);
+    if content_length > MAX_SCIM_RESPONSE_SIZE {
+        return Err(format!(
+            "SCIM response too large: {} bytes (max {})",
+            content_length, MAX_SCIM_RESPONSE_SIZE
+        ));
+    }
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| format!("SCIM response read failed: {}", e))?;
+    if body.len() as u64 > MAX_SCIM_RESPONSE_SIZE {
+        return Err(format!(
+            "SCIM response body too large: {} bytes (max {})",
+            body.len(),
+            MAX_SCIM_RESPONSE_SIZE
+        ));
+    }
+    let payload: Value =
+        serde_json::from_slice(&body).map_err(|e| format!("SCIM response decode failed: {}", e))?;
+    Ok(extract_scim_user_count(&payload))
+}
+
+fn extract_scim_user_count(payload: &Value) -> usize {
+    payload
+        .get("totalResults")
+        .and_then(value_to_usize)
+        .or_else(|| payload.get("total").and_then(value_to_usize))
+        .or_else(|| {
+            payload
+                .get("Resources")
+                .and_then(|value| value.as_array().map(|arr| arr.len()))
+        })
+        .or_else(|| {
+            payload
+                .get("resources")
+                .and_then(|value| value.as_array().map(|arr| arr.len()))
+        })
+        .unwrap_or_default()
+}
+
+fn value_to_usize(value: &Value) -> Option<usize> {
+    value.as_u64().map(|num| num as usize).or_else(|| {
+        value
+            .as_str()
+            .and_then(|text| text.parse::<u64>().ok())
+            .map(|num| num as usize)
+    })
+}
+
+fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<DecodingKey> {
+    for key in &jwks.keys {
+        if !kid.is_empty() {
+            match &key.common.key_id {
+                Some(key_kid) if key_kid == kid => {}
+                _ => continue,
+            }
+        }
+        // R230-SRV-2: Require alg field in JWKS keys (RFC 8725 §3.1).
+        // Previously, keys without `alg` matched ANY requested algorithm,
+        // enabling algorithm confusion attacks (e.g., RSA key used with HS256).
+        // Fail-closed: keys without explicit alg are skipped.
+        match &key.common.key_algorithm {
+            Some(key_alg) => {
+                if key_algorithm_to_algorithm(key_alg).as_ref() != Some(alg) {
+                    continue;
+                }
+            }
+            None => {
+                // No alg specified → skip this key (fail-closed)
+                continue;
+            }
+        }
+        if let Ok(decoding_key) = DecodingKey::from_jwk(key) {
+            return Some(decoding_key);
+        }
+    }
+    None
+}
+
+fn key_algorithm_to_algorithm(ka: &KeyAlgorithm) -> Option<Algorithm> {
+    match ka {
+        KeyAlgorithm::HS256 => Some(Algorithm::HS256),
+        KeyAlgorithm::HS384 => Some(Algorithm::HS384),
+        KeyAlgorithm::HS512 => Some(Algorithm::HS512),
+        KeyAlgorithm::ES256 => Some(Algorithm::ES256),
+        KeyAlgorithm::ES384 => Some(Algorithm::ES384),
+        KeyAlgorithm::RS256 => Some(Algorithm::RS256),
+        KeyAlgorithm::RS384 => Some(Algorithm::RS384),
+        KeyAlgorithm::RS512 => Some(Algorithm::RS512),
+        KeyAlgorithm::PS256 => Some(Algorithm::PS256),
+        KeyAlgorithm::PS384 => Some(Algorithm::PS384),
+        KeyAlgorithm::PS512 => Some(Algorithm::PS512),
+        KeyAlgorithm::EdDSA => Some(Algorithm::EdDSA),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2515,11 +2699,17 @@ mod tests {
         let padded = STANDARD.encode(b"test cert data");
         assert!(decode_base64(&padded, "test").is_ok());
         let unpadded = padded.trim_end_matches('=').to_string();
-        assert!(decode_base64(&unpadded, "test").is_ok(), "Should accept unpadded base64");
+        assert!(
+            decode_base64(&unpadded, "test").is_ok(),
+            "Should accept unpadded base64"
+        );
         let payload = "<Response>test</Response>";
         let encoded = STANDARD.encode(payload);
         let unpadded_resp = encoded.trim_end_matches('=').to_string();
-        assert!(decode_saml_response(&unpadded_resp).is_ok(), "Should accept unpadded SAML response");
+        assert!(
+            decode_saml_response(&unpadded_resp).is_ok(),
+            "Should accept unpadded SAML response"
+        );
     }
 
     #[test]
@@ -2604,7 +2794,6 @@ mod tests {
             .replace("{acs}", &saml_state.acs_url)
             .replace("{role_attr}", &saml_state.role_attribute)
             .replace("{role_value}", TEST_ROLE_VALUE)
-            .replace("{signed_info}", "{signed_info}")
             .replace("{signature}", SIGNATURE_PLACEHOLDER);
         let assertion_for_digest = assertion_template
             .replace("{signed_info}", SIGNED_INFO_TEMPLATE)
@@ -2709,7 +2898,9 @@ mod tests {
         config.oidc.enabled = true;
         config.session.idle_timeout_secs = 1;
         let iam = IamState::new_for_test(config);
-        let session = iam.create_session(role_claims("alice", "admin"), vec![]).unwrap();
+        let session = iam
+            .create_session(role_claims("alice", "admin"), vec![])
+            .unwrap();
         {
             let mut entry = iam.sessions.get_mut(&session.id).unwrap();
             entry.last_activity = StdInstant::now() - StdDuration::from_secs(2);
@@ -2723,9 +2914,15 @@ mod tests {
         config.oidc.enabled = true;
         config.session.max_sessions_per_principal = 2;
         let iam = IamState::new_for_test(config);
-        let s1 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
-        let s2 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
-        let s3 = iam.create_session(role_claims("bob", "operator"), vec![]).unwrap();
+        let s1 = iam
+            .create_session(role_claims("bob", "operator"), vec![])
+            .unwrap();
+        let s2 = iam
+            .create_session(role_claims("bob", "operator"), vec![])
+            .unwrap();
+        let s3 = iam
+            .create_session(role_claims("bob", "operator"), vec![])
+            .unwrap();
         assert!(iam.find_session(&s1.id).is_none());
         assert!(iam.find_session(&s2.id).is_some());
         assert!(iam.find_session(&s3.id).is_some());
@@ -3025,7 +3222,7 @@ mod tests {
 
     #[test]
     fn test_r230_find_key_in_jwks_requires_alg() {
-        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        use jsonwebtoken::jwk::{AlgorithmParameters, CommonParameters, Jwk, RSAKeyParameters};
         // Key WITHOUT alg field should NOT match any algorithm
         let key_no_alg = Jwk {
             common: CommonParameters {
@@ -3044,15 +3241,22 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet { keys: vec![key_no_alg] };
+        let jwks = JwkSet {
+            keys: vec![key_no_alg],
+        };
         // Should return None because key has no alg (R230-SRV-2 fail-closed)
         let result = find_key_in_jwks(&jwks, "kid-1", &Algorithm::RS256);
-        assert!(result.is_none(), "Key without alg must not match (algorithm confusion prevention)");
+        assert!(
+            result.is_none(),
+            "Key without alg must not match (algorithm confusion prevention)"
+        );
     }
 
     #[test]
     fn test_r230_find_key_in_jwks_matching_alg_works() {
-        use jsonwebtoken::jwk::{Jwk, CommonParameters, KeyAlgorithm, AlgorithmParameters, RSAKeyParameters};
+        use jsonwebtoken::jwk::{
+            AlgorithmParameters, CommonParameters, Jwk, KeyAlgorithm, RSAKeyParameters,
+        };
         let key_with_alg = Jwk {
             common: CommonParameters {
                 public_key_use: None,
@@ -3070,7 +3274,9 @@ mod tests {
                 e: "AQAB".to_string(),
             }),
         };
-        let jwks = JwkSet { keys: vec![key_with_alg] };
+        let jwks = JwkSet {
+            keys: vec![key_with_alg],
+        };
         // Wrong algorithm should not match
         let result = find_key_in_jwks(&jwks, "kid-2", &Algorithm::ES256);
         assert!(result.is_none(), "Mismatched alg must not match");
@@ -3160,188 +3366,5 @@ mod tests {
         assert_eq!(token_data.claims.scope, "evaluate");
         assert_eq!(token_data.claims.iss, "vellaveto");
         assert!(!token_data.claims.jti.is_empty());
-    }
-}
-
-fn resolve_scim_token(config: &ScimConfig) -> Result<String, IamError> {
-    if let Some(token) = &config.bearer_token {
-        return Ok(token.clone());
-    }
-    if let Some(env_var) = &config.bearer_token_env {
-        return env::var(env_var).map_err(|e| {
-            IamError::Scim(format!(
-                "Failed to read iam.scim.bearer_token_env '{}': {}",
-                env_var, e
-            ))
-        });
-    }
-    Err(IamError::Scim(
-        "iam.scim.bearer_token or iam.scim.bearer_token_env is required".to_string(),
-    ))
-}
-
-fn spawn_scim_sync(
-    client: Client,
-    endpoint: String,
-    token: String,
-    interval_secs: u64,
-    status: Arc<RwLock<ScimStatus>>,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let period = Duration::from_secs(interval_secs);
-        loop {
-            let sync_start = Instant::now();
-            let now = Utc::now();
-            let sync_result = fetch_scim_user_count(&client, &endpoint, &token).await;
-            let duration_ms = sync_start.elapsed().as_millis();
-            match &sync_result {
-                Ok(count) => info!(
-                    target: "iam",
-                    endpoint = endpoint.as_str(),
-                    count = count,
-                    "SCIM sync recorded users"
-                ),
-                Err(err) => warn!(
-                    target: "iam",
-                    endpoint = endpoint.as_str(),
-                    err = err,
-                    "SCIM sync failed"
-                ),
-            }
-            {
-                let mut guard = status.write().await;
-                guard.last_sync = Some(now);
-                guard.last_sync_duration_ms = Some(duration_ms);
-                match sync_result {
-                    Ok(count) => {
-                        guard.last_user_count = Some(count);
-                        guard.last_error = None;
-                    }
-                    Err(err) => {
-                        guard.last_error = Some(err);
-                    }
-                }
-            }
-            sleep(period).await;
-        }
-    })
-}
-
-async fn fetch_scim_user_count(
-    client: &Client,
-    endpoint: &str,
-    token: &str,
-) -> Result<usize, String> {
-    // SECURITY (R231-SRV-5): Bound SCIM response size and add timeout
-    // to prevent memory exhaustion from a malicious SCIM endpoint.
-    const MAX_SCIM_RESPONSE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
-    let response = client
-        .get(endpoint)
-        .header(reqwest_header::AUTHORIZATION, format!("Bearer {}", token))
-        .header(
-            reqwest_header::ACCEPT,
-            "application/scim+json, application/json",
-        )
-        .timeout(Duration::from_secs(30))
-        .send()
-        .await
-        .map_err(|e| format!("SCIM request failed: {}", e))?
-        .error_for_status()
-        .map_err(|e| format!("SCIM endpoint error: {}", e))?;
-    let content_length = response.content_length().unwrap_or(0);
-    if content_length > MAX_SCIM_RESPONSE_SIZE {
-        return Err(format!(
-            "SCIM response too large: {} bytes (max {})",
-            content_length, MAX_SCIM_RESPONSE_SIZE
-        ));
-    }
-    let body = response
-        .bytes()
-        .await
-        .map_err(|e| format!("SCIM response read failed: {}", e))?;
-    if body.len() as u64 > MAX_SCIM_RESPONSE_SIZE {
-        return Err(format!(
-            "SCIM response body too large: {} bytes (max {})",
-            body.len(),
-            MAX_SCIM_RESPONSE_SIZE
-        ));
-    }
-    let payload: Value = serde_json::from_slice(&body)
-        .map_err(|e| format!("SCIM response decode failed: {}", e))?;
-    Ok(extract_scim_user_count(&payload))
-}
-
-fn extract_scim_user_count(payload: &Value) -> usize {
-    payload
-        .get("totalResults")
-        .and_then(value_to_usize)
-        .or_else(|| payload.get("total").and_then(value_to_usize))
-        .or_else(|| {
-            payload
-                .get("Resources")
-                .and_then(|value| value.as_array().map(|arr| arr.len()))
-        })
-        .or_else(|| {
-            payload
-                .get("resources")
-                .and_then(|value| value.as_array().map(|arr| arr.len()))
-        })
-        .unwrap_or_default()
-}
-
-fn value_to_usize(value: &Value) -> Option<usize> {
-    value.as_u64().map(|num| num as usize).or_else(|| {
-        value
-            .as_str()
-            .and_then(|text| text.parse::<u64>().ok())
-            .map(|num| num as usize)
-    })
-}
-
-fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<DecodingKey> {
-    for key in &jwks.keys {
-        if !kid.is_empty() {
-            match &key.common.key_id {
-                Some(key_kid) if key_kid == kid => {}
-                _ => continue,
-            }
-        }
-        // R230-SRV-2: Require alg field in JWKS keys (RFC 8725 §3.1).
-        // Previously, keys without `alg` matched ANY requested algorithm,
-        // enabling algorithm confusion attacks (e.g., RSA key used with HS256).
-        // Fail-closed: keys without explicit alg are skipped.
-        match &key.common.key_algorithm {
-            Some(key_alg) => {
-                if key_algorithm_to_algorithm(key_alg).as_ref() != Some(alg) {
-                    continue;
-                }
-            }
-            None => {
-                // No alg specified → skip this key (fail-closed)
-                continue;
-            }
-        }
-        if let Ok(decoding_key) = DecodingKey::from_jwk(key) {
-            return Some(decoding_key);
-        }
-    }
-    None
-}
-
-fn key_algorithm_to_algorithm(ka: &KeyAlgorithm) -> Option<Algorithm> {
-    match ka {
-        KeyAlgorithm::HS256 => Some(Algorithm::HS256),
-        KeyAlgorithm::HS384 => Some(Algorithm::HS384),
-        KeyAlgorithm::HS512 => Some(Algorithm::HS512),
-        KeyAlgorithm::ES256 => Some(Algorithm::ES256),
-        KeyAlgorithm::ES384 => Some(Algorithm::ES384),
-        KeyAlgorithm::RS256 => Some(Algorithm::RS256),
-        KeyAlgorithm::RS384 => Some(Algorithm::RS384),
-        KeyAlgorithm::RS512 => Some(Algorithm::RS512),
-        KeyAlgorithm::PS256 => Some(Algorithm::PS256),
-        KeyAlgorithm::PS384 => Some(Algorithm::PS384),
-        KeyAlgorithm::PS512 => Some(Algorithm::PS512),
-        KeyAlgorithm::EdDSA => Some(Algorithm::EdDSA),
-        _ => None,
     }
 }

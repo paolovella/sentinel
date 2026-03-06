@@ -72,19 +72,17 @@ impl SessionUnlinker {
     ///
     /// Returns the blind credential to present to the provider.
     /// Fail-closed: if no credentials are available, the session cannot start.
-    pub fn start_session(
-        &self,
-        session_id: &str,
-    ) -> Result<BlindCredential, ShieldError> {
+    pub fn start_session(&self, session_id: &str) -> Result<BlindCredential, ShieldError> {
         if vellaveto_types::has_dangerous_chars(session_id) {
             return Err(ShieldError::SessionIsolation(
                 "session_id contains dangerous characters".to_string(),
             ));
         }
 
-        let mut bindings = self.bindings.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}"))
-        })?;
+        let mut bindings = self
+            .bindings
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}")))?;
 
         if bindings.contains_key(session_id) {
             return Err(ShieldError::SessionIsolation(format!(
@@ -125,13 +123,11 @@ impl SessionUnlinker {
     }
 
     /// End a session, marking its credential as consumed in the vault.
-    pub fn end_session(
-        &self,
-        session_id: &str,
-    ) -> Result<(), ShieldError> {
-        let mut bindings = self.bindings.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}"))
-        })?;
+    pub fn end_session(&self, session_id: &str) -> Result<(), ShieldError> {
+        let mut bindings = self
+            .bindings
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}")))?;
 
         let binding = bindings.remove(session_id).ok_or_else(|| {
             ShieldError::SessionIsolation(format!("unknown session: {session_id}"))
@@ -144,13 +140,11 @@ impl SessionUnlinker {
     ///
     /// Used when the session needs to re-present its credential
     /// (e.g., after a transport reconnection).
-    pub fn get_session_credential(
-        &self,
-        session_id: &str,
-    ) -> Result<BlindCredential, ShieldError> {
-        let bindings = self.bindings.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}"))
-        })?;
+    pub fn get_session_credential(&self, session_id: &str) -> Result<BlindCredential, ShieldError> {
+        let bindings = self
+            .bindings
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}")))?;
 
         let binding = bindings.get(session_id).ok_or_else(|| {
             ShieldError::SessionIsolation(format!("unknown session: {session_id}"))
@@ -160,13 +154,11 @@ impl SessionUnlinker {
     }
 
     /// Get the binding metadata for an active session (for local audit).
-    pub fn get_binding(
-        &self,
-        session_id: &str,
-    ) -> Result<SessionCredentialBinding, ShieldError> {
-        let bindings = self.bindings.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}"))
-        })?;
+    pub fn get_binding(&self, session_id: &str) -> Result<SessionCredentialBinding, ShieldError> {
+        let bindings = self
+            .bindings
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("bindings lock poisoned: {e}")))?;
 
         let binding = bindings.get(session_id).ok_or_else(|| {
             ShieldError::SessionIsolation(format!("unknown session: {session_id}"))

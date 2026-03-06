@@ -1509,7 +1509,10 @@ mod tests {
             "y": "test"
         });
         let result = compute_jwk_thumbprint(&jwk);
-        assert!(result.is_err(), "JSON injection in JWK x should be rejected");
+        assert!(
+            result.is_err(),
+            "JSON injection in JWK x should be rejected"
+        );
     }
 
     #[test]

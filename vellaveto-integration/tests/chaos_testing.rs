@@ -356,7 +356,7 @@ fn test_concurrent_policy_compilation_no_panic() {
                     let policies: Vec<Policy> = (0..policies_per_thread)
                         .map(|i| {
                             let id = format!("t{}_tool_{}:*", t, i);
-                            let priority = (policies_per_thread as i32) - (i as i32);
+                            let priority = policies_per_thread - i;
                             if i % 2 == 0 {
                                 allow_policy(&id, priority)
                             } else {

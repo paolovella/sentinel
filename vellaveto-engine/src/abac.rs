@@ -12,8 +12,8 @@
 use crate::matcher::PatternMatcher;
 use std::collections::{HashMap, HashSet};
 use vellaveto_types::{
-    is_unicode_format_char, AbacEffect, AbacEntity, AbacOp,
-    AbacPolicy, Action, EvaluationContext, RiskScore,
+    is_unicode_format_char, AbacEffect, AbacEntity, AbacOp, AbacPolicy, Action, EvaluationContext,
+    RiskScore,
 };
 
 /// A compiled path matcher that uses `globset::Glob` for patterns containing

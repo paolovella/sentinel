@@ -300,7 +300,10 @@ impl RelayState {
             .or_default();
 
         // Prune expired entries
-        while entry.front().is_some_and(|&t| now.duration_since(t) > window) {
+        while entry
+            .front()
+            .is_some_and(|&t| now.duration_since(t) > window)
+        {
             entry.pop_front();
         }
 
@@ -1221,7 +1224,10 @@ impl ProxyBridge {
                     match sanitizer.sanitize_json(&msg) {
                         Ok(sanitized) => sanitized,
                         Err(e) => {
-                            tracing::error!("Shield sanitize FAILED (fail-closed): {} — blocking request", e);
+                            tracing::error!(
+                                "Shield sanitize FAILED (fail-closed): {} — blocking request",
+                                e
+                            );
                             let error_response = make_denial_response(
                                 &id,
                                 "Shield PII sanitization failed — request blocked to prevent data leakage",
@@ -1243,7 +1249,10 @@ impl ProxyBridge {
                     match normalizer.normalize_json(&msg) {
                         Ok(normalized) => normalized,
                         Err(e) => {
-                            tracing::warn!("Shield stylometric normalize failed: {} — forwarding sanitized", e);
+                            tracing::warn!(
+                                "Shield stylometric normalize failed: {} — forwarding sanitized",
+                                e
+                            );
                             msg
                         }
                     }
@@ -1259,7 +1268,10 @@ impl ProxyBridge {
                     if unlinker_guard.get_session_credential(&session_id).is_err() {
                         match unlinker_guard.start_session(&session_id) {
                             Ok(_credential) => {
-                                tracing::debug!("Shield session started with fresh credential: {}", session_id);
+                                tracing::debug!(
+                                    "Shield session started with fresh credential: {}",
+                                    session_id
+                                );
                             }
                             Err(e) => {
                                 tracing::warn!("Shield session start failed: {} — continuing without credential", e);
@@ -1434,19 +1446,18 @@ impl ProxyBridge {
         // Parity with handle_tool_call (line 869).
         if !self.injection_disabled {
             let synthetic_msg = json!({"method": "resources/read", "params": {"uri": &uri}});
-            let injection_matches: Vec<String> =
-                if let Some(ref scanner) = self.injection_scanner {
-                    scanner
-                        .scan_notification(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                } else {
-                    scan_notification_for_injection(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                };
+            let injection_matches: Vec<String> = if let Some(ref scanner) = self.injection_scanner {
+                scanner
+                    .scan_notification(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                scan_notification_for_injection(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
             if !injection_matches.is_empty() {
                 let safe_uri = vellaveto_types::sanitize_for_log(&uri, 512);
                 tracing::warn!(
@@ -1585,10 +1596,7 @@ impl ProxyBridge {
             crate::elicitation::SamplingVerdict::Allow => {
                 // R227: Per-tool sampling rate limit check.
                 // Attribute sampling to the most recently dispatched tool.
-                let tool_name = state
-                    .current_tool_name()
-                    .unwrap_or("unknown")
-                    .to_string();
+                let tool_name = state.current_tool_name().unwrap_or("unknown").to_string();
                 if let Err(reason) = state.check_per_tool_sampling_limit(
                     &tool_name,
                     self.sampling_config.max_per_tool,
@@ -1628,10 +1636,7 @@ impl ProxyBridge {
                         .iter()
                         .map(|f| format!("{} at {}", f.pattern_name, f.location))
                         .collect();
-                    tracing::warn!(
-                        "SECURITY: DLP alert in sampling request: {:?}",
-                        patterns
-                    );
+                    tracing::warn!("SECURITY: DLP alert in sampling request: {:?}", patterns);
                     let dlp_action = vellaveto_types::Action::new(
                         "vellaveto",
                         "sampling_dlp_blocked",
@@ -1810,10 +1815,7 @@ impl ProxyBridge {
                         .iter()
                         .map(|f| format!("{} at {}", f.pattern_name, f.location))
                         .collect();
-                    tracing::warn!(
-                        "SECURITY: DLP alert in elicitation request: {:?}",
-                        patterns
-                    );
+                    tracing::warn!("SECURITY: DLP alert in elicitation request: {:?}", patterns);
                     let dlp_action = vellaveto_types::Action::new(
                         "vellaveto",
                         "elicitation_dlp_blocked",
@@ -2033,19 +2035,18 @@ impl ProxyBridge {
                 "method": task_method,
                 "params": task_params,
             });
-            let injection_matches: Vec<String> =
-                if let Some(ref scanner) = self.injection_scanner {
-                    scanner
-                        .scan_notification(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                } else {
-                    scan_notification_for_injection(&synthetic_msg)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                };
+            let injection_matches: Vec<String> = if let Some(ref scanner) = self.injection_scanner {
+                scanner
+                    .scan_notification(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                scan_notification_for_injection(&synthetic_msg)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
             if !injection_matches.is_empty() {
                 let task_action = extract_task_action(&task_method, task_id.as_deref());
                 tracing::warn!(
@@ -2604,10 +2605,7 @@ impl ProxyBridge {
                             )
                             .await
                         {
-                            tracing::warn!(
-                                "Failed to audit extension injection finding: {}",
-                                e
-                            );
+                            tracing::warn!("Failed to audit extension injection finding: {}", e);
                         }
                         if self.injection_blocking {
                             let response = make_denial_response(
@@ -3436,7 +3434,8 @@ impl ProxyBridge {
                             .and_then(|n| n.as_str())
                         {
                             const MAX_SERVER_NAME_LEN: usize = 128;
-                            let safe_name = vellaveto_types::sanitize_for_log(name, MAX_SERVER_NAME_LEN);
+                            let safe_name =
+                                vellaveto_types::sanitize_for_log(name, MAX_SERVER_NAME_LEN);
                             state.server_name = Some(safe_name);
                         }
 
@@ -4080,10 +4079,7 @@ impl ProxyBridge {
         // to avoid indexing tools that were flagged by earlier phases.
         #[cfg(feature = "discovery")]
         if let Some(ref discovery_engine) = self.discovery_engine {
-            let server_id = state
-                .server_name
-                .as_deref()
-                .unwrap_or("stdio");
+            let server_id = state.server_name.as_deref().unwrap_or("stdio");
             if let Some(result_value) = msg.get("result") {
                 match discovery_engine.ingest_tools_list(server_id, result_value) {
                     Ok(count) => {
@@ -4110,10 +4106,7 @@ impl ProxyBridge {
         #[cfg(feature = "discovery")]
         if let Some(ref topology_guard) = self.topology_guard {
             if let Some(result_value) = msg.get("result") {
-                let server_id = state
-                    .server_name
-                    .as_deref()
-                    .unwrap_or("stdio");
+                let server_id = state.server_name.as_deref().unwrap_or("stdio");
                 match build_server_decl_from_tools_list(server_id, result_value) {
                     Ok(decl) => {
                         if let Err(e) = topology_guard.upsert_server(decl) {
@@ -4271,15 +4264,16 @@ fn build_server_decl_from_tools_list(
             .unwrap_or("")
             .to_string();
         // R230-DISC-2: Truncate oversized descriptions
-        let description = if description.len() > vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN {
-            tracing::warn!(tool = %name, "Truncating oversized tool description");
-            description
-                .chars()
-                .take(vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN)
-                .collect()
-        } else {
-            description
-        };
+        let description =
+            if description.len() > vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN {
+                tracing::warn!(tool = %name, "Truncating oversized tool description");
+                description
+                    .chars()
+                    .take(vellaveto_discovery::topology::MAX_TOOL_DESCRIPTION_LEN)
+                    .collect()
+            } else {
+                description
+            };
         let input_schema = tool_value
             .get("inputSchema")
             .cloned()

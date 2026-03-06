@@ -121,8 +121,10 @@ pub fn to_cef(entry: &AuditEntry) -> String {
     let ts = &entry.timestamp;
     let has_tz = ts.ends_with('Z')
         || ts.ends_with('z')
-        || ts.len() >= 6 && (ts.as_bytes()[ts.len() - 6] == b'+' || ts.as_bytes()[ts.len() - 6] == b'-')
-        || ts.len() >= 5 && (ts.as_bytes()[ts.len() - 5] == b'+' || ts.as_bytes()[ts.len() - 5] == b'-');
+        || ts.len() >= 6
+            && (ts.as_bytes()[ts.len() - 6] == b'+' || ts.as_bytes()[ts.len() - 6] == b'-')
+        || ts.len() >= 5
+            && (ts.as_bytes()[ts.len() - 5] == b'+' || ts.as_bytes()[ts.len() - 5] == b'-');
     let ts_with_tz = if has_tz {
         ts.clone()
     } else {

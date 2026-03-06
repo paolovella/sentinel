@@ -727,7 +727,9 @@ pub fn endpoint_permission(method: &axum::http::Method, path: &str) -> Option<Pe
 
         // Discovery endpoints
         (&Method::GET, p) if p.starts_with("/api/discovery/") => Some(Permission::ToolRegistryRead),
-        (&Method::POST, p) if p.starts_with("/api/discovery/") => Some(Permission::ToolRegistryWrite),
+        (&Method::POST, p) if p.starts_with("/api/discovery/") => {
+            Some(Permission::ToolRegistryWrite)
+        }
 
         // Default: require admin for unknown endpoints (fail-closed)
         _ => Some(Permission::ConfigReload),

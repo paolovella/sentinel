@@ -593,8 +593,15 @@ mod tests {
 
         // SECURITY (R231-AUD-3): Sequence is now always included (including 0),
         // so unmapped should contain exactly {"sequence": 0}.
-        let obj = event.unmapped.as_object().expect("unmapped should be object");
-        assert_eq!(obj.len(), 1, "unmapped should contain only 'sequence' when defaults");
+        let obj = event
+            .unmapped
+            .as_object()
+            .expect("unmapped should be object");
+        assert_eq!(
+            obj.len(),
+            1,
+            "unmapped should contain only 'sequence' when defaults"
+        );
         assert_eq!(obj.get("sequence").and_then(|v| v.as_u64()), Some(0));
     }
 

@@ -4897,8 +4897,8 @@ async fn test_pqc_ed25519_error_message_format() {
     let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
     let mut cp: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
     let sig = cp["signature"].as_str().unwrap().to_string();
-    let tampered_sig = if sig.starts_with('a') {
-        format!("b{}", &sig[1..])
+    let tampered_sig = if let Some(rest) = sig.strip_prefix('a') {
+        format!("b{rest}")
     } else {
         format!("a{}", &sig[1..])
     };
@@ -4943,8 +4943,8 @@ async fn test_pqc_rotation_manifest_ed25519_error_message() {
         if let Some(first_line) = content.lines().next() {
             let mut entry: serde_json::Value = serde_json::from_str(first_line).unwrap();
             if let Some(sig) = entry.get("signature").and_then(|v| v.as_str()) {
-                let tampered_sig = if sig.starts_with('a') {
-                    format!("b{}", &sig[1..])
+                let tampered_sig = if let Some(rest) = sig.strip_prefix('a') {
+                    format!("b{rest}")
                 } else {
                     format!("a{}", &sig[1..])
                 };
@@ -4985,21 +4985,26 @@ async fn test_r227_verify_chain_rejects_non_utc_timestamp() {
 
     // Read the valid entry and create a tampered one with non-UTC timestamp
     let content = tokio::fs::read_to_string(&log_path).await.unwrap();
-    let mut entry: serde_json::Value = serde_json::from_str(content.lines().next().unwrap()).unwrap();
+    let mut entry: serde_json::Value =
+        serde_json::from_str(content.lines().next().unwrap()).unwrap();
     // Change timestamp to use +05:30 offset instead of Z
     entry["timestamp"] = serde_json::Value::String("2026-02-27T10:00:00+05:30".to_string());
     // Clear hash chain so we test timestamp validation
     entry.as_object_mut().unwrap().remove("entry_hash");
     entry.as_object_mut().unwrap().remove("prev_hash");
 
-    let tampered = format!("{}\n{}\n",
+    let tampered = format!(
+        "{}\n{}\n",
         content.lines().next().unwrap(),
         serde_json::to_string(&entry).unwrap()
     );
     tokio::fs::write(&log_path, tampered).await.unwrap();
 
     let verification = logger.verify_chain().await.unwrap();
-    assert!(!verification.valid, "Non-UTC timestamp should fail verification");
+    assert!(
+        !verification.valid,
+        "Non-UTC timestamp should fail verification"
+    );
     assert_eq!(verification.first_broken_at, Some(1));
 }
 
@@ -5019,7 +5024,10 @@ async fn test_r227_verify_chain_accepts_utc_timestamp() {
     }
 
     let verification = logger.verify_chain().await.unwrap();
-    assert!(verification.valid, "UTC timestamps should pass verification");
+    assert!(
+        verification.valid,
+        "UTC timestamps should pass verification"
+    );
     assert_eq!(verification.entries_checked, 3);
 }
 
@@ -5110,4 +5118,3 @@ async fn test_r228_verify_chain_mixed_suffix_regression_detected() {
         "Timestamp regression with mixed Z/+00:00 suffixes must be detected"
     );
 }
-

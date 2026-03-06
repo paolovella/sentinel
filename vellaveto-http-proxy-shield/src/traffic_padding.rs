@@ -234,16 +234,20 @@ mod tests {
 
     #[test]
     fn test_config_validate_empty_buckets() {
-        let mut config = TrafficPaddingConfig::default();
-        config.size_buckets = Vec::new();
+        let config = TrafficPaddingConfig {
+            size_buckets: Vec::new(),
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_config_validate_jitter_inverted() {
-        let mut config = TrafficPaddingConfig::default();
-        config.jitter_min_ms = 500;
-        config.jitter_max_ms = 100;
+        let config = TrafficPaddingConfig {
+            jitter_min_ms: 500,
+            jitter_max_ms: 100,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 

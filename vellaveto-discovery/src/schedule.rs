@@ -252,7 +252,10 @@ impl RecrawlScheduler {
                 Ok(diff)
             }
             Err(err) => {
-                let failures = self.consecutive_failures.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+                let failures = self
+                    .consecutive_failures
+                    .fetch_add(1, Ordering::Relaxed)
+                    .saturating_add(1);
 
                 self.emit_audit(TopologyAuditEvent::CrawlFailed {
                     error: err.to_string(),

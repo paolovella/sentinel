@@ -56,9 +56,8 @@ impl CredentialVault {
         let mut max_epoch: u64 = 0;
 
         for raw in raw_entries.iter().take(MAX_VAULT_ENTRIES) {
-            let entry: StoredVaultEntry = serde_json::from_slice(raw).map_err(|e| {
-                ShieldError::Decryption(format!("vault entry deserialize: {e}"))
-            })?;
+            let entry: StoredVaultEntry = serde_json::from_slice(raw)
+                .map_err(|e| ShieldError::Decryption(format!("vault entry deserialize: {e}")))?;
             max_epoch = max_epoch.max(entry.credential.issued_epoch);
             entries.push(VaultEntry {
                 credential: entry.credential,
@@ -79,9 +78,10 @@ impl CredentialVault {
     pub fn add_credential(&self, credential: BlindCredential) -> Result<(), ShieldError> {
         credential.validate().map_err(ShieldError::Config)?;
 
-        let mut entries = self.entries.lock().map_err(|e| {
-            ShieldError::Encryption(format!("vault lock poisoned: {e}"))
-        })?;
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("vault lock poisoned: {e}")))?;
 
         if entries.len() >= MAX_VAULT_ENTRIES {
             return Err(ShieldError::Config(format!(
@@ -103,13 +103,13 @@ impl CredentialVault {
         };
 
         // Persist to encrypted store
-        let serialized = serde_json::to_vec(&stored).map_err(|e| {
-            ShieldError::Encryption(format!("vault entry serialize: {e}"))
-        })?;
+        let serialized = serde_json::to_vec(&stored)
+            .map_err(|e| ShieldError::Encryption(format!("vault entry serialize: {e}")))?;
 
-        let store = self.store.lock().map_err(|e| {
-            ShieldError::Encryption(format!("store lock poisoned: {e}"))
-        })?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("store lock poisoned: {e}")))?;
         store.write_encrypted_entry(&serialized)?;
 
         entries.push(VaultEntry {
@@ -126,17 +126,16 @@ impl CredentialVault {
     /// marked as Active. Returns an error if no credentials are available
     /// (fail-closed: no credential = no session).
     pub fn consume_credential(&self) -> Result<(BlindCredential, usize), ShieldError> {
-        let mut entries = self.entries.lock().map_err(|e| {
-            ShieldError::Encryption(format!("vault lock poisoned: {e}"))
-        })?;
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("vault lock poisoned: {e}")))?;
 
         let idx = entries
             .iter()
             .position(|e| e.status == CredentialStatus::Available)
             .ok_or_else(|| {
-                ShieldError::Config(
-                    "no available credentials in vault (fail-closed)".to_string(),
-                )
+                ShieldError::Config("no available credentials in vault (fail-closed)".to_string())
             })?;
 
         entries[idx].status = CredentialStatus::Active;
@@ -145,9 +144,10 @@ impl CredentialVault {
 
     /// Mark a credential as consumed (session ended normally).
     pub fn mark_consumed(&self, index: usize) -> Result<(), ShieldError> {
-        let mut entries = self.entries.lock().map_err(|e| {
-            ShieldError::Encryption(format!("vault lock poisoned: {e}"))
-        })?;
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("vault lock poisoned: {e}")))?;
 
         if index >= entries.len() {
             return Err(ShieldError::Config(format!(
@@ -163,9 +163,10 @@ impl CredentialVault {
 
     /// Expire credentials from epochs older than the given epoch.
     pub fn expire_old_epochs(&self, current_epoch: u64) -> Result<usize, ShieldError> {
-        let mut entries = self.entries.lock().map_err(|e| {
-            ShieldError::Encryption(format!("vault lock poisoned: {e}"))
-        })?;
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("vault lock poisoned: {e}")))?;
 
         let mut expired_count = 0usize;
         for entry in entries.iter_mut() {
@@ -217,11 +218,7 @@ impl CredentialVault {
             .filter(|e| e.status == CredentialStatus::Consumed)
             .count();
 
-        let current_epoch = self
-            .current_epoch
-            .lock()
-            .map(|e| *e)
-            .unwrap_or(0);
+        let current_epoch = self.current_epoch.lock().map(|e| *e).unwrap_or(0);
 
         CredentialVaultStatus {
             total: entries.len(),
@@ -237,7 +234,11 @@ impl CredentialVault {
     pub fn available_count(&self) -> usize {
         self.entries
             .lock()
-            .map(|e| e.iter().filter(|v| v.status == CredentialStatus::Available).count())
+            .map(|e| {
+                e.iter()
+                    .filter(|v| v.status == CredentialStatus::Available)
+                    .count()
+            })
             .unwrap_or(0)
     }
 

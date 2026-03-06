@@ -212,11 +212,7 @@ impl Default for TopologyGuard {
 
 impl std::fmt::Debug for TopologyGuard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let loaded = self
-            .topology
-            .read()
-            .map(|g| g.is_some())
-            .unwrap_or(false);
+        let loaded = self.topology.read().map(|g| g.is_some()).unwrap_or(false);
         f.debug_struct("TopologyGuard")
             .field("loaded", &loaded)
             .finish()

@@ -278,10 +278,9 @@ impl DeputyValidator {
                     .iter()
                     .filter(|t| {
                         let norm_t = crate::normalize::normalize_full(&t.to_ascii_lowercase());
-                        parent
-                            .allowed_tools
-                            .iter()
-                            .any(|p| crate::normalize::normalize_full(&p.to_ascii_lowercase()) == norm_t)
+                        parent.allowed_tools.iter().any(|p| {
+                            crate::normalize::normalize_full(&p.to_ascii_lowercase()) == norm_t
+                        })
                     })
                     .cloned()
                     .collect()
@@ -385,7 +384,8 @@ impl DeputyValidator {
         // bypass principal binding checks — e.g., "wоrker" (Cyrillic 'о') would not match
         // stored "worker" (Latin 'o'), allowing a different agent to impersonate the delegate.
         if let Some(ref delegate) = ctx.delegated_to {
-            let claimed_norm = crate::normalize::normalize_full(&claimed_principal.to_ascii_lowercase());
+            let claimed_norm =
+                crate::normalize::normalize_full(&claimed_principal.to_ascii_lowercase());
             if *delegate != claimed_norm {
                 return Err(DeputyError::PrincipalMismatch {
                     expected: delegate.clone(),

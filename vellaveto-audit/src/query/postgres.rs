@@ -469,7 +469,12 @@ fn bind_params<'q>(
     if let Some(ref text) = params.text_search {
         // SECURITY (R231-AUD-2): Escape backslash before % and _ to prevent
         // ILIKE pattern injection via backslash as PostgreSQL's default escape char.
-        let pattern = format!("%{}%", text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        let pattern = format!(
+            "%{}%",
+            text.replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
         query = query.bind(pattern);
     }
     // Phase 44: Tenant ID filter
@@ -514,7 +519,12 @@ fn bind_data_params<'q>(
     if let Some(ref text) = params.text_search {
         // SECURITY (R231-AUD-2): Escape backslash before % and _ to prevent
         // ILIKE pattern injection via backslash as PostgreSQL's default escape char.
-        let pattern = format!("%{}%", text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        let pattern = format!(
+            "%{}%",
+            text.replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
         query = query.bind(pattern);
     }
     // Phase 44: Tenant ID filter

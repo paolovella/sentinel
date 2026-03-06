@@ -50,12 +50,14 @@ impl QuerySanitizer {
             return Ok(input.to_string());
         }
 
-        let mut mappings = self.mappings.lock().map_err(|e| {
-            ShieldError::Sanitization(format!("lock poisoned: {e}"))
-        })?;
-        let mut seq = self.sequence.lock().map_err(|e| {
-            ShieldError::Sanitization(format!("lock poisoned: {e}"))
-        })?;
+        let mut mappings = self
+            .mappings
+            .lock()
+            .map_err(|e| ShieldError::Sanitization(format!("lock poisoned: {e}")))?;
+        let mut seq = self
+            .sequence
+            .lock()
+            .map_err(|e| ShieldError::Sanitization(format!("lock poisoned: {e}")))?;
 
         let mut result = String::with_capacity(input.len());
         let mut last_end = 0;
@@ -87,9 +89,10 @@ impl QuerySanitizer {
 
     /// Restore original PII values from placeholders in the text.
     pub fn desanitize(&self, input: &str) -> Result<String, ShieldError> {
-        let mappings = self.mappings.lock().map_err(|e| {
-            ShieldError::Desanitization(format!("lock poisoned: {e}"))
-        })?;
+        let mappings = self
+            .mappings
+            .lock()
+            .map_err(|e| ShieldError::Desanitization(format!("lock poisoned: {e}")))?;
 
         if mappings.is_empty() {
             return Ok(input.to_string());
@@ -103,12 +106,18 @@ impl QuerySanitizer {
     }
 
     /// Recursively sanitize all string values in a JSON value.
-    pub fn sanitize_json(&self, value: &serde_json::Value) -> Result<serde_json::Value, ShieldError> {
+    pub fn sanitize_json(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<serde_json::Value, ShieldError> {
         self.walk_json(value, true, 0)
     }
 
     /// Recursively desanitize all string values in a JSON value.
-    pub fn desanitize_json(&self, value: &serde_json::Value) -> Result<serde_json::Value, ShieldError> {
+    pub fn desanitize_json(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<serde_json::Value, ShieldError> {
         self.walk_json(value, false, 0)
     }
 

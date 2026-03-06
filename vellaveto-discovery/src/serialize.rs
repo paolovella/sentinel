@@ -15,8 +15,7 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use crate::topology::{
-    StaticResourceDecl, StaticServerDecl, StaticToolDecl, TopologyEdge, TopologyGraph,
-    TopologyNode,
+    StaticResourceDecl, StaticServerDecl, StaticToolDecl, TopologyEdge, TopologyGraph, TopologyNode,
 };
 
 /// Serializable representation of the full topology.
@@ -114,11 +113,13 @@ impl TopologyGraph {
         for node in &snapshot.nodes {
             match node {
                 TopologyNode::Server { name, .. } => {
-                    servers.entry(name.clone()).or_insert_with(|| StaticServerDecl {
-                        name: name.clone(),
-                        tools: Vec::new(),
-                        resources: Vec::new(),
-                    });
+                    servers
+                        .entry(name.clone())
+                        .or_insert_with(|| StaticServerDecl {
+                            name: name.clone(),
+                            tools: Vec::new(),
+                            resources: Vec::new(),
+                        });
                 }
                 TopologyNode::Tool {
                     server,
@@ -179,8 +180,8 @@ impl TopologyGraph {
         }
 
         // Restore timestamp
-        let crawled_at = SystemTime::UNIX_EPOCH
-            + std::time::Duration::from_secs(snapshot.crawled_at_epoch_secs);
+        let crawled_at =
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(snapshot.crawled_at_epoch_secs);
         graph.set_crawled_at(crawled_at);
         graph.recompute_fingerprint();
 
@@ -255,12 +256,8 @@ impl TopologyGraph {
     }
 
     /// Filter topology to only include tools from specified servers.
-    pub fn filter_servers(
-        &self,
-        allowed: &[&str],
-    ) -> Result<Self, crate::error::DiscoveryError> {
-        let allowed_set: std::collections::HashSet<&str> =
-            allowed.iter().copied().collect();
+    pub fn filter_servers(&self, allowed: &[&str]) -> Result<Self, crate::error::DiscoveryError> {
+        let allowed_set: std::collections::HashSet<&str> = allowed.iter().copied().collect();
 
         let mut servers = Vec::new();
         for server_name in self.server_names() {

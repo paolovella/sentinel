@@ -383,7 +383,10 @@ fn validate_license_key(key: &str, verifying_key: &VerifyingKey) -> LicenseValid
 
     // SECURITY: Verify Ed25519 signature over the payload.
     // ed25519-dalek::verify is internally constant-time.
-    if verifying_key.verify(payload.as_bytes(), &signature).is_err() {
+    if verifying_key
+        .verify(payload.as_bytes(), &signature)
+        .is_err()
+    {
         return community("invalid license key");
     }
 
@@ -665,7 +668,8 @@ mod tests {
     fn test_v1_hmac_key_fails_gracefully() {
         let (_sk, vk) = test_keypair();
         // Old v1 format: VLV-{TIER}-{EXPIRY}-{HMAC_HEX} (no '.' separator)
-        let old_key = "VLV-ENT-1740000000-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+        let old_key =
+            "VLV-ENT-1740000000-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
         let result = validate_license_key(old_key, &vk);
         assert_eq!(result.tier, LicenseTier::Community);
         assert_eq!(result.reason, "invalid license key");

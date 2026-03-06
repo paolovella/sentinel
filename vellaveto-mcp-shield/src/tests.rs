@@ -148,8 +148,12 @@ fn test_session_max_fail_closed() {
 #[test]
 fn test_session_independent_pii_maps() {
     let isolator = SessionIsolator::new();
-    let s1_result = isolator.sanitize_in_session("s1", "user1@example.com").unwrap();
-    let s2_result = isolator.sanitize_in_session("s2", "user2@example.com").unwrap();
+    let s1_result = isolator
+        .sanitize_in_session("s1", "user1@example.com")
+        .unwrap();
+    let s2_result = isolator
+        .sanitize_in_session("s2", "user2@example.com")
+        .unwrap();
 
     // Both sessions have PII replaced
     assert!(!s1_result.contains("user1@example.com"));
@@ -161,13 +165,18 @@ fn test_session_independent_pii_maps() {
 
     // Cross-session desanitization should NOT restore the other session's PII
     let cross_restored = isolator.desanitize_in_session("s2", &s1_result).unwrap();
-    assert_ne!(cross_restored, "user1@example.com", "session isolation should prevent cross-session PII restoration");
+    assert_ne!(
+        cross_restored, "user1@example.com",
+        "session isolation should prevent cross-session PII restoration"
+    );
 }
 
 #[test]
 fn test_session_end_clears() {
     let isolator = SessionIsolator::new();
-    let _ = isolator.sanitize_in_session("s1", "user@example.com").unwrap();
+    let _ = isolator
+        .sanitize_in_session("s1", "user@example.com")
+        .unwrap();
     assert_eq!(isolator.session_count(), 1);
     isolator.end_session("s1");
     assert_eq!(isolator.session_count(), 0);
@@ -263,7 +272,10 @@ async fn test_local_audit_encrypted_not_plaintext() {
     let store = EncryptedAuditStore::new(enc_path.clone(), "secret").unwrap();
     let mut manager = LocalAuditManager::new(audit_path, store);
 
-    manager.log_shield_event("test", "sensitive details").await.unwrap();
+    manager
+        .log_shield_event("test", "sensitive details")
+        .await
+        .unwrap();
 
     // Read raw file — should NOT contain plaintext
     let raw = std::fs::read(&enc_path).unwrap();
@@ -279,8 +291,14 @@ async fn test_local_audit_merkle_proof_valid() {
     let store = EncryptedAuditStore::new(enc_path, "secret").unwrap();
     let mut manager = LocalAuditManager::new(audit_path, store).with_merkle();
 
-    manager.log_shield_event("event1", "details1").await.unwrap();
-    manager.log_shield_event("event2", "details2").await.unwrap();
+    manager
+        .log_shield_event("event1", "details1")
+        .await
+        .unwrap();
+    manager
+        .log_shield_event("event2", "details2")
+        .await
+        .unwrap();
 
     let proof = manager.generate_proof(0);
     assert!(proof.is_ok());
@@ -295,7 +313,10 @@ async fn test_local_audit_read_decrypts() {
     let store = EncryptedAuditStore::new(enc_path, "secret").unwrap();
     let mut manager = LocalAuditManager::new(audit_path, store);
 
-    manager.log_shield_event("test_event", "test_details").await.unwrap();
+    manager
+        .log_shield_event("test_event", "test_details")
+        .await
+        .unwrap();
 
     let entries = manager.read_entries().unwrap();
     assert_eq!(entries.len(), 1);
@@ -326,14 +347,20 @@ fn test_blind_credential_validate_valid() {
 fn test_blind_credential_validate_empty_credential() {
     let mut cred = make_test_credential(0);
     cred.credential = Vec::new();
-    assert!(cred.validate().unwrap_err().contains("credential must not be empty"));
+    assert!(cred
+        .validate()
+        .unwrap_err()
+        .contains("credential must not be empty"));
 }
 
 #[test]
 fn test_blind_credential_validate_empty_signature() {
     let mut cred = make_test_credential(0);
     cred.signature = Vec::new();
-    assert!(cred.validate().unwrap_err().contains("signature must not be empty"));
+    assert!(cred
+        .validate()
+        .unwrap_err()
+        .contains("signature must not be empty"));
 }
 
 #[test]
@@ -354,14 +381,20 @@ fn test_blind_credential_validate_oversized_signature() {
 fn test_blind_credential_validate_empty_key_id() {
     let mut cred = make_test_credential(0);
     cred.provider_key_id = String::new();
-    assert!(cred.validate().unwrap_err().contains("provider_key_id must not be empty"));
+    assert!(cred
+        .validate()
+        .unwrap_err()
+        .contains("provider_key_id must not be empty"));
 }
 
 #[test]
 fn test_blind_credential_validate_dangerous_key_id() {
     let mut cred = make_test_credential(0);
     cred.provider_key_id = "key\u{200B}id".to_string(); // zero-width space
-    assert!(cred.validate().unwrap_err().contains("dangerous characters"));
+    assert!(cred
+        .validate()
+        .unwrap_err()
+        .contains("dangerous characters"));
 }
 
 #[test]
@@ -588,7 +621,9 @@ fn test_unlinker_duplicate_session_rejected() {
 fn test_unlinker_capacity_exhaustion_fail_closed() {
     let (vault, _dir) = make_test_vault(100, 1);
     for i in 0..5 {
-        vault.add_credential(make_test_credential(i as u64)).unwrap();
+        vault
+            .add_credential(make_test_credential(i as u64))
+            .unwrap();
     }
 
     let unlinker = SessionUnlinker::with_max_sessions(vault, 3);
@@ -598,7 +633,10 @@ fn test_unlinker_capacity_exhaustion_fail_closed() {
 
     let result = unlinker.start_session("s4");
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("capacity exhausted"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("capacity exhausted"));
 }
 
 #[test]
@@ -693,30 +731,43 @@ fn test_shield_config_credential_defaults() {
 
 #[test]
 fn test_shield_config_zero_pool_rejected() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.credential_pool_size = 0;
-    assert!(config.validate().unwrap_err().contains("credential_pool_size"));
+    let config = vellaveto_config::ShieldConfig {
+        credential_pool_size: 0,
+        ..Default::default()
+    };
+    assert!(config
+        .validate()
+        .unwrap_err()
+        .contains("credential_pool_size"));
 }
 
 #[test]
 fn test_shield_config_threshold_ge_pool_rejected() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.replenish_threshold = 50; // equal to pool_size
-    assert!(config.validate().unwrap_err().contains("replenish_threshold"));
+    let config = vellaveto_config::ShieldConfig {
+        replenish_threshold: 50, // equal to pool_size
+        ..Default::default()
+    };
+    assert!(config
+        .validate()
+        .unwrap_err()
+        .contains("replenish_threshold"));
 }
 
 #[test]
 fn test_shield_config_zero_epoch_interval_rejected() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.credential_epoch_interval = 0;
-    assert!(config.validate().unwrap_err().contains("credential_epoch_interval"));
+    let config = vellaveto_config::ShieldConfig {
+        credential_epoch_interval: 0,
+        ..Default::default()
+    };
+    assert!(config
+        .validate()
+        .unwrap_err()
+        .contains("credential_epoch_interval"));
 }
 
-#[test]
 // ═══════════════════════════════════════════════════════════════════
 // ContextIsolator Tests
 // ═══════════════════════════════════════════════════════════════════
-
 #[test]
 fn test_context_record_and_retrieve() {
     let ctx = ContextIsolator::new();
@@ -725,8 +776,14 @@ fn test_context_record_and_retrieve() {
 
     let entries = ctx.get_recent_context("s1", 10).unwrap();
     assert_eq!(entries.len(), 2);
-    assert_eq!(entries[0], ("user".to_string(), "What is the weather?".to_string()));
-    assert_eq!(entries[1], ("assistant".to_string(), "It's sunny today.".to_string()));
+    assert_eq!(
+        entries[0],
+        ("user".to_string(), "What is the weather?".to_string())
+    );
+    assert_eq!(
+        entries[1],
+        ("assistant".to_string(), "It's sunny today.".to_string())
+    );
 }
 
 #[test]
@@ -764,7 +821,10 @@ fn test_context_session_capacity_fail_closed() {
     ctx.record("s2", "user", "ok").unwrap();
     let result = ctx.record("s3", "user", "fail");
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("capacity exhausted"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("capacity exhausted"));
 }
 
 #[test]
@@ -865,7 +925,9 @@ fn test_stylometric_level1_dashes() {
 #[test]
 fn test_stylometric_level2_filler_words() {
     let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
-    let result = norm.normalize("I just really want to basically understand").unwrap();
+    let result = norm
+        .normalize("I just really want to basically understand")
+        .unwrap();
     assert!(!result.contains("just"));
     assert!(!result.contains("really"));
     assert!(!result.contains("basically"));
@@ -876,7 +938,9 @@ fn test_stylometric_level2_filler_words() {
 #[test]
 fn test_stylometric_level2_multiword_filler() {
     let norm = StylometricNormalizer::new(NormalizationLevel::Level2);
-    let result = norm.normalize("I kind of want to sort of understand this, you know").unwrap();
+    let result = norm
+        .normalize("I kind of want to sort of understand this, you know")
+        .unwrap();
     assert!(!result.contains("kind of"));
     assert!(!result.contains("sort of"));
 }
@@ -920,12 +984,15 @@ fn test_stylometric_combined_normalization() {
     assert!(result.contains("great"));
 }
 
+#[test]
 fn test_shield_config_serde_roundtrip_with_credentials() {
-    let mut config = vellaveto_config::ShieldConfig::default();
-    config.session_unlinkability = true;
-    config.credential_pool_size = 100;
-    config.replenish_threshold = 20;
-    config.credential_epoch_interval = 200;
+    let config = vellaveto_config::ShieldConfig {
+        session_unlinkability: true,
+        credential_pool_size: 100,
+        replenish_threshold: 20,
+        credential_epoch_interval: 200,
+        ..Default::default()
+    };
     let json_str = serde_json::to_string(&config).unwrap();
     let parsed: vellaveto_config::ShieldConfig = serde_json::from_str(&json_str).unwrap();
     assert_eq!(config, parsed);
@@ -1202,12 +1269,16 @@ fn test_pipeline_desanitize_then_context_record() {
 
     // Step 1: Desanitize
     let desanitized = sanitizer.desanitize_json(&response).unwrap();
-    let restored = desanitized["result"]["content"][0]["text"].as_str().unwrap();
+    let restored = desanitized["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
     assert!(restored.contains("user@example.com"));
     assert!(!restored.contains("[PII_"));
 
     // Step 2: Record context (with desanitized response)
-    context.record_json_response("session-1", &desanitized).unwrap();
+    context
+        .record_json_response("session-1", &desanitized)
+        .unwrap();
     let entries = context.get_recent_context("session-1", 10).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].0, "assistant");

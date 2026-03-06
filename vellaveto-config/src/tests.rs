@@ -9156,7 +9156,10 @@ stylometric_level = "{level}"
 "#
         );
         let config: crate::PolicyConfig = toml::from_str(&toml_str).unwrap();
-        assert!(config.shield.validate().is_ok(), "level {level} should be valid");
+        assert!(
+            config.shield.validate().is_ok(),
+            "level {level} should be valid"
+        );
     }
 }
 

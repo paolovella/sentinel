@@ -92,8 +92,11 @@ async fn test_static_probe_list_tools_not_found() {
 
 #[tokio::test]
 async fn test_static_probe_list_resources() {
-    let probe =
-        StaticProbe::new(vec![make_server_with_resources("fs", vec![], vec!["config"])]);
+    let probe = StaticProbe::new(vec![make_server_with_resources(
+        "fs",
+        vec![],
+        vec!["config"],
+    )]);
 
     let resources = probe.list_resources("fs").await.unwrap();
     assert_eq!(resources.len(), 1);

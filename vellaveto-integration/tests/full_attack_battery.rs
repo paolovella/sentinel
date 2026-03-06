@@ -1629,8 +1629,7 @@ async fn attack_r226_sandworm_namespace_collision() {
     use vellaveto_mcp::tool_registry::ToolRegistry;
 
     let dir = tempfile::TempDir::new().unwrap();
-    let registry = ToolRegistry::new(dir.path().join("registry.json"))
-        .with_namespace_strict(true);
+    let registry = ToolRegistry::new(dir.path().join("registry.json")).with_namespace_strict(true);
 
     let schema = json!({"type": "object"});
 

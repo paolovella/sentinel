@@ -307,18 +307,24 @@ mod with_discovery_feature {
         assert!(config.validate().is_ok());
 
         // Invalid: NaN threshold
-        let mut bad = TopologyConfig::default();
-        bad.inference_threshold = f32::NAN;
+        let bad = TopologyConfig {
+            inference_threshold: f32::NAN,
+            ..Default::default()
+        };
         assert!(bad.validate().is_err());
 
         // Invalid: unknown fallback mode
-        let mut bad = TopologyConfig::default();
-        bad.fallback_mode = "panic".to_string();
+        let bad = TopologyConfig {
+            fallback_mode: "panic".to_string(),
+            ..Default::default()
+        };
         assert!(bad.validate().is_err());
 
         // Invalid: zero recrawl interval
-        let mut bad = TopologyConfig::default();
-        bad.recrawl_interval_secs = 0;
+        let bad = TopologyConfig {
+            recrawl_interval_secs: 0,
+            ..Default::default()
+        };
         assert!(bad.validate().is_err());
     }
 

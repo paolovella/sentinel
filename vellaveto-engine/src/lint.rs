@@ -1127,6 +1127,6 @@ mod tests {
         let findings = linter.lint_single(&policy);
         let l001 = findings.iter().find(|f| f.rule_id == "L001");
         assert!(l001.is_some());
-        assert!(l001.map_or(false, |f| f.suggestion.is_some()));
+        assert!(l001.is_some_and(|f| f.suggestion.is_some()));
     }
 }

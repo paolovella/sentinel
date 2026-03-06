@@ -502,10 +502,7 @@ pub fn build_router(state: AppState) -> Router {
         // ═══════════════════════════════════════════════════════════════════
         // Topology Management (live topology graph inspection + control)
         // ═══════════════════════════════════════════════════════════════════
-        .route(
-            "/api/topology",
-            get(super::topology::topology_snapshot),
-        )
+        .route("/api/topology", get(super::topology::topology_snapshot))
         .route(
             "/api/topology/status",
             get(super::topology::topology_status),
@@ -1081,11 +1078,7 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
     // (before auth, rate limiting, or logging), reducing attack surface.
     let method = request.method().clone();
     if method == Method::TRACE || method == Method::CONNECT {
-        return (
-            StatusCode::METHOD_NOT_ALLOWED,
-            "Method not allowed",
-        )
-            .into_response();
+        return (StatusCode::METHOD_NOT_ALLOWED, "Method not allowed").into_response();
     }
 
     // SECURITY: Only skip auth for CORS preflight (OPTIONS).
@@ -2805,7 +2798,11 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
             .headers()
             .get("x-tenant-id")
             .and_then(|v| v.to_str().ok())
-            .filter(|t| !t.is_empty() && t.len() <= MAX_PRINCIPAL_LEN && !t.chars().any(crate::routes::is_unsafe_char))
+            .filter(|t| {
+                !t.is_empty()
+                    && t.len() <= MAX_PRINCIPAL_LEN
+                    && !t.chars().any(crate::routes::is_unsafe_char)
+            })
             .map(|t| format!("t:{}|", t))
             .unwrap_or_default()
     } else {

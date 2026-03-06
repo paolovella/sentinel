@@ -254,7 +254,8 @@ mod tests {
         IncidentReport {
             id: "INC-2026-001".to_string(),
             title: "MCP tool injection detected".to_string(),
-            description: "A rogue MCP server attempted tool poisoning via description injection".to_string(),
+            description: "A rogue MCP server attempted tool poisoning via description injection"
+                .to_string(),
             severity: IncidentSeverity::Critical,
             detected_at: "2026-02-26T10:00:00Z".to_string(),
             reported_at: "2026-02-26T10:30:00Z".to_string(),
@@ -361,6 +362,9 @@ mod tests {
     fn test_deny_unknown_fields() {
         let json = r#"{"id":"x","title":"t","description":"d","severity":"Low","detected_at":"","reported_at":"","affected_systems":[],"findings":[],"recommendations":[],"unknown_field":true,"regulatory_references":[]}"#;
         let result: Result<IncidentReport, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "deny_unknown_fields should reject unknown fields");
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown fields"
+        );
     }
 }

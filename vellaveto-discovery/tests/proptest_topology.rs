@@ -30,19 +30,23 @@ fn arb_tool_decl() -> impl Strategy<Value = StaticToolDecl> {
 
 /// Generate a StaticServerDecl with 1-5 tools.
 fn arb_server_decl() -> impl Strategy<Value = StaticServerDecl> {
-    (arb_server_name(), prop::collection::vec(arb_tool_decl(), 1..5)).prop_map(|(name, tools)| {
-        // Deduplicate tool names
-        let mut seen = std::collections::HashSet::new();
-        let unique_tools: Vec<StaticToolDecl> = tools
-            .into_iter()
-            .filter(|t| seen.insert(t.name.clone()))
-            .collect();
-        StaticServerDecl {
-            name,
-            tools: unique_tools,
-            resources: vec![],
-        }
-    })
+    (
+        arb_server_name(),
+        prop::collection::vec(arb_tool_decl(), 1..5),
+    )
+        .prop_map(|(name, tools)| {
+            // Deduplicate tool names
+            let mut seen = std::collections::HashSet::new();
+            let unique_tools: Vec<StaticToolDecl> = tools
+                .into_iter()
+                .filter(|t| seen.insert(t.name.clone()))
+                .collect();
+            StaticServerDecl {
+                name,
+                tools: unique_tools,
+                resources: vec![],
+            }
+        })
 }
 
 /// Generate 1-4 servers with unique names.

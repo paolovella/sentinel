@@ -516,7 +516,10 @@ impl AbacEntity {
             if key.len() > Self::MAX_ATTR_KEY_LEN {
                 return Err(format!(
                     "AbacEntity '{}::{}' attribute key length {} exceeds max {}",
-                    self.entity_type, self.id, key.len(), Self::MAX_ATTR_KEY_LEN,
+                    self.entity_type,
+                    self.id,
+                    key.len(),
+                    Self::MAX_ATTR_KEY_LEN,
                 ));
             }
             if crate::core::has_dangerous_chars(key) {
@@ -537,7 +540,11 @@ impl AbacEntity {
             if val_size > Self::MAX_ATTR_VALUE_SIZE {
                 return Err(format!(
                     "AbacEntity '{}::{}' attribute '{}' value size {} exceeds max {}",
-                    self.entity_type, self.id, key, val_size, Self::MAX_ATTR_VALUE_SIZE,
+                    self.entity_type,
+                    self.id,
+                    key,
+                    val_size,
+                    Self::MAX_ATTR_VALUE_SIZE,
                 ));
             }
         }

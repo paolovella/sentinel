@@ -72,7 +72,12 @@ fn has_dangerous_chars(s: &str) -> bool {
 }
 
 /// Build the canonical payload for signing/verification.
-fn canonical_payload(version: u8, signed_date: &str, expires_date: &str, statement: &str) -> Vec<u8> {
+fn canonical_payload(
+    version: u8,
+    signed_date: &str,
+    expires_date: &str,
+    statement: &str,
+) -> Vec<u8> {
     let obj = serde_json::json!({
         "version": version,
         "signed_date": signed_date,
@@ -120,8 +125,8 @@ pub fn create_canary(
     if signing_key_hex.len() > MAX_KEY_HEX_LENGTH {
         return Err("signing key hex too long".to_string());
     }
-    let key_bytes = hex::decode(signing_key_hex)
-        .map_err(|e| format!("invalid signing key hex: {e}"))?;
+    let key_bytes =
+        hex::decode(signing_key_hex).map_err(|e| format!("invalid signing key hex: {e}"))?;
     if key_bytes.len() != 32 {
         return Err(format!(
             "signing key must be 32 bytes, got {}",
@@ -187,12 +192,12 @@ pub fn verify_canary(canary: &WarrantCanary) -> Result<CanaryVerification, Strin
     let vk_array: [u8; 32] = vk_bytes
         .try_into()
         .map_err(|_| "verifying key conversion failed".to_string())?;
-    let verifying_key = VerifyingKey::from_bytes(&vk_array)
-        .map_err(|e| format!("invalid verifying key: {e}"))?;
+    let verifying_key =
+        VerifyingKey::from_bytes(&vk_array).map_err(|e| format!("invalid verifying key: {e}"))?;
 
     // Parse signature
-    let sig_bytes = hex::decode(&canary.signature)
-        .map_err(|e| format!("invalid signature hex: {e}"))?;
+    let sig_bytes =
+        hex::decode(&canary.signature).map_err(|e| format!("invalid signature hex: {e}"))?;
     if sig_bytes.len() != 64 {
         return Err(format!(
             "signature must be 64 bytes, got {}",

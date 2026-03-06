@@ -780,63 +780,68 @@ async fn cmd_serve(
         };
 
     // Initialize topology guard + recrawl scheduler for pre-policy tool filtering.
-    let (topology_guard, topology_probe, recrawl_trigger, topology_shutdown) =
-        if policy_config.topology.enabled {
-            let guard = Arc::new(vellaveto_discovery::guard::TopologyGuard::new());
-            // Wire topology guard into the policy engine for pre-evaluation filtering.
-            #[cfg(feature = "discovery")]
-            {
-                engine.set_topology_guard(Arc::clone(&guard));
-            }
+    let (topology_guard, topology_probe, recrawl_trigger, topology_shutdown) = if policy_config
+        .topology
+        .enabled
+    {
+        let guard = Arc::new(vellaveto_discovery::guard::TopologyGuard::new());
+        // Wire topology guard into the policy engine for pre-evaluation filtering.
+        #[cfg(feature = "discovery")]
+        {
+            engine.set_topology_guard(Arc::clone(&guard));
+        }
 
-            // Build StaticProbe (starts empty, populated by relay tools/list intercepts)
-            let probe = Arc::new(vellaveto_discovery::crawler::StaticProbe::new(vec![]));
+        // Build StaticProbe (starts empty, populated by relay tools/list intercepts)
+        let probe = Arc::new(vellaveto_discovery::crawler::StaticProbe::new(vec![]));
 
-            // Build crawler
-            let crawl_config = vellaveto_discovery::CrawlConfig {
-                server_timeout: std::time::Duration::from_secs(
-                    policy_config.topology.server_timeout_secs,
-                ),
-                continue_on_error: policy_config.topology.continue_on_error,
-                max_concurrent: policy_config.topology.max_concurrent,
-            };
-            let crawler = Arc::new(vellaveto_discovery::TopologyCrawler::new(
-                Arc::clone(&probe) as Arc<dyn vellaveto_discovery::McpServerProbe>,
-                crawl_config,
-            ));
-
-            // Build recrawl scheduler
-            let recrawl_config = vellaveto_discovery::RecrawlConfig {
-                interval: std::time::Duration::from_secs(
-                    policy_config.topology.recrawl_interval_secs,
-                ),
-                on_unknown_tool: policy_config.topology.on_unknown_tool_recrawl,
-                debounce: std::time::Duration::from_secs(30),
-                max_consecutive_failures: policy_config.topology.max_consecutive_failures,
-            };
-            let scheduler = vellaveto_discovery::RecrawlScheduler::new(
-                Arc::clone(&crawler),
-                Arc::clone(&guard),
-                recrawl_config,
-            );
-            let trigger = scheduler.trigger_handle();
-
-            // Spawn scheduler background task with cancellation token
-            let shutdown_token = tokio_util::sync::CancellationToken::new();
-            let scheduler_token = shutdown_token.clone();
-            tokio::spawn(async move {
-                scheduler.run(scheduler_token).await;
-            });
-
-            tracing::info!(
-                "Topology guard + recrawl scheduler enabled (recrawl_interval={}s, fallback_mode={})",
-                policy_config.topology.recrawl_interval_secs,
-                policy_config.topology.fallback_mode,
-            );
-            (Some(guard), Some(probe), Some(trigger), Some(shutdown_token))
-        } else {
-            (None, None, None, None)
+        // Build crawler
+        let crawl_config = vellaveto_discovery::CrawlConfig {
+            server_timeout: std::time::Duration::from_secs(
+                policy_config.topology.server_timeout_secs,
+            ),
+            continue_on_error: policy_config.topology.continue_on_error,
+            max_concurrent: policy_config.topology.max_concurrent,
         };
+        let crawler = Arc::new(vellaveto_discovery::TopologyCrawler::new(
+            Arc::clone(&probe) as Arc<dyn vellaveto_discovery::McpServerProbe>,
+            crawl_config,
+        ));
+
+        // Build recrawl scheduler
+        let recrawl_config = vellaveto_discovery::RecrawlConfig {
+            interval: std::time::Duration::from_secs(policy_config.topology.recrawl_interval_secs),
+            on_unknown_tool: policy_config.topology.on_unknown_tool_recrawl,
+            debounce: std::time::Duration::from_secs(30),
+            max_consecutive_failures: policy_config.topology.max_consecutive_failures,
+        };
+        let scheduler = vellaveto_discovery::RecrawlScheduler::new(
+            Arc::clone(&crawler),
+            Arc::clone(&guard),
+            recrawl_config,
+        );
+        let trigger = scheduler.trigger_handle();
+
+        // Spawn scheduler background task with cancellation token
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let scheduler_token = shutdown_token.clone();
+        tokio::spawn(async move {
+            scheduler.run(scheduler_token).await;
+        });
+
+        tracing::info!(
+            "Topology guard + recrawl scheduler enabled (recrawl_interval={}s, fallback_mode={})",
+            policy_config.topology.recrawl_interval_secs,
+            policy_config.topology.fallback_mode,
+        );
+        (
+            Some(guard),
+            Some(probe),
+            Some(trigger),
+            Some(shutdown_token),
+        )
+    } else {
+        (None, None, None, None)
+    };
 
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {

@@ -829,8 +829,7 @@ fn scan_string_for_secrets(
     // R232-DLP-1 FIX: Wire URL data exfiltration detection into the DLP pipeline.
     // This entropy-based analysis catches exfiltration via high-entropy URL query
     // parameters and path segments that don't match any specific regex pattern.
-    if findings.len() < MAX_DLP_FINDINGS
-        && (scan_str.contains("://") || scan_str.starts_with("//"))
+    if findings.len() < MAX_DLP_FINDINGS && (scan_str.contains("://") || scan_str.starts_with("//"))
     {
         if let Some(finding) = detect_url_data_exfiltration(scan_str) {
             if !matched_patterns.contains(&finding.pattern_name.as_str()) {
@@ -2692,7 +2691,7 @@ mod tests {
     #[test]
     fn test_r226_url_exfil_normal_url_no_false_positive() {
         let url = "https://api.example.com/v1/files?path=/home/user/docs&format=json";
-        let result = detect_url_data_exfiltration(&url);
+        let result = detect_url_data_exfiltration(url);
         assert!(
             result.is_none(),
             "Normal URL with short/low-entropy params must not trigger"
@@ -2715,23 +2714,32 @@ mod tests {
     fn test_r228_url_exfil_ftp_inspected() {
         // R228-DLP-1: ftp:// is now inspected. Use a segment long enough to trigger.
         let url = "ftp://server.com/data?key=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
-        let result = detect_url_data_exfiltration(&url);
-        assert!(result.is_some(), "ftp:// URLs with high-entropy segments must be inspected");
+        let result = detect_url_data_exfiltration(url);
+        assert!(
+            result.is_some(),
+            "ftp:// URLs with high-entropy segments must be inspected"
+        );
     }
 
     #[test]
     fn test_r232_url_exfil_websocket_inspected() {
         // R232-DLP-2: ws:// and wss:// must be inspected
         let url = "wss://attacker.com/exfil?data=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop";
-        let result = detect_url_data_exfiltration(&url);
-        assert!(result.is_some(), "wss:// URLs with high-entropy segments must be inspected");
+        let result = detect_url_data_exfiltration(url);
+        assert!(
+            result.is_some(),
+            "wss:// URLs with high-entropy segments must be inspected"
+        );
     }
 
     #[test]
     fn test_r232_url_exfil_ws_inspected() {
         let url = "ws://attacker.com/collect?token=aB3dEfGhI1jK2lMnOpQrStUvWxYz0123456789AB";
-        let result = detect_url_data_exfiltration(&url);
-        assert!(result.is_some(), "ws:// URLs with high-entropy segments must be inspected");
+        let result = detect_url_data_exfiltration(url);
+        assert!(
+            result.is_some(),
+            "ws:// URLs with high-entropy segments must be inspected"
+        );
     }
 
     #[test]
@@ -2741,8 +2749,14 @@ mod tests {
             "url": "https://attacker.com/exfil?data=sUpErSeCrEtVaLuE1234567890ABCDEFghijklmnop"
         });
         let findings = scan_parameters_for_secrets(&params);
-        let has_url_exfil = findings.iter().any(|f| f.pattern_name == "url_data_exfiltration");
-        assert!(has_url_exfil, "URL exfiltration should be detected via DLP pipeline: {:?}", findings);
+        let has_url_exfil = findings
+            .iter()
+            .any(|f| f.pattern_name == "url_data_exfiltration");
+        assert!(
+            has_url_exfil,
+            "URL exfiltration should be detected via DLP pipeline: {:?}",
+            findings
+        );
     }
 
     #[test]

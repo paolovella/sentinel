@@ -789,7 +789,11 @@ mod tests {
             ..Default::default()
         };
         let result = config.validate();
-        assert!(result.is_ok(), "https:// issuer should be accepted: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "https:// issuer should be accepted: {:?}",
+            result
+        );
     }
 
     #[test]

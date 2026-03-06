@@ -487,7 +487,9 @@ impl PolicyEngine {
                             let res_norm = crate::normalize::normalize_full(res);
                             // Check if resource matches any allowed pattern
                             if !allowed_resources.is_empty() {
-                                let matches = allowed_resources.iter().any(|p| p.matches_normalized(&res_norm));
+                                let matches = allowed_resources
+                                    .iter()
+                                    .any(|p| p.matches_normalized(&res_norm));
                                 if !matches {
                                     // SECURITY (FIND-R215-001): Sanitize JWT claim value
                                     // before interpolation into denial reason to prevent

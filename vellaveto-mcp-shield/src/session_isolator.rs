@@ -52,9 +52,10 @@ impl SessionIsolator {
 
     /// Get or create a session, returning Ok if the session exists or was created.
     fn ensure_session(&self, session_id: &str) -> Result<(), ShieldError> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("lock poisoned: {e}"))
-        })?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("lock poisoned: {e}")))?;
 
         if sessions.contains_key(session_id) {
             return Ok(());
@@ -83,9 +84,10 @@ impl SessionIsolator {
         input: &str,
     ) -> Result<String, ShieldError> {
         self.ensure_session(session_id)?;
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("lock poisoned: {e}"))
-        })?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("lock poisoned: {e}")))?;
 
         let state = sessions.get_mut(session_id).ok_or_else(|| {
             ShieldError::SessionIsolation("session not found after ensure".to_string())
@@ -108,9 +110,10 @@ impl SessionIsolator {
         session_id: &str,
         input: &str,
     ) -> Result<String, ShieldError> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            ShieldError::SessionIsolation(format!("lock poisoned: {e}"))
-        })?;
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| ShieldError::SessionIsolation(format!("lock poisoned: {e}")))?;
 
         let state = sessions.get(session_id).ok_or_else(|| {
             ShieldError::SessionIsolation(format!("unknown session: {session_id}"))

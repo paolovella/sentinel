@@ -120,7 +120,10 @@ impl TopologyDiff {
             parts.push(format!("+{} data flows", self.added_data_flow_edges.len()));
         }
         if !self.removed_data_flow_edges.is_empty() {
-            parts.push(format!("-{} data flows", self.removed_data_flow_edges.len()));
+            parts.push(format!(
+                "-{} data flows",
+                self.removed_data_flow_edges.len()
+            ));
         }
 
         if parts.is_empty() {
@@ -160,9 +163,10 @@ impl TopologyGraph {
         let new_tool_map = build_tool_map(newer);
 
         for qualified in common_tools {
-            if let (Some(old_node), Some(new_node)) =
-                (old_tool_map.get(qualified.as_str()), new_tool_map.get(qualified.as_str()))
-            {
+            if let (Some(old_node), Some(new_node)) = (
+                old_tool_map.get(qualified.as_str()),
+                new_tool_map.get(qualified.as_str()),
+            ) {
                 let desc_changed = old_node.0 != new_node.0;
                 let schema_changed = old_node.1 != new_node.1;
 
@@ -258,9 +262,10 @@ fn collect_data_flow_edges(graph: &TopologyGraph) -> HashSet<(String, String)> {
     let mut edges = HashSet::new();
     for edge in graph.graph().edge_references() {
         if matches!(edge.weight(), TopologyEdge::DataFlow { .. }) {
-            if let (Some(&src), Some(&tgt)) =
-                (reverse_index.get(&edge.source()), reverse_index.get(&edge.target()))
-            {
+            if let (Some(&src), Some(&tgt)) = (
+                reverse_index.get(&edge.source()),
+                reverse_index.get(&edge.target()),
+            ) {
                 edges.insert((src.to_string(), tgt.to_string()));
             }
         }

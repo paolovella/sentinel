@@ -283,10 +283,7 @@ impl ShieldConfig {
 
         for (i, pat) in self.custom_pii_patterns.iter().enumerate() {
             if pat.name.is_empty() {
-                return Err(format!(
-                    "custom_pii_patterns[{}].name must not be empty",
-                    i
-                ));
+                return Err(format!("custom_pii_patterns[{}].name must not be empty", i));
             }
             if pat.name.len() > MAX_SHIELD_PATTERN_NAME_LEN {
                 return Err(format!(
@@ -349,8 +346,10 @@ mod tests {
 
     #[test]
     fn test_shield_invalid_audit_mode() {
-        let mut config = ShieldConfig::default();
-        config.audit_mode = "invalid".to_string();
+        let config = ShieldConfig {
+            audit_mode: "invalid".to_string(),
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("audit_mode"));
@@ -358,8 +357,10 @@ mod tests {
 
     #[test]
     fn test_shield_zero_sessions_rejected() {
-        let mut config = ShieldConfig::default();
-        config.max_sessions = 0;
+        let config = ShieldConfig {
+            max_sessions: 0,
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("max_sessions"));
@@ -367,8 +368,10 @@ mod tests {
 
     #[test]
     fn test_shield_dangerous_chars_rejected() {
-        let mut config = ShieldConfig::default();
-        config.audit_mode = "local\u{200B}".to_string();
+        let config = ShieldConfig {
+            audit_mode: "local\u{200B}".to_string(),
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("dangerous"));

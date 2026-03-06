@@ -445,7 +445,10 @@ impl AgentCardSignatureVerifier {
         // SECURITY (R231-A2A-1): Include exp claim in cache key. Without exp,
         // a cached verification result outlasts the token's intended lifetime,
         // allowing expired cards to pass verification via cache hit.
-        let cache_key = format!("{}:{}:{}:{}", claims.card_hash, claims.iss, kid_component, claims.exp);
+        let cache_key = format!(
+            "{}:{}:{}:{}",
+            claims.card_hash, claims.iss, kid_component, claims.exp
+        );
         if self.check_cache(&cache_key) {
             return Ok(());
         }
@@ -1182,7 +1185,10 @@ mod tests {
         // Must fail: kid is specified but doesn't match any registered key,
         // and R230-A2A-1 prevents fallback to issuer-based lookup.
         let result = verifier.verify_card(card_json, &signature, &claims);
-        assert!(result.is_err(), "Expected error when kid doesn't match any key");
+        assert!(
+            result.is_err(),
+            "Expected error when kid doesn't match any key"
+        );
         assert!(
             result.unwrap_err().to_string().contains("no trusted key"),
             "Should report no trusted key found"
@@ -1195,8 +1201,12 @@ mod tests {
         let (sk1, vk1) = test_keypair();
         let verifier = AgentCardSignatureVerifier::new(SignatureEnforcementConfig::default());
 
-        let key1 = AgentSigningKey::new("internal-key-1", vk1.as_bytes(), "https://issuer.example.com")
-            .unwrap();
+        let key1 = AgentSigningKey::new(
+            "internal-key-1",
+            vk1.as_bytes(),
+            "https://issuer.example.com",
+        )
+        .unwrap();
         verifier.add_trusted_key(key1).unwrap();
 
         let card_json = br#"{"name":"test-agent","version":"1.0"}"#;
@@ -1206,7 +1216,10 @@ mod tests {
         let claims = make_claims(card_json, "https://issuer.example.com");
 
         let result = verifier.verify_card(card_json, &signature, &claims);
-        assert!(result.is_ok(), "Should succeed via issuer fallback when kid absent");
+        assert!(
+            result.is_ok(),
+            "Should succeed via issuer fallback when kid absent"
+        );
     }
 
     // ── Debug output ────────────────────────────────────────────────────

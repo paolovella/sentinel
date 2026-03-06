@@ -256,9 +256,7 @@ fn normalize_ellipsis(text: &str) -> String {
 
 /// Remove emoji characters (common fingerprint).
 fn strip_emoji(text: &str) -> String {
-    text.chars()
-        .filter(|ch| !is_emoji(*ch))
-        .collect()
+    text.chars().filter(|ch| !is_emoji(*ch)).collect()
 }
 
 /// Check if a character is an emoji.
@@ -360,9 +358,7 @@ fn remove_multiword_filler(text: &str, filler: &str) -> String {
     let text_bytes = text.as_bytes();
 
     while i < text.len() {
-        if i + filler.len() <= text.len()
-            && lower[i..i + filler.len()] == filler_lower
-        {
+        if i + filler.len() <= text.len() && lower[i..i + filler.len()] == filler_lower {
             // Check word boundaries
             let before_ok = i == 0 || !text_bytes[i - 1].is_ascii_alphanumeric();
             let after_ok = i + filler.len() >= text.len()

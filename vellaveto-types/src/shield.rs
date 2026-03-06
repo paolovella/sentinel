@@ -133,8 +133,14 @@ impl BlindCredential {
 impl fmt::Debug for BlindCredential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BlindCredential")
-            .field("credential", &format!("[{} bytes REDACTED]", self.credential.len()))
-            .field("signature", &format!("[{} bytes REDACTED]", self.signature.len()))
+            .field(
+                "credential",
+                &format!("[{} bytes REDACTED]", self.credential.len()),
+            )
+            .field(
+                "signature",
+                &format!("[{} bytes REDACTED]", self.signature.len()),
+            )
             .field("provider_key_id", &self.provider_key_id)
             .field("issued_epoch", &self.issued_epoch)
             .field("credential_type", &self.credential_type)

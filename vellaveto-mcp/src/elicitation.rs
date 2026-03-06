@@ -476,7 +476,11 @@ pub fn inspect_sampling(
     // A malicious server can set `includeContext: "allServers"` to harvest conversation
     // context from other MCP servers, turning sampling into cross-server data exfiltration.
     if let Some(include_ctx) = params.get("includeContext").and_then(|v| v.as_str()) {
-        if !config.allowed_include_context.iter().any(|a| a == include_ctx) {
+        if !config
+            .allowed_include_context
+            .iter()
+            .any(|a| a == include_ctx)
+        {
             return SamplingVerdict::Deny {
                 reason: format!(
                     "sampling includeContext '{}' not in allowed list",

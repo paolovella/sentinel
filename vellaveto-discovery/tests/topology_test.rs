@@ -160,8 +160,7 @@ fn test_find_tool_unqualified_unique() {
 
 #[test]
 fn test_find_tool_unqualified_ambiguous() {
-    let graph =
-        TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
+    let graph = TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
     let matches = graph.find_tool_unqualified("search");
     assert_eq!(matches.len(), 2);
     // Sorted by qualified name
@@ -178,8 +177,7 @@ fn test_find_tool_unqualified_not_found() {
 
 #[test]
 fn test_server_tools() {
-    let graph =
-        TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
+    let graph = TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
     let tools = graph.server_tools("fs");
     assert_eq!(tools.len(), 3);
     // All should be Tool nodes
@@ -195,8 +193,7 @@ fn test_server_tools_missing_server() {
 
 #[test]
 fn test_node_count() {
-    let graph =
-        TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
+    let graph = TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
     // fs: 1+3+1=5, git: 1+2=3 → 8
     assert_eq!(graph.node_count(), 8);
 }
@@ -232,8 +229,7 @@ fn test_tool_names() {
 
 #[test]
 fn test_server_names() {
-    let graph =
-        TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
+    let graph = TopologyGraph::from_static(vec![make_fs_server(), make_git_server()]).unwrap();
     let names = graph.server_names();
     assert_eq!(names, vec!["fs", "git"]);
 }
@@ -335,7 +331,10 @@ fn test_to_static_roundtrip_single_server() {
     assert_eq!(reconstituted.len(), 1);
     assert_eq!(reconstituted[0].name, "fs");
     assert_eq!(reconstituted[0].tools.len(), original[0].tools.len());
-    assert_eq!(reconstituted[0].resources.len(), original[0].resources.len());
+    assert_eq!(
+        reconstituted[0].resources.len(),
+        original[0].resources.len()
+    );
 }
 
 #[test]

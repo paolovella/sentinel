@@ -1815,9 +1815,7 @@ fn test_r227_per_tool_sampling_disabled_when_zero() {
     let mut state = RelayState::new(HashSet::new());
     // max_per_tool = 0 should disable per-tool limiting
     for _ in 0..100 {
-        assert!(state
-            .check_per_tool_sampling_limit("tool_a", 0, 60)
-            .is_ok());
+        assert!(state.check_per_tool_sampling_limit("tool_a", 0, 60).is_ok());
     }
 }
 

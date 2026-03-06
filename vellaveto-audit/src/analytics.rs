@@ -121,13 +121,12 @@ impl AnalyticsEngine {
                     if allowed_tools.contains_key(&entry.action.tool)
                         || allowed_tools.len() < Self::MAX_DISTINCT_KEYS
                     {
-                        *allowed_tools
-                            .entry(entry.action.tool.clone())
-                            .or_insert(0) = allowed_tools
-                            .get(&entry.action.tool)
-                            .copied()
-                            .unwrap_or(0)
-                            .saturating_add(1);
+                        *allowed_tools.entry(entry.action.tool.clone()).or_insert(0) =
+                            allowed_tools
+                                .get(&entry.action.tool)
+                                .copied()
+                                .unwrap_or(0)
+                                .saturating_add(1);
                     }
                 }
                 Verdict::Deny { reason } => {
@@ -135,9 +134,7 @@ impl AnalyticsEngine {
                     if denied_tools.contains_key(&entry.action.tool)
                         || denied_tools.len() < Self::MAX_DISTINCT_KEYS
                     {
-                        *denied_tools
-                            .entry(entry.action.tool.clone())
-                            .or_insert(0) = denied_tools
+                        *denied_tools.entry(entry.action.tool.clone()).or_insert(0) = denied_tools
                             .get(&entry.action.tool)
                             .copied()
                             .unwrap_or(0)
@@ -162,9 +159,7 @@ impl AnalyticsEngine {
                     if denied_tools.contains_key(&entry.action.tool)
                         || denied_tools.len() < Self::MAX_DISTINCT_KEYS
                     {
-                        *denied_tools
-                            .entry(entry.action.tool.clone())
-                            .or_insert(0) = denied_tools
+                        *denied_tools.entry(entry.action.tool.clone()).or_insert(0) = denied_tools
                             .get(&entry.action.tool)
                             .copied()
                             .unwrap_or(0)

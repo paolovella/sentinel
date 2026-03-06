@@ -1180,8 +1180,15 @@ mod tests {
             }]}
         });
         let findings = scan_tool_descriptions(&response);
-        assert_eq!(findings.len(), 1, "Tool with system_prompt param should be flagged");
-        let has_exfil = findings[0].matched_patterns.iter().any(|p| p.starts_with("exfiltration_param:"));
+        assert_eq!(
+            findings.len(),
+            1,
+            "Tool with system_prompt param should be flagged"
+        );
+        let has_exfil = findings[0]
+            .matched_patterns
+            .iter()
+            .any(|p| p.starts_with("exfiltration_param:"));
         assert!(has_exfil, "Should have exfiltration_param finding");
     }
 
@@ -1203,8 +1210,16 @@ mod tests {
         });
         let findings = scan_tool_descriptions(&response);
         assert_eq!(findings.len(), 1);
-        let exfil_count = findings[0].matched_patterns.iter().filter(|p| p.starts_with("exfiltration_param:")).count();
-        assert!(exfil_count >= 2, "Should detect both chain_of_thought and conversation_history, got {}", exfil_count);
+        let exfil_count = findings[0]
+            .matched_patterns
+            .iter()
+            .filter(|p| p.starts_with("exfiltration_param:"))
+            .count();
+        assert!(
+            exfil_count >= 2,
+            "Should detect both chain_of_thought and conversation_history, got {}",
+            exfil_count
+        );
     }
 
     #[test]
@@ -1224,7 +1239,11 @@ mod tests {
             }]}
         });
         let findings = scan_tool_descriptions(&response);
-        assert!(findings.is_empty(), "Normal params should not trigger exfiltration: {:?}", findings);
+        assert!(
+            findings.is_empty(),
+            "Normal params should not trigger exfiltration: {:?}",
+            findings
+        );
     }
 
     #[test]
@@ -1245,9 +1264,8 @@ mod tests {
 
     #[test]
     fn test_r232_preference_manipulation_single_below_threshold() {
-        let matches = scan_for_preference_manipulation(
-            "This is the most trusted file reading tool.",
-        );
+        let matches =
+            scan_for_preference_manipulation("This is the most trusted file reading tool.");
         assert!(
             matches.is_empty(),
             "Single preference pattern should be below threshold"
@@ -1277,12 +1295,18 @@ mod tests {
             }
         });
         let findings = scan_tool_descriptions(&response);
-        assert!(!findings.is_empty(), "Preference manipulation must be detected");
+        assert!(
+            !findings.is_empty(),
+            "Preference manipulation must be detected"
+        );
         let has_pref = findings[0]
             .matched_patterns
             .iter()
             .any(|p| p.starts_with("preference_manipulation:"));
-        assert!(has_pref, "Findings should include preference_manipulation: prefix");
+        assert!(
+            has_pref,
+            "Findings should include preference_manipulation: prefix"
+        );
     }
 
     #[test]
@@ -1309,7 +1333,10 @@ mod tests {
             }
         });
         let findings = scan_tool_descriptions(&response);
-        assert!(!findings.is_empty(), "Dangerous chars in tool name must be detected");
+        assert!(
+            !findings.is_empty(),
+            "Dangerous chars in tool name must be detected"
+        );
         let has_name_finding = findings[0]
             .matched_patterns
             .iter()
@@ -1328,7 +1355,10 @@ mod tests {
             }
         });
         let findings = scan_tool_descriptions(&response);
-        assert!(!findings.is_empty(), "HTML comment in tool name must be detected");
+        assert!(
+            !findings.is_empty(),
+            "HTML comment in tool name must be detected"
+        );
         let has_html = findings[0]
             .matched_patterns
             .iter()
@@ -1347,7 +1377,10 @@ mod tests {
             }
         });
         let findings = scan_tool_descriptions(&response);
-        assert!(!findings.is_empty(), "Injection in tool name must be detected");
+        assert!(
+            !findings.is_empty(),
+            "Injection in tool name must be detected"
+        );
         let has_injection = findings[0]
             .matched_patterns
             .iter()

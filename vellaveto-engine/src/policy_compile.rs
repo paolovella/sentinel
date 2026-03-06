@@ -1498,10 +1498,7 @@ impl PolicyEngine {
                 // SECURITY (R226-ENG-3): Generic deny reason to avoid leaking
                 // internal tool_pattern to API clients. Pattern details are
                 // logged server-side at compile time (above tracing::debug!).
-                let deny_reason = format!(
-                    "Circuit breaker open (policy '{}')",
-                    policy.name
-                );
+                let deny_reason = format!("Circuit breaker open (policy '{}')", policy.name);
 
                 Ok(CompiledContextCondition::CircuitBreaker {
                     tool_pattern: PatternMatcher::compile(&tool_pattern),

@@ -47,8 +47,8 @@ percent-encoding = "2.3"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 subtle = "2"
 chacha20poly1305 = "0.10"
-rand = "0.8"
-getrandom = "0.2"
+rand = "0.9"
+getrandom = "0.4"
 semver = "1.0"
 
 # Topology discovery (optional, gated by "discovery" feature)
@@ -74,7 +74,7 @@ vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"
-tempfile = "3.0"
+tempfile = "3.26"
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]

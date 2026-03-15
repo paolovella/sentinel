@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-shield"
-version = "6.0.6"
+version = "6.0.7"
 description = "Consumer AI shield: bidirectional PII sanitization with encrypted local audit"
 edition = "2021"
 license = "MPL-2.0"
@@ -19,13 +19,13 @@ path = "src/main.rs"
 zk-audit = ["vellaveto-mcp-shield/zk-audit"]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.6" }
-vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.6" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.6" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.6" }
-vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.6", features = ["consumer-shield"] }
-vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", version = "6.0.6" }
-vellaveto-canary = { path = "../vellaveto-canary", version = "6.0.6" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.7" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.7" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.7" }
+vellaveto-config = { path = "../vellaveto-config", version = "6.0.7" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.7", features = ["consumer-shield"] }
+vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", version = "6.0.7" }
+vellaveto-canary = { path = "../vellaveto-canary", version = "6.0.7" }
 clap = { version = "4", features = ["derive"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }

@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-types"
-version = "6.0.6"
+version = "6.0.7"
 description = "Core type definitions for Vellaveto policy engine"
 edition = "2021"
 license = "MPL-2.0"

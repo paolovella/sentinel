@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-canonical"
-version = "6.0.6"
+version = "6.0.7"
 description = "Canonical security policy presets for common scenarios"
 edition = "2021"
 license = "MPL-2.0"
@@ -12,7 +12,7 @@ rust-version.workspace = true
 readme = "README.md"
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.6" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.7" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

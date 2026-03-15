@@ -5278,7 +5278,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vellaveto-approval"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "chrono",
  "serde",
@@ -5295,7 +5295,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-audit"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "ark-bn254",
  "ark-ff",
@@ -5340,7 +5340,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-canary"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "chrono",
  "ed25519-dalek",
@@ -5354,7 +5354,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-canonical"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "hex",
  "proptest",
@@ -5367,7 +5367,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-cluster"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5389,7 +5389,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-config"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -5407,7 +5407,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-discovery"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "async-trait",
  "petgraph",
@@ -5425,7 +5425,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-engine"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "chrono",
  "criterion",
@@ -5450,7 +5450,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-http-proxy"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -5504,7 +5504,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-http-proxy-shield"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5512,7 +5512,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-integration"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "arc-swap",
  "axum",
@@ -5543,7 +5543,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-mcp"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -5589,7 +5589,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-mcp-shield"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -5613,7 +5613,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-operator"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5632,7 +5632,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-proxy"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -5651,7 +5651,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-server"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -5716,7 +5716,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-shield"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -5736,7 +5736,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-tls"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "rustls",
  "thiserror 2.0.18",
@@ -5749,7 +5749,7 @@ dependencies = [
 
 [[package]]
 name = "vellaveto-types"
-version = "6.0.6"
+version = "6.0.7"
 dependencies = [
  "proptest",
  "serde",

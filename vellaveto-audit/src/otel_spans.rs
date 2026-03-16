@@ -250,7 +250,7 @@ mod tests {
             },
         );
         assert!(matches!(span.status.code, SpanStatusCode::Error));
-        assert!(span.attributes.get("vellaveto.deny_reason").is_some());
+        assert!(span.attributes.contains_key("vellaveto.deny_reason"));
     }
 
     #[test]

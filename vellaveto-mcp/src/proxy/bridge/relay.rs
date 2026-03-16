@@ -4931,6 +4931,64 @@ impl ProxyBridge {
         }
 
         let action = extract_task_action(&task_method, task_id.as_deref());
+
+        // Phase 1: Task creator access check — deny if requester doesn't match creator.
+        // Only applies to tasks/get (poll/resume), not tasks/create or tasks/cancel.
+        if let Some(ref tid) = task_id {
+            if task_method == "tasks/get" || task_method == "tasks/send" {
+                if let Some(ref task_mgr) = self.task_state {
+                    if let Err(reason) = task_mgr
+                        .verify_task_access(
+                            tid,
+                            state.agent_id.as_deref(),
+                            Some(state.session_scope_binding.as_str()),
+                            task_mgr.requires_creator_match(),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "SECURITY: Task access denied for '{}' task '{}': {}",
+                            safe_task_method,
+                            safe_task_id.as_deref().unwrap_or("?"),
+                            reason
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        let ta_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::SessionGuard,
+                            "stdio",
+                            state.agent_id.as_deref(),
+                        );
+                        if let Err(e) = self
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "task_access_denied",
+                                    "task_method": safe_task_method,
+                                    "task_id": safe_task_id,
+                                }),
+                                ta_envelope,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit task access denial: {}", e);
+                        }
+                        let response = make_denial_response(&id, "Request blocked: security policy violation");
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         let presented_approval_id = Self::extract_approval_id_from_meta(&msg);
         let mut matched_approval_id: Option<String> = None;
         let eval_ctx =

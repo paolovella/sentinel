@@ -68,6 +68,9 @@ pub struct TaskStateManager {
 
     /// Agent IDs allowed to cancel any task (when require_self_cancel is false).
     allow_cancellation: Vec<String>,
+
+    /// Phase 1: When true, task get/send requires matching creator identity.
+    require_task_creator_match: bool,
 }
 
 impl TaskStateManager {
@@ -88,6 +91,7 @@ impl TaskStateManager {
             max_duration_secs,
             require_self_cancel: true,
             allow_cancellation: Vec::new(),
+            require_task_creator_match: true,
         }
     }
 
@@ -109,7 +113,18 @@ impl TaskStateManager {
             max_duration_secs,
             require_self_cancel,
             allow_cancellation,
+            require_task_creator_match: true,
         }
+    }
+
+    /// Set the require_task_creator_match flag.
+    pub fn set_require_task_creator_match(&mut self, require: bool) {
+        self.require_task_creator_match = require;
+    }
+
+    /// Check if task creator matching is required.
+    pub fn requires_creator_match(&self) -> bool {
+        self.require_task_creator_match
     }
 
     /// Create a shareable reference to this manager.
@@ -285,6 +300,63 @@ impl TaskStateManager {
                 None => Ok(false),
             }
         }
+    }
+
+    /// Phase 1: Verify that a requester has access to a task.
+    ///
+    /// When `require_creator_match` is true, denies access if:
+    /// - The task has a `created_by` and it doesn't match the requester's agent_id
+    /// - The task has a `session_id` and it doesn't match the requester's session
+    ///
+    /// Returns `Ok(())` if access is allowed, `Err(reason)` if denied.
+    pub async fn verify_task_access(
+        &self,
+        task_id: &str,
+        requester_agent_id: Option<&str>,
+        requester_session_id: Option<&str>,
+        require_creator_match: bool,
+    ) -> Result<(), String> {
+        if !require_creator_match {
+            return Ok(());
+        }
+        let tasks = self.tasks.read().await;
+        let task = match tasks.get(task_id) {
+            Some(t) => t,
+            None => return Ok(()), // Unknown task — let the server handle it
+        };
+
+        // Check agent identity match
+        if let Some(creator) = &task.created_by {
+            match requester_agent_id {
+                Some(requester) if requester == creator => {}
+                Some(_) => {
+                    return Err(
+                        "task access denied: requester does not match task creator".to_string(),
+                    );
+                }
+                None => {
+                    return Err(
+                        "task access denied: no agent identity for creator-bound task".to_string(),
+                    );
+                }
+            }
+        }
+
+        // Check session match
+        if let Some(task_session) = &task.session_id {
+            match requester_session_id {
+                Some(requester_session) if requester_session == task_session => {}
+                Some(_) => {
+                    return Err(
+                        "task access denied: requester session does not match task session"
+                            .to_string(),
+                    );
+                }
+                None => {} // No session provided — allow (session binding is optional)
+            }
+        }
+
+        Ok(())
     }
 
     /// Get a task by ID.
@@ -646,5 +718,95 @@ mod tests {
         let removed = manager.cleanup_old_tasks(0).await;
         assert_eq!(removed, 1);
         assert!(manager.get_task("task-1").await.is_none());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 1: Task access verification tests
+    // ═══════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_verify_task_access_creator_match_allowed() {
+        let manager = TaskStateManager::new(10, 3600);
+        let task = make_task("t1", Some("agent-A"), Some("session-1"));
+        manager.register_task(task).await.unwrap();
+
+        let result = manager
+            .verify_task_access("t1", Some("agent-A"), Some("session-1"), true)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_task_access_different_agent_denied() {
+        let manager = TaskStateManager::new(10, 3600);
+        let task = make_task("t1", Some("agent-A"), Some("session-1"));
+        manager.register_task(task).await.unwrap();
+
+        let result = manager
+            .verify_task_access("t1", Some("agent-B"), Some("session-1"), true)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not match"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_task_access_different_session_denied() {
+        let manager = TaskStateManager::new(10, 3600);
+        let task = make_task("t1", Some("agent-A"), Some("session-1"));
+        manager.register_task(task).await.unwrap();
+
+        let result = manager
+            .verify_task_access("t1", Some("agent-A"), Some("session-2"), true)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("session"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_task_access_no_agent_denied_for_creator_bound() {
+        let manager = TaskStateManager::new(10, 3600);
+        let task = make_task("t1", Some("agent-A"), None);
+        manager.register_task(task).await.unwrap();
+
+        let result = manager.verify_task_access("t1", None, None, true).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no agent identity"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_task_access_disabled_allows_all() {
+        let manager = TaskStateManager::new(10, 3600);
+        let task = make_task("t1", Some("agent-A"), Some("session-1"));
+        manager.register_task(task).await.unwrap();
+
+        // require_creator_match = false → allow anyone
+        let result = manager
+            .verify_task_access("t1", Some("agent-B"), Some("session-2"), false)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_task_access_unknown_task_allowed() {
+        let manager = TaskStateManager::new(10, 3600);
+
+        // Unknown task — let the server handle 404
+        let result = manager
+            .verify_task_access("unknown", Some("agent-X"), None, true)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_task_access_no_creator_on_task_allows() {
+        let manager = TaskStateManager::new(10, 3600);
+        let task = make_task("t1", None, None);
+        manager.register_task(task).await.unwrap();
+
+        // Task has no creator — anyone can access
+        let result = manager
+            .verify_task_access("t1", Some("agent-X"), None, true)
+            .await;
+        assert!(result.is_ok());
     }
 }

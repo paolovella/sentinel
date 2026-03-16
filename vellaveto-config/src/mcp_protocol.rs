@@ -432,6 +432,14 @@ pub struct AsyncTaskConfig {
     /// Retention period for completed tasks in seconds. Default: 3600.
     #[serde(default = "default_task_retention_secs")]
     pub task_retention_secs: u64,
+
+    /// Phase 1: Require task poll/get to come from the same agent that created it.
+    /// When true, `tasks/get` requests are denied if the requester's agent_id
+    /// doesn't match the task creator's agent_id. Prevents a lower-trust agent
+    /// from retrieving results authorized under a higher-trust agent's context.
+    /// Default: true (fail-closed).
+    #[serde(default = "default_true")]
+    pub require_task_creator_match: bool,
 }
 
 fn default_max_nonces() -> usize {
@@ -462,6 +470,7 @@ impl Default for AsyncTaskConfig {
             enable_checkpoints: false,
             checkpoint_interval: default_checkpoint_interval(),
             task_retention_secs: default_task_retention_secs(),
+            require_task_creator_match: true,
         }
     }
 }

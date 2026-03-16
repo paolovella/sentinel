@@ -833,6 +833,97 @@ impl ToolQuota {
     }
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 2: SECRET SUBSTITUTION
+// ═══════════════════════════════════════════════════
+
+/// Secret substitution entry — replaces a named secret with a placeholder
+/// before the model sees tool call parameters, then restores the real value
+/// at execution time.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [[secret_substitutions]]
+/// name = "GITHUB_TOKEN"
+/// env_var = "GITHUB_TOKEN"
+/// placeholder = "{{GITHUB_TOKEN}}"
+/// tool_patterns = ["github_*", "git_*"]
+/// param_paths = ["token", "auth.token", "headers.Authorization"]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SecretSubstitution {
+    /// Human-readable name for this secret.
+    pub name: String,
+    /// Environment variable containing the real secret value.
+    pub env_var: String,
+    /// Placeholder string that replaces the secret in model-visible params.
+    /// Must not appear naturally in legitimate parameters.
+    #[serde(default = "default_placeholder")]
+    pub placeholder: String,
+    /// Tool patterns this substitution applies to (glob). Empty = all tools.
+    #[serde(default)]
+    pub tool_patterns: Vec<String>,
+    /// JSON parameter paths to substitute (e.g., "token", "auth.token").
+    /// Empty = scan all string parameters.
+    #[serde(default)]
+    pub param_paths: Vec<String>,
+}
+
+fn default_placeholder() -> String {
+    "{{SECRET}}".to_string()
+}
+
+/// Maximum number of secret substitution entries.
+pub const MAX_SECRET_SUBSTITUTIONS: usize = 64;
+
+impl SecretSubstitution {
+    /// Validate a single secret substitution entry.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() || self.name.len() > 128 {
+            return Err("secret_substitutions[].name must be 1-128 chars".to_string());
+        }
+        if vellaveto_types::has_dangerous_chars(&self.name) {
+            return Err("secret_substitutions[].name contains dangerous characters".to_string());
+        }
+        if self.env_var.is_empty() || self.env_var.len() > 256 {
+            return Err("secret_substitutions[].env_var must be 1-256 chars".to_string());
+        }
+        if vellaveto_types::has_dangerous_chars(&self.env_var) {
+            return Err(
+                "secret_substitutions[].env_var contains dangerous characters".to_string(),
+            );
+        }
+        if self.placeholder.is_empty() || self.placeholder.len() > 128 {
+            return Err("secret_substitutions[].placeholder must be 1-128 chars".to_string());
+        }
+        for (i, pattern) in self.tool_patterns.iter().enumerate() {
+            if pattern.len() > 256 || vellaveto_types::has_dangerous_chars(pattern) {
+                return Err(format!(
+                    "secret_substitutions[].tool_patterns[{i}] invalid"
+                ));
+            }
+        }
+        if self.tool_patterns.len() > 64 {
+            return Err(
+                "secret_substitutions[].tool_patterns exceeds 64 entries".to_string(),
+            );
+        }
+        for (i, path) in self.param_paths.iter().enumerate() {
+            if path.len() > 256 || vellaveto_types::has_dangerous_chars(path) {
+                return Err(format!(
+                    "secret_substitutions[].param_paths[{i}] invalid"
+                ));
+            }
+        }
+        if self.param_paths.len() > 64 {
+            return Err("secret_substitutions[].param_paths exceeds 64 entries".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Default step-up auth expiry (30 minutes in seconds).
 fn default_step_up_expiry_secs() -> u64 {
     1800
@@ -1369,6 +1460,58 @@ mod tests {
             on_exceed: "deny".to_string(),
         };
         assert!(q.validate().unwrap_err().contains("control"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 2: SecretSubstitution validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_secret_substitution_validate_ok() {
+        let s = SecretSubstitution {
+            name: "GITHUB_TOKEN".to_string(),
+            env_var: "GITHUB_TOKEN".to_string(),
+            placeholder: "{{GITHUB_TOKEN}}".to_string(),
+            tool_patterns: vec!["github_*".to_string()],
+            param_paths: vec!["token".to_string()],
+        };
+        assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn test_secret_substitution_validate_empty_name_rejected() {
+        let s = SecretSubstitution {
+            name: String::new(),
+            env_var: "X".to_string(),
+            placeholder: "{{X}}".to_string(),
+            tool_patterns: Vec::new(),
+            param_paths: Vec::new(),
+        };
+        assert!(s.validate().unwrap_err().contains("name"));
+    }
+
+    #[test]
+    fn test_secret_substitution_validate_empty_env_var_rejected() {
+        let s = SecretSubstitution {
+            name: "X".to_string(),
+            env_var: String::new(),
+            placeholder: "{{X}}".to_string(),
+            tool_patterns: Vec::new(),
+            param_paths: Vec::new(),
+        };
+        assert!(s.validate().unwrap_err().contains("env_var"));
+    }
+
+    #[test]
+    fn test_secret_substitution_validate_dangerous_chars_rejected() {
+        let s = SecretSubstitution {
+            name: "test\x00".to_string(),
+            env_var: "X".to_string(),
+            placeholder: "{{X}}".to_string(),
+            tool_patterns: Vec::new(),
+            param_paths: Vec::new(),
+        };
+        assert!(s.validate().unwrap_err().contains("dangerous"));
     }
 
     // ═══════════════════════════════════════════════════

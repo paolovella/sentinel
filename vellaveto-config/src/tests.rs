@@ -1140,6 +1140,7 @@ fn test_validate_rejects_too_many_policies() {
         shield: Default::default(),
         acis: Default::default(),
         tool_quotas: Default::default(),
+        secret_substitutions: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {

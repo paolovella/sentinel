@@ -90,9 +90,9 @@ pub use manifest::{
 
 pub use mcp_protocol::{
     AsyncTaskConfig, CimdConfig, ElicitationConfig, ResourceIndicatorConfig, SamplingConfig,
-    StepUpAuthConfig, StreamableHttpConfig, ToolQuota, MAX_ALLOWED_MODELS, MAX_ALLOWED_RESOURCES,
-    MAX_ALLOW_CANCELLATION, MAX_BLOCKED_FIELD_TYPES, MAX_CAPABILITIES, MAX_TOOL_QUOTAS,
-    MAX_TRIGGER_TOOLS,
+    SecretSubstitution, StepUpAuthConfig, StreamableHttpConfig, ToolQuota, MAX_ALLOWED_MODELS,
+    MAX_ALLOWED_RESOURCES, MAX_ALLOW_CANCELLATION, MAX_BLOCKED_FIELD_TYPES, MAX_CAPABILITIES,
+    MAX_SECRET_SUBSTITUTIONS, MAX_TOOL_QUOTAS, MAX_TRIGGER_TOOLS,
 };
 
 pub use etdi::{AllowedSignersConfig, AttestationConfig, EtdiConfig, VersionPinningConfig};
@@ -311,6 +311,11 @@ pub struct PolicyConfig {
     /// ```
     #[serde(default)]
     pub tool_quotas: Vec<ToolQuota>,
+
+    /// Phase 2: Secret substitution — replace secrets with placeholders before
+    /// model visibility, restore at execution boundaries.
+    #[serde(default)]
+    pub secret_substitutions: Vec<SecretSubstitution>,
 
     /// RFC 8707 Resource Indicator configuration.
     #[serde(default)]

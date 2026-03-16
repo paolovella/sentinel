@@ -407,6 +407,18 @@ impl PolicyConfig {
                 .map_err(|e| format!("tool_quotas[{i}]: {e}"))?;
         }
 
+        // Phase 2: Validate secret substitutions.
+        if self.secret_substitutions.len() > crate::MAX_SECRET_SUBSTITUTIONS {
+            return Err(format!(
+                "secret_substitutions exceeds {} entries",
+                crate::MAX_SECRET_SUBSTITUTIONS
+            ));
+        }
+        for (i, sub) in self.secret_substitutions.iter().enumerate() {
+            sub.validate()
+                .map_err(|e| format!("secret_substitutions[{i}]: {e}"))?;
+        }
+
         // SECURITY (R24-SUP-6): Validate webhook_url scheme to prevent SSRF.
         // Only HTTPS is allowed for webhook destinations.
         if let Some(ref wh_url) = self.audit_export.webhook_url {

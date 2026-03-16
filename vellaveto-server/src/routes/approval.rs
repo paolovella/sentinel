@@ -201,6 +201,9 @@ pub async fn get_approval(
         )
     })?;
 
+    // Phase 2: Generate fact summary before approval is moved into JSON.
+    let fact_summary = approval.fact_summary();
+
     let mut value = serde_json::to_value(approval).map_err(|e| {
         tracing::error!("Approval serialization error: {}", e);
         (
@@ -216,6 +219,10 @@ pub async fn get_approval(
             let redacted = vellaveto_audit::redact_keys_and_patterns(params);
             action["parameters"] = redacted;
         }
+    }
+    // Phase 2: Include fact summary for human reviewers.
+    if let Ok(summary_json) = serde_json::to_value(&fact_summary) {
+        value["fact_summary"] = summary_json;
     }
     Ok(Json(value))
 }

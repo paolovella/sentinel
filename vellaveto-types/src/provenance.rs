@@ -221,6 +221,101 @@ pub const fn minimum_trust_tier_for_sink(sink_class: SinkClass) -> TrustTier {
     }
 }
 
+/// Phase 3 (WP 3A): Product lattice point `TrustTier × SinkClass`.
+///
+/// Represents a position in the enforcement space where trust level
+/// and sink privilege are composed. Flow admissibility is checked against
+/// this: data at trust level T can reach sink S only if
+/// `T >= minimum_trust_tier_for_sink(S)` or explicit declassification exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlowPoint {
+    pub trust: TrustTier,
+    pub sink: SinkClass,
+}
+
+impl FlowPoint {
+    pub const fn new(trust: TrustTier, sink: SinkClass) -> Self {
+        Self { trust, sink }
+    }
+
+    /// Check if this flow point is admissible — data at this trust level
+    /// may reach this sink class without explicit declassification.
+    pub const fn is_admissible(&self) -> bool {
+        self.trust
+            .at_least_as_trusted_as(minimum_trust_tier_for_sink(self.sink))
+    }
+
+    /// Check flow admissibility with optional explicit declassification.
+    pub const fn is_admissible_with_declassification(&self, declassified: bool) -> bool {
+        declassified || self.is_admissible()
+    }
+
+    /// Compose two flow points: meet of trust, join of sink.
+    /// This models sequential composition where data flows through
+    /// two stages — trust can only decrease, privilege can only increase.
+    pub const fn compose(self, other: Self) -> Self {
+        Self {
+            trust: self.trust.meet(other.trust),
+            sink: self.sink.join(other.sink),
+        }
+    }
+
+    /// The gap between current trust and required trust for this sink.
+    /// Returns 0 if admissible, positive otherwise.
+    pub const fn trust_deficit(&self) -> u8 {
+        let required = minimum_trust_tier_for_sink(self.sink).rank();
+        let actual = self.trust.rank();
+        required.saturating_sub(actual)
+    }
+}
+
+/// Phase 3 (WP 3B): Check if a cross-server information flow is admissible.
+///
+/// Given source trust tier (from lineage) and target sink class (from action),
+/// returns the flow verdict:
+/// - `FlowAdmissible` if trust meets the sink's minimum
+/// - `FlowDenied` with the deficit if not
+/// - `FlowGated` if within approval threshold
+pub fn check_flow_admissibility(
+    source_trust: TrustTier,
+    target_sink: SinkClass,
+    declassified: bool,
+    approval_threshold: u8,
+) -> FlowVerdict {
+    let point = FlowPoint::new(source_trust, target_sink);
+    if point.is_admissible_with_declassification(declassified) {
+        FlowVerdict::Admissible
+    } else {
+        let deficit = point.trust_deficit();
+        if deficit <= approval_threshold {
+            FlowVerdict::Gated {
+                trust_deficit: deficit,
+            }
+        } else {
+            FlowVerdict::Denied {
+                trust_deficit: deficit,
+                required: minimum_trust_tier_for_sink(target_sink),
+                actual: source_trust,
+            }
+        }
+    }
+}
+
+/// Result of a flow admissibility check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FlowVerdict {
+    /// Flow is admissible — trust meets sink requirements.
+    Admissible,
+    /// Flow is gated — trust is below requirement but within approval threshold.
+    Gated { trust_deficit: u8 },
+    /// Flow is denied — trust deficit exceeds approval threshold.
+    Denied {
+        trust_deficit: u8,
+        required: TrustTier,
+        actual: TrustTier,
+    },
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextChannel {
@@ -1107,6 +1202,95 @@ mod tests {
             ctx.semantic_risk_score,
             Some(SemanticRiskScore { value: 70 })
         );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 1: SecurityContextToken tests
+    // ═══════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════
+    // Phase 3: Flow lattice tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_flow_point_admissible_verified_to_policy_mutation() {
+        let fp = FlowPoint::new(TrustTier::Verified, SinkClass::PolicyMutation);
+        assert!(fp.is_admissible());
+        assert_eq!(fp.trust_deficit(), 0);
+    }
+
+    #[test]
+    fn test_flow_point_inadmissible_untrusted_to_code_execution() {
+        let fp = FlowPoint::new(TrustTier::Untrusted, SinkClass::CodeExecution);
+        assert!(!fp.is_admissible());
+        assert!(fp.trust_deficit() > 0);
+    }
+
+    #[test]
+    fn test_flow_point_admissible_with_declassification() {
+        let fp = FlowPoint::new(TrustTier::Low, SinkClass::CodeExecution);
+        assert!(!fp.is_admissible());
+        assert!(fp.is_admissible_with_declassification(true));
+    }
+
+    #[test]
+    fn test_flow_point_compose_degrades_trust() {
+        let a = FlowPoint::new(TrustTier::High, SinkClass::ReadOnly);
+        let b = FlowPoint::new(TrustTier::Low, SinkClass::CodeExecution);
+        let composed = a.compose(b);
+        assert_eq!(composed.trust, TrustTier::Low); // meet
+        assert_eq!(composed.sink, SinkClass::CodeExecution); // join
+    }
+
+    #[test]
+    fn test_check_flow_admissibility_admissible() {
+        let v = check_flow_admissibility(
+            TrustTier::Verified,
+            SinkClass::CodeExecution,
+            false,
+            2,
+        );
+        assert_eq!(v, FlowVerdict::Admissible);
+    }
+
+    #[test]
+    fn test_check_flow_admissibility_gated() {
+        // Medium trust to CodeExecution (requires Verified, deficit = 2)
+        let v = check_flow_admissibility(
+            TrustTier::Medium,
+            SinkClass::CodeExecution,
+            false,
+            3, // threshold >= deficit → gated
+        );
+        assert!(matches!(v, FlowVerdict::Gated { .. }));
+    }
+
+    #[test]
+    fn test_check_flow_admissibility_denied() {
+        let v = check_flow_admissibility(
+            TrustTier::Untrusted,
+            SinkClass::PolicyMutation,
+            false,
+            1, // threshold < deficit → denied
+        );
+        match v {
+            FlowVerdict::Denied { required, actual, .. } => {
+                assert_eq!(required, TrustTier::Verified);
+                assert_eq!(actual, TrustTier::Untrusted);
+            }
+            _ => panic!("Expected Denied"),
+        }
+    }
+
+    #[test]
+    fn test_check_flow_admissibility_declassified() {
+        let v = check_flow_admissibility(
+            TrustTier::Quarantined,
+            SinkClass::PolicyMutation,
+            true, // explicitly declassified
+            0,
+        );
+        assert_eq!(v, FlowVerdict::Admissible);
     }
 
     // ═══════════════════════════════════════════════════

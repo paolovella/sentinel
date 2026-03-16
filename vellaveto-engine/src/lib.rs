@@ -27,6 +27,7 @@ mod compiled;
 mod constraint_eval;
 mod context_check;
 pub mod coverage;
+pub mod delegation;
 pub mod deputy;
 mod domain;
 mod entropy_gate;

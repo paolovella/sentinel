@@ -106,6 +106,12 @@ pub struct ProxyBridge {
     /// Phase 1: Extension registry for allow/block pattern enforcement.
     extension_registry: Option<Arc<crate::extension_registry::ExtensionRegistry>>,
 
+    /// Phase 2: Per-tool rate limiting and quota enforcement.
+    tool_quota_tracker: Option<std::sync::Mutex<crate::tool_quota::ToolQuotaTracker>>,
+
+    /// Phase 2: Secret substitution engine (outbound: secret→placeholder, inbound: placeholder→secret).
+    secret_substitution: Option<crate::secret_substitution::SecretSubstitutionEngine>,
+
     /// Auth level tracker for step-up authentication (Phase 1).
     auth_level: Option<Arc<AuthLevelTracker>>,
 
@@ -290,6 +296,8 @@ impl ProxyBridge {
             // Phase 1 & 2 managers (default: disabled)
             task_state: None,
             extension_registry: None,
+            tool_quota_tracker: None,
+            secret_substitution: None,
             auth_level: None,
             circuit_breaker: None,
             deputy: None,

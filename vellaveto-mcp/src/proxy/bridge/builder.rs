@@ -145,6 +145,24 @@ impl ProxyBridge {
         self
     }
 
+    /// Phase 2: Set the tool quota tracker for per-tool rate limiting.
+    pub fn with_tool_quota_tracker(
+        mut self,
+        tracker: crate::tool_quota::ToolQuotaTracker,
+    ) -> Self {
+        self.tool_quota_tracker = Some(std::sync::Mutex::new(tracker));
+        self
+    }
+
+    /// Phase 2: Set the secret substitution engine.
+    pub fn with_secret_substitution(
+        mut self,
+        engine: crate::secret_substitution::SecretSubstitutionEngine,
+    ) -> Self {
+        self.secret_substitution = Some(engine);
+        self
+    }
+
     /// Phase 1: Set the extension registry for allow/block pattern enforcement.
     pub fn with_extension_registry(
         mut self,

@@ -1555,7 +1555,7 @@ impl ProxyBridge {
     /// Handle a `tools/call` request from the agent.
     async fn handle_tool_call(
         &self,
-        msg: Value,
+        mut msg: Value,
         id: Value,
         tool_name: String,
         arguments: Value,
@@ -2442,6 +2442,71 @@ impl ProxyBridge {
             resolve_domains(&mut action).await;
         }
 
+        // Phase 2: Secret substitution — replace secrets with placeholders before
+        // the model/policy engine sees the parameters. The real values are restored
+        // before forwarding to the child server (see restore_inbound below).
+        if let Some(ref engine) = self.secret_substitution {
+            if let Some(params) = msg.pointer_mut("/params/arguments") {
+                engine.substitute_outbound(&tool_name, params);
+            }
+        }
+
+        // Phase 2: Per-tool quota enforcement — check before policy evaluation.
+        // Mutex guard is dropped before any await points.
+        if let Some(ref tracker) = self.tool_quota_tracker {
+            let quota_result = tracker
+                .lock()
+                .ok()
+                .and_then(|mut guard| guard.check_quota(&tool_name).err());
+            if let Some(exceeded) = quota_result {
+                tracing::warn!(
+                    "SECURITY: Tool quota exceeded for '{}': {}",
+                    vellaveto_types::sanitize_for_log(&tool_name, 64),
+                    exceeded
+                );
+                let verdict = if exceeded.on_exceed == "require_approval" {
+                    Verdict::RequireApproval {
+                        reason: exceeded.to_string(),
+                    }
+                } else {
+                    Verdict::Deny {
+                        reason: exceeded.to_string(),
+                    }
+                };
+                let qe_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::RateLimiter,
+                    "stdio",
+                    state.agent_id.as_deref(),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "tool_quota_exceeded",
+                            "tool": vellaveto_types::sanitize_for_log(&tool_name, 64),
+                            "max_calls": exceeded.max_calls,
+                            "window_secs": exceeded.window_secs,
+                        }),
+                        qe_envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit tool quota exceeded: {}", e);
+                }
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
         let ann = state.known_tool_annotations.get(&tool_name);
         let eval_ctx =
             state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
@@ -2663,7 +2728,8 @@ impl ProxyBridge {
                 // Consumer shield: sanitize outbound request parameters
                 // SECURITY: Fail-closed — if sanitization fails, PII must not leak to provider.
                 #[cfg(feature = "consumer-shield")]
-                let msg = if let Some(ref sanitizer) = self.shield_sanitizer {
+                #[allow(unused_mut)]
+                let mut msg = if let Some(ref sanitizer) = self.shield_sanitizer {
                     match sanitizer.sanitize_json(&msg) {
                         Ok(sanitized) => sanitized,
                         Err(e) => {
@@ -2709,7 +2775,7 @@ impl ProxyBridge {
                 // SECURITY: Fail-closed — if normalization fails, writing style fingerprint
                 // could identify the user. Block the request rather than leak style.
                 #[cfg(feature = "consumer-shield")]
-                let msg = if let Some(ref normalizer) = self.shield_stylometric {
+                let mut msg = if let Some(ref normalizer) = self.shield_stylometric {
                     match normalizer.normalize_json(&msg) {
                         Ok(normalized) => normalized,
                         Err(e) => {
@@ -2831,6 +2897,21 @@ impl ProxyBridge {
                 // PendingRequest — parity with passthrough handler (line ~2057).
                 let truncated_tool: String = tool_name.chars().take(256).collect();
                 state.track_pending_request(&id, truncated_tool, eval_trace);
+
+                // Phase 2: Record tool call for quota tracking.
+                if let Some(ref tracker) = self.tool_quota_tracker {
+                    if let Ok(mut guard) = tracker.lock() {
+                        guard.record_call(&tool_name);
+                    }
+                }
+
+                // Phase 2: Secret substitution — restore real secrets before
+                // forwarding to the child server (model saw placeholders).
+                if let Some(ref engine) = self.secret_substitution {
+                    if let Some(params) = msg.pointer_mut("/params/arguments") {
+                        engine.restore_inbound(&tool_name, params);
+                    }
+                }
 
                 write_message(child_stdin, &msg)
                     .await

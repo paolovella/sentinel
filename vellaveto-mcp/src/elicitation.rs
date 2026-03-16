@@ -142,6 +142,43 @@ pub fn inspect_elicitation(
         }
     }
 
+    // Phase 1: URL domain validation — deny elicitation containing URLs with
+    // blocked domains or domains not in the allowed list.
+    if !config.blocked_url_domains.is_empty() || !config.allowed_url_domains.is_empty() {
+        let urls = extract_urls_from_elicitation(params);
+        for url in &urls {
+            let domain = vellaveto_engine::PolicyEngine::extract_domain(url);
+            if domain.is_empty() {
+                continue;
+            }
+            // Check blocked domains first
+            for blocked in &config.blocked_url_domains {
+                if vellaveto_engine::PolicyEngine::match_domain_pattern(&domain, blocked) {
+                    return ElicitationVerdict::Deny {
+                        reason: format!(
+                            "elicitation contains URL with blocked domain '{}'",
+                            &domain[..domain.len().min(64)]
+                        ),
+                    };
+                }
+            }
+            // If allowed list is non-empty, domain must match at least one
+            if !config.allowed_url_domains.is_empty()
+                && !config
+                    .allowed_url_domains
+                    .iter()
+                    .any(|allowed| vellaveto_engine::PolicyEngine::match_domain_pattern(&domain, allowed))
+            {
+                return ElicitationVerdict::Deny {
+                    reason: format!(
+                        "elicitation contains URL with domain '{}' not in allowed list",
+                        &domain[..domain.len().min(64)]
+                    ),
+                };
+            }
+        }
+    }
+
     ElicitationVerdict::Allow
 }
 
@@ -602,6 +639,90 @@ fn content_contains_tool_result(content: &Value) -> bool {
     }
 }
 
+/// Maximum number of URLs to extract from elicitation content.
+const MAX_ELICITATION_URLS: usize = 256;
+
+/// Extract URLs from an elicitation request.
+///
+/// Scans `title`, `message`, and `requestedSchema`/`schema` for HTTP(S) URLs.
+/// Extracts from: schema `default` values, `examples`, `description` fields,
+/// property `format: "uri"` default values, and message/title text.
+fn extract_urls_from_elicitation(params: &Value) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    // Scan title and message for URLs
+    for field in ["title", "message"] {
+        if let Some(text) = params.get(field).and_then(|v| v.as_str()) {
+            extract_urls_from_text(text, &mut urls);
+        }
+    }
+
+    // Scan schema defaults, descriptions, and examples
+    if let Some(schema) = params
+        .get("requestedSchema")
+        .or_else(|| params.get("schema"))
+    {
+        extract_urls_from_schema(schema, &mut urls, 0);
+    }
+
+    urls
+}
+
+/// Extract HTTP(S) URLs from a text string.
+fn extract_urls_from_text(text: &str, urls: &mut Vec<String>) {
+    // Simple URL extraction — find http:// and https:// and take until whitespace or end
+    for prefix in ["https://", "http://"] {
+        let mut start = 0;
+        while let Some(pos) = text[start..].find(prefix) {
+            if urls.len() >= MAX_ELICITATION_URLS {
+                return;
+            }
+            let abs_pos = start + pos;
+            let url_start = abs_pos;
+            let url_end = text[url_start..]
+                .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '>' || c == ')')
+                .map(|i| url_start + i)
+                .unwrap_or(text.len());
+            let url = &text[url_start..url_end];
+            if url.len() > prefix.len() && !urls.iter().any(|u| u == url) {
+                urls.push(url.to_string());
+            }
+            start = url_end;
+        }
+    }
+}
+
+/// Recursively extract URLs from JSON Schema defaults, descriptions, and examples.
+fn extract_urls_from_schema(schema: &Value, urls: &mut Vec<String>, depth: usize) {
+    if depth >= 8 || urls.len() >= MAX_ELICITATION_URLS {
+        return;
+    }
+    // Check string fields that might contain URLs
+    for field in ["default", "description", "example"] {
+        if let Some(text) = schema.get(field).and_then(|v| v.as_str()) {
+            extract_urls_from_text(text, urls);
+        }
+    }
+    // Check examples array
+    if let Some(examples) = schema.get("examples").and_then(|e| e.as_array()) {
+        for ex in examples {
+            if let Some(text) = ex.as_str() {
+                extract_urls_from_text(text, urls);
+            }
+        }
+    }
+    // Recurse into properties
+    if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+        for (_key, prop_schema) in props {
+            extract_urls_from_schema(prop_schema, urls, depth + 1);
+        }
+    }
+    // Recurse into items (array schemas)
+    if let Some(items) = schema.get("items") {
+        extract_urls_from_schema(items, urls, depth + 1);
+    }
+}
+
 /// Maximum number of tool references to extract from a sampling request.
 /// Prevents OOM from adversarial messages with thousands of tool_use blocks.
 const MAX_TOOL_REFS: usize = 256;
@@ -712,6 +833,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 5,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -737,6 +859,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string(), "ssn".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         // Schema with a "password" format field
@@ -771,6 +894,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         // Property named "password" — suspicious regardless of type
@@ -797,6 +921,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -822,6 +947,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 3,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -868,6 +994,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 5,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -887,6 +1014,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["ssn".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         // Nested property with blocked name
@@ -910,6 +1038,133 @@ mod tests {
             matches!(verdict, ElicitationVerdict::Deny { .. }),
             "Expected Deny for nested blocked field type, got: {verdict:?}"
         );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 1: Elicitation URL domain policy tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_elicitation_blocked_url_domain_in_message() {
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_url_domains: vec!["evil.com".to_string(), "*.phishing.net".to_string()],
+            ..ElicitationConfig::default()
+        };
+        let params = json!({
+            "message": "Please visit https://evil.com/login to verify your account",
+            "requestedSchema": {"type": "object", "properties": {"token": {"type": "string"}}}
+        });
+        let verdict = inspect_elicitation(&params, &config, 0);
+        match verdict {
+            ElicitationVerdict::Deny { reason } => {
+                assert!(reason.contains("blocked domain"), "{reason}");
+            }
+            ElicitationVerdict::Allow => panic!("Expected Deny for blocked URL domain"),
+        }
+    }
+
+    #[test]
+    fn test_elicitation_blocked_url_domain_wildcard() {
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_url_domains: vec!["*.phishing.net".to_string()],
+            ..ElicitationConfig::default()
+        };
+        let params = json!({
+            "message": "Go to https://login.phishing.net/steal",
+            "requestedSchema": {"type": "object"}
+        });
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(matches!(verdict, ElicitationVerdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_elicitation_allowed_url_domain_passes() {
+        let config = ElicitationConfig {
+            enabled: true,
+            allowed_url_domains: vec!["example.com".to_string(), "*.myapp.io".to_string()],
+            ..ElicitationConfig::default()
+        };
+        let params = json!({
+            "message": "Visit https://example.com/docs for help",
+            "requestedSchema": {"type": "object"}
+        });
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(matches!(verdict, ElicitationVerdict::Allow));
+    }
+
+    #[test]
+    fn test_elicitation_allowed_url_domain_blocks_unknown() {
+        let config = ElicitationConfig {
+            enabled: true,
+            allowed_url_domains: vec!["example.com".to_string()],
+            ..ElicitationConfig::default()
+        };
+        let params = json!({
+            "message": "Visit https://unknown-site.com/phish",
+            "requestedSchema": {"type": "object"}
+        });
+        let verdict = inspect_elicitation(&params, &config, 0);
+        match verdict {
+            ElicitationVerdict::Deny { reason } => {
+                assert!(reason.contains("not in allowed list"), "{reason}");
+            }
+            ElicitationVerdict::Allow => panic!("Expected Deny for domain not in allowed list"),
+        }
+    }
+
+    #[test]
+    fn test_elicitation_url_in_schema_default() {
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_url_domains: vec!["evil.com".to_string()],
+            ..ElicitationConfig::default()
+        };
+        let params = json!({
+            "requestedSchema": {
+                "type": "object",
+                "properties": {
+                    "callback": {
+                        "type": "string",
+                        "default": "https://evil.com/callback"
+                    }
+                }
+            }
+        });
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(matches!(verdict, ElicitationVerdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_elicitation_no_urls_passes_with_domain_config() {
+        let config = ElicitationConfig {
+            enabled: true,
+            allowed_url_domains: vec!["example.com".to_string()],
+            ..ElicitationConfig::default()
+        };
+        let params = json!({
+            "message": "Enter your name",
+            "requestedSchema": {"type": "object", "properties": {"name": {"type": "string"}}}
+        });
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(matches!(verdict, ElicitationVerdict::Allow));
+    }
+
+    #[test]
+    fn test_extract_urls_from_text_basic() {
+        let mut urls = Vec::new();
+        extract_urls_from_text("Visit https://example.com/docs and http://test.io/api for info", &mut urls);
+        assert_eq!(urls.len(), 2);
+        assert!(urls.contains(&"https://example.com/docs".to_string()));
+        assert!(urls.contains(&"http://test.io/api".to_string()));
+    }
+
+    #[test]
+    fn test_extract_urls_from_text_deduplicates() {
+        let mut urls = Vec::new();
+        extract_urls_from_text("https://example.com and https://example.com again", &mut urls);
+        assert_eq!(urls.len(), 1);
     }
 
     // ═══════════════════════════════════════════════════
@@ -1167,6 +1422,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1193,6 +1449,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1226,6 +1483,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         // Password hidden in "then" branch
@@ -1263,6 +1521,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1291,6 +1550,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1318,6 +1578,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["password".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1350,6 +1611,7 @@ mod tests {
             enabled: true,
             blocked_field_types: vec!["secret".to_string()],
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1606,6 +1868,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1642,6 +1905,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1669,6 +1933,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1733,6 +1998,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 10,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1754,6 +2020,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 5,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1775,6 +2042,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: 5,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({
@@ -1796,6 +2064,7 @@ mod tests {
             enabled: true,
             blocked_field_types: Vec::new(),
             max_per_session: u32::MAX,
+            ..ElicitationConfig::default()
         };
 
         let params = json!({

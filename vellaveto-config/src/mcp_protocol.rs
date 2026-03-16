@@ -38,6 +38,18 @@ pub struct ElicitationConfig {
     /// Maximum elicitation requests per session. Default: 5.
     #[serde(default = "default_max_elicitation")]
     pub max_per_session: u32,
+    /// Phase 1: Blocked URL domains in elicitation content.
+    /// Elicitation schemas can include `format: "uri"` fields or embed URLs
+    /// in descriptions/defaults that direct users to phishing sites. URLs
+    /// with domains matching these patterns are denied.
+    /// Supports wildcard prefix: `*.evil.com` matches `phish.evil.com`.
+    #[serde(default)]
+    pub blocked_url_domains: Vec<String>,
+    /// Phase 1: Allowed URL domains in elicitation content.
+    /// When non-empty, only URLs with domains matching these patterns are
+    /// permitted. All other URL domains are denied.
+    #[serde(default)]
+    pub allowed_url_domains: Vec<String>,
 }
 
 fn default_max_elicitation() -> u32 {
@@ -50,6 +62,8 @@ impl Default for ElicitationConfig {
             enabled: false,
             blocked_field_types: Vec::new(),
             max_per_session: default_max_elicitation(),
+            blocked_url_domains: Vec::new(),
+            allowed_url_domains: Vec::new(),
         }
     }
 }
@@ -62,6 +76,12 @@ pub const MAX_BLOCKED_FIELD_TYPES: usize = 100;
 /// SECURITY (FIND-R125-002): Unbounded entries could waste memory during
 /// case-insensitive matching in `schema_contains_field_type()`.
 pub const MAX_BLOCKED_FIELD_TYPE_LENGTH: usize = 128;
+
+/// Maximum number of URL domain entries for elicitation config.
+pub const MAX_ELICITATION_URL_DOMAINS: usize = 256;
+
+/// Maximum length of a single URL domain entry.
+pub const MAX_ELICITATION_URL_DOMAIN_LENGTH: usize = 256;
 
 impl ElicitationConfig {
     /// Validate configuration bounds.
@@ -90,6 +110,33 @@ impl ElicitationConfig {
                 return Err(format!(
                     "elicitation.blocked_field_types[{i}] contains control or format characters"
                 ));
+            }
+        }
+        // Phase 1: Validate URL domain lists.
+        for (list_name, list) in [
+            ("blocked_url_domains", &self.blocked_url_domains),
+            ("allowed_url_domains", &self.allowed_url_domains),
+        ] {
+            if list.len() > MAX_ELICITATION_URL_DOMAINS {
+                return Err(format!(
+                    "elicitation.{list_name} exceeds {MAX_ELICITATION_URL_DOMAINS} entries"
+                ));
+            }
+            for (i, entry) in list.iter().enumerate() {
+                if entry.is_empty() {
+                    return Err(format!("elicitation.{list_name}[{i}] is empty"));
+                }
+                if entry.len() > MAX_ELICITATION_URL_DOMAIN_LENGTH {
+                    return Err(format!(
+                        "elicitation.{list_name}[{i}] length {} exceeds max {MAX_ELICITATION_URL_DOMAIN_LENGTH}",
+                        entry.len()
+                    ));
+                }
+                if vellaveto_types::has_dangerous_chars(entry) {
+                    return Err(format!(
+                        "elicitation.{list_name}[{i}] contains control or format characters"
+                    ));
+                }
             }
         }
         Ok(())

@@ -7935,6 +7935,7 @@ fn test_elicitation_config_validate_empty_blocked_field_type() {
         enabled: true,
         blocked_field_types: vec!["password".to_string(), "".to_string()],
         max_per_session: 5,
+        ..Default::default()
     };
     let result = cfg.validate();
     assert!(
@@ -7953,6 +7954,7 @@ fn test_elicitation_config_validate_control_chars_in_blocked_field_type() {
         enabled: true,
         blocked_field_types: vec!["pass\x00word".to_string()],
         max_per_session: 5,
+        ..Default::default()
     };
     let result = cfg.validate();
     assert!(
@@ -7973,6 +7975,7 @@ fn test_elicitation_config_validate_oversized_blocked_field_type() {
             "x".repeat(crate::mcp_protocol::MAX_BLOCKED_FIELD_TYPE_LENGTH + 1)
         ],
         max_per_session: 5,
+        ..Default::default()
     };
     let result = cfg.validate();
     assert!(
@@ -7995,6 +7998,7 @@ fn test_elicitation_config_validate_valid_blocked_field_types() {
             "credit_card".to_string(),
         ],
         max_per_session: 5,
+        ..Default::default()
     };
     assert!(
         cfg.validate().is_ok(),

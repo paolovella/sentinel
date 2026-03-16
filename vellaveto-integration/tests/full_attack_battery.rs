@@ -894,6 +894,7 @@ fn attack_elicitation_password_harvest() {
         enabled: true,
         max_per_session: 10,
         blocked_field_types: vec!["password".to_string(), "secret".to_string()],
+        ..ElicitationConfig::default()
     };
 
     let params = json!({
@@ -923,6 +924,7 @@ fn attack_elicitation_oneof_hidden_password() {
         enabled: true,
         max_per_session: 10,
         blocked_field_types: vec!["password".to_string()],
+        ..ElicitationConfig::default()
     };
 
     let params = json!({
@@ -961,6 +963,7 @@ fn attack_elicitation_rate_limit() {
         enabled: true,
         max_per_session: 3,
         blocked_field_types: vec![],
+        ..ElicitationConfig::default()
     };
 
     let params = json!({"message": "Enter a value"});
@@ -991,6 +994,7 @@ fn attack_elicitation_additional_properties_secret() {
         enabled: true,
         max_per_session: 10,
         blocked_field_types: vec!["secret".to_string()],
+        ..ElicitationConfig::default()
     };
 
     let params = json!({

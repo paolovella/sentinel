@@ -345,6 +345,36 @@ pub async fn create_checkpoint(
     Ok(Json(value))
 }
 
+// Phase 2: OpenTelemetry span export
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Export recent audit entries as OTel-compatible spans.
+///
+/// GET /api/audit/otel-spans?limit=100
+///
+/// Converts audit entries to structured span records that can be
+/// forwarded to Jaeger, Grafana Tempo, or other OTel backends.
+pub async fn otel_spans(
+    State(_state): State<super::super::AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> axum::Json<serde_json::Value> {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(100)
+        .min(1000);
+
+    // OTel span export endpoint. The build_evaluation_span() converter exists
+    // in vellaveto_audit::otel_spans — this endpoint will wire to the audit
+    // query layer once file/PostgreSQL querying is integrated.
+    axum::Json(serde_json::json!({
+        "spans": [],
+        "count": 0,
+        "limit": limit,
+        "note": "OTel span export available — connect to audit query backend for live data"
+    }))
+}
+
 #[cfg(test)]
 #[allow(clippy::assertions_on_constants, clippy::unnecessary_literal_unwrap)]
 mod tests {
@@ -466,35 +496,4 @@ mod tests {
         let offset = None::<usize>.unwrap_or(0).min(total);
         assert_eq!(offset, 0);
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Phase 2: OpenTelemetry span export
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Export recent audit entries as OTel-compatible spans.
-///
-/// GET /api/audit/otel-spans?limit=100
-///
-/// Converts audit entries to structured span records that can be
-/// forwarded to Jaeger, Grafana Tempo, or other OTel backends.
-pub async fn otel_spans(
-    State(_state): State<super::super::AppState>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
-) -> axum::Json<serde_json::Value> {
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(100)
-        .min(1000);
-
-    // OTel span export endpoint. The build_evaluation_span() converter exists
-    // in vellaveto_audit::otel_spans — this endpoint will wire to the audit
-    // query layer once file/PostgreSQL querying is integrated.
-    axum::Json(serde_json::json!({
-        "spans": [],
-        "count": 0,
-        "limit": limit,
-        "note": "OTel span export available — connect to audit query backend for live data"
-    }))
 }

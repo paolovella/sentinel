@@ -339,3 +339,77 @@ allowed_url_domains = ["example.com", "*.myapp.io"]
 ```
 
 URL domain validation scans title, message, and schema defaults/descriptions for HTTP(S) URLs. Blocked domains are checked first, then the allowed list (if non-empty).
+
+## Policy Templates
+
+Write high-level intent, get full policies:
+
+```toml
+# Block credential file access (expands to Conditional policy with glob constraints)
+[[policy_templates]]
+template = "block_paths"
+name = "Block credentials"
+paths = ["/home/*/.aws/**", "/home/*/.ssh/**", "**/.env"]
+priority = 300
+
+# Block exfiltration domains (expands to regex constraints)
+[[policy_templates]]
+template = "block_domains"
+name = "Block exfil"
+domains = ["pastebin.com", "webhook.site", "*.ngrok.io"]
+priority = 275
+
+# Block dangerous shell commands
+[[policy_templates]]
+template = "block_commands"
+name = "Block dangerous commands"
+patterns = ["rm\\s+-rf\\s+/", "curl.*\\|.*sh"]
+priority = 250
+
+# Require approval for sensitive paths
+[[policy_templates]]
+template = "require_approval_paths"
+name = "Approve config changes"
+paths = ["/etc/**", "/var/lib/**"]
+priority = 200
+```
+
+Template types: `block_paths`, `block_domains`, `block_commands`, `require_approval_paths`, `allow_paths`. Each expands into a full `[[policies]]` entry with the correct constraint structure.
+
+## Output Contracts
+
+Declare expected output types for tools — violations are detected at runtime:
+
+```toml
+# read_file should return Data, not CommandLike content
+[[output_contracts]]
+tool_pattern = "read_*"
+expected_channels = ["Data", "ResourceContent"]
+on_violation = "Quarantine"
+
+# Any tool returning CommandLike or Url content is flagged
+[[output_contracts]]
+tool_pattern = "*"
+expected_channels = ["Data", "FreeText"]
+on_violation = "Log"
+```
+
+## Delegation Control
+
+Constrain multi-agent delegation chains:
+
+```toml
+[delegation]
+max_depth = 5                           # Maximum A→B→C chain depth
+forbid_trust_escalation = true          # B cannot claim higher trust than A
+allowed_targets = ["trusted-*"]         # Only delegate to trusted agents
+blocked_targets = ["evil-*"]            # Never delegate to these
+```
+
+## Contagion Controls
+
+Control how taint propagates across tool chains in a session:
+
+- `SessionPersistent` — taint persists for the entire session (strictest)
+- `DecayAfterClean(N)` — taint clears after N consecutive clean actions
+- `ExplicitClearOnly` — taint only clears on explicit declassification

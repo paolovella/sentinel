@@ -104,6 +104,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   require_approval_paths, allow_paths). `expand()` generates full policy
   rule JSON from 3-line TOML declarations. 6 new tests.
 
+- **Phase 3 Sprint 1 — Trust lattice enforcement (Mar 2026):**
+  `FlowPoint` product lattice (`TrustTier × SinkClass`) with `compose()`,
+  `is_admissible()`, `trust_deficit()`. `check_flow_admissibility()` returns
+  Admissible/Gated/Denied verdicts for inter-server flow control. 8 new tests.
+
+- **Phase 3 Sprint 2 — Delegation control (Mar 2026):**
+  `DelegationTracker` with chain depth limits, cycle detection, trust
+  monotonicity enforcement, and target allow/block lists. 8 new tests.
+
+- **Phase 3 Sprint 3 — Approval drift invalidation (Mar 2026):**
+  `check_approval_lineage_drift()` detects trust downgrade and taint
+  accumulation since approval creation. 3 new tests.
+
+- **Phase 3 Sprint 4 — Semantic output contracts (Mar 2026):**
+  `OutputContract` type with `check_output_contract()` — tools declare
+  expected `ContextChannel` output types, violations trigger
+  Log/Quarantine/Block actions. 5 new tests.
+
+- **Phase 3 Sprint 5 — Contagion controls (Mar 2026):**
+  `ContagionTracker` with 3 modes (SessionPersistent, DecayAfterClean,
+  ExplicitClearOnly). Tracks injection/DLP/schema/memory taint with
+  per-type trust floors. `should_block_privileged_sink()`. 7 new tests.
+
+- **Phase 3 Sprint 6 — Cryptographic delegation tokens (Mar 2026):**
+  `DelegationToken` with monotonic constraints: trust can only decrease,
+  depth decrements, expiry can only be earlier. `derive_child()` for
+  chain delegation. 7 new tests.
+
+- **Phase 4 Sprint 1 — Annex IV technical documentation (Mar 2026):**
+  `AnnexIvPackage` with 5 sections, `build_annex_iv_package()` from
+  runtime state. Completeness scoring and gap detection. 4 new tests.
+
+- **Phase 4 Sprint 2 — Article 73 incident reports (Mar 2026):**
+  `IncidentReport` with cross-regulation notification deadlines (EU AI Act
+  72h, NIS2 24h/72h/30d, DORA 4h). 5 new tests.
+
+- **Phase 4 Sprint 3 — FRIA data export (Mar 2026):**
+  `FriaExport` for Art 27 deployer FRIA workflows with scope, controls,
+  monitoring, data protection, and oversight sections. 3 new tests.
+
+- **Phase 5 Sprint 1 — Supply-chain trust types (Mar 2026):**
+  `SupplyChainAttestation`, `SbomEntry`, `SupplyChainTrustDecision`.
+  `compute_trust_decision()` scores from attestation verification, SBOM
+  vulnerabilities, and behavioral reputation. 6 new tests.
+
 ### Fixed
 
 - **R255-ENG-1: Regex constraint bypass via path normalization (Mar 2026):**

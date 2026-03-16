@@ -1387,6 +1387,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             acis: Default::default(),
             tool_quotas: Default::default(),
             secret_substitutions: Default::default(),
+            policy_templates: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

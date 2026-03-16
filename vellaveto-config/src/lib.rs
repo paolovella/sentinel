@@ -318,6 +318,11 @@ pub struct PolicyConfig {
     #[serde(default)]
     pub secret_substitutions: Vec<SecretSubstitution>,
 
+    /// Phase 2: Declarative policy templates — high-level intent that expands
+    /// to full policy rules during config loading.
+    #[serde(default)]
+    pub policy_templates: Vec<crate::policy_templates::PolicyTemplate>,
+
     /// RFC 8707 Resource Indicator configuration.
     #[serde(default)]
     pub resource_indicator: ResourceIndicatorConfig,
@@ -659,11 +664,37 @@ impl PolicyConfig {
 
     /// Convert PolicyRules into vellaveto_types::Policy structs.
     ///
+    /// Phase 2: Also expands `policy_templates` into full policy rules.
+    ///
     /// SECURITY (R229-CFG-1): Each constructed Policy is validated via `Policy::validate()`
     /// to enforce bounds on path/domain/CIDR entries and reject dangerous characters.
     /// Invalid policies are logged and skipped (fail-closed: excluded from active set).
     pub fn to_policies(&self) -> Vec<Policy> {
-        self.policies
+        // Phase 2: Expand policy templates into PolicyRules and prepend them.
+        let mut all_rules: Vec<&PolicyRule> = self.policies.iter().collect();
+        let mut expanded_rules: Vec<PolicyRule> = Vec::new();
+        for tpl in &self.policy_templates {
+            if let Err(e) = tpl.validate() {
+                tracing::warn!("Skipping invalid policy template '{}': {}", tpl.name, e);
+                continue;
+            }
+            let expanded_json = tpl.expand();
+            match serde_json::from_value::<PolicyRule>(expanded_json) {
+                Ok(rule) => expanded_rules.push(rule),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to expand policy template '{}': {}",
+                        tpl.name,
+                        e
+                    );
+                }
+            }
+        }
+        let expanded_refs: Vec<&PolicyRule> = expanded_rules.iter().collect();
+        // Templates come first so they're included in the policy set
+        let combined: Vec<&PolicyRule> = expanded_refs.into_iter().chain(all_rules.drain(..)).collect();
+
+        combined
             .iter()
             .filter_map(|rule| {
                 let id = rule

@@ -751,6 +751,11 @@ pub(super) struct RelayState {
     session_semantics: SessionSemanticState,
     /// Phase 3: Contagion tracker — taint propagation across tool chains.
     contagion: vellaveto_engine::contagion::ContagionTracker,
+    /// Phase 3: Delegation tracker — multi-agent chain control.
+    /// Wired but not yet called from handler paths (requires inter-server
+    /// delegation detection which is a transport-level feature).
+    #[allow(dead_code)]
+    delegation: vellaveto_engine::delegation::DelegationTracker,
 }
 
 impl RelayState {
@@ -818,6 +823,12 @@ impl RelayState {
             session_semantics: SessionSemanticState::default(),
             contagion: vellaveto_engine::contagion::ContagionTracker::new(
                 vellaveto_engine::contagion::ContagionMode::SessionPersistent,
+            ),
+            delegation: vellaveto_engine::delegation::DelegationTracker::new(
+                5,          // max depth
+                Vec::new(), // allowed targets (empty = all)
+                Vec::new(), // blocked targets
+                true,       // forbid trust escalation
             ),
         }
     }
@@ -8066,6 +8077,36 @@ impl ProxyBridge {
             }
             if !injection_found && !dlp_found && !schema_violation_found {
                 state.contagion.record_clean_action();
+            }
+
+            // Phase 2: Feed reputation tracker from response findings.
+            if let Some(ref tracker) = self.reputation_tracker {
+                let server_id = state
+                    .server_name
+                    .as_deref()
+                    .unwrap_or("unknown-server");
+                if let Ok(mut guard) = tracker.lock() {
+                    if injection_found {
+                        guard.record_signal(
+                            server_id,
+                            crate::reputation::SignalType::Injection,
+                        );
+                    }
+                    if dlp_found {
+                        guard.record_signal(
+                            server_id,
+                            crate::reputation::SignalType::DlpFinding,
+                        );
+                    }
+                    if schema_violation_found {
+                        guard.record_signal(
+                            server_id,
+                            crate::reputation::SignalType::SchemaPoisoning,
+                        );
+                    }
+                    // Record request outcome
+                    guard.record_request(server_id, true); // forwarded = allowed
+                }
             }
         }
 

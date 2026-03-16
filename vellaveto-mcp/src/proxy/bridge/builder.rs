@@ -154,6 +154,15 @@ impl ProxyBridge {
         self
     }
 
+    /// Phase 2: Set the server reputation tracker.
+    pub fn with_reputation_tracker(
+        mut self,
+        tracker: crate::reputation::ReputationTracker,
+    ) -> Self {
+        self.reputation_tracker = Some(std::sync::Mutex::new(tracker));
+        self
+    }
+
     /// Phase 2: Set the secret substitution engine.
     pub fn with_secret_substitution(
         mut self,

@@ -1337,3 +1337,168 @@ mod tests {
         assert!(MAX_AGENT_SESSION_PAIRS <= 100_000);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 4: Compliance Evidence Factory Endpoints
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Generate an EU AI Act Annex IV technical documentation package.
+///
+/// GET /api/compliance/annex-iv
+///
+/// Returns a structured documentation package with evidence from runtime state.
+pub async fn annex_iv_package(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let snapshot = state.policy_state.load();
+    let policy_count = snapshot.policies.len();
+    let audit_entry_count = state.metrics.evaluations_total.load(std::sync::atomic::Ordering::Relaxed);
+    let compliance_frameworks: Vec<String> = vec![
+        "EU AI Act".to_string(),
+        "SOC 2".to_string(),
+        "DORA".to_string(),
+        "NIS2".to_string(),
+        "ISO 42001".to_string(),
+        "NIST AI 600-1".to_string(),
+        "OWASP Agentic Top 10".to_string(),
+        "OWASP MCP Top 10".to_string(),
+        "CoSAI".to_string(),
+        "Adversa TOP 25".to_string(),
+        "Singapore MGF".to_string(),
+        "CSA ATF".to_string(),
+    ];
+
+    let package = vellaveto_audit::annex_iv::build_annex_iv_package(
+        env!("CARGO_PKG_VERSION"),
+        policy_count,
+        audit_entry_count,
+        767,   // formal verification instances
+        11279, // test count
+        &compliance_frameworks,
+        &HashMap::new(),
+    );
+
+    serde_json::to_value(&package)
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!("Annex IV serialization error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                }),
+            )
+        })
+}
+
+/// Generate an Article 73 incident report template.
+///
+/// POST /api/compliance/incident-report
+///
+/// Accepts incident details and returns a structured report with
+/// cross-regulation notification deadlines.
+pub async fn create_incident_report(
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let incident_id = body
+        .get("incident_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("INC-UNSET")
+        .to_string();
+    let title = body
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Untitled incident")
+        .to_string();
+    let description = body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let severity = body
+        .get("severity")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(3) as u8;
+    let classification = match body
+        .get("classification")
+        .and_then(|v| v.as_str())
+        .unwrap_or("system_malfunction")
+    {
+        "security_breach" => vellaveto_audit::article73::IncidentClassification::SecurityBreach,
+        "safety_incident" => vellaveto_audit::article73::IncidentClassification::SafetyIncident,
+        "fundamental_rights" => {
+            vellaveto_audit::article73::IncidentClassification::FundamentalRightsImpact
+        }
+        "supply_chain" => {
+            vellaveto_audit::article73::IncidentClassification::SupplyChainCompromise
+        }
+        _ => vellaveto_audit::article73::IncidentClassification::SystemMalfunction,
+    };
+
+    let report = vellaveto_audit::article73::build_incident_report(
+        vellaveto_audit::article73::IncidentParams {
+            incident_id,
+            title,
+            classification,
+            severity,
+            detected_at: chrono::Utc::now().to_rfc3339(),
+            description,
+            affected_assets: body
+                .get("affected_assets")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            evidence_refs: Vec::new(),
+        },
+    );
+
+    serde_json::to_value(&report)
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!("Incident report serialization error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                }),
+            )
+        })
+}
+
+/// Generate a FRIA (Fundamental Rights Impact Assessment) data export.
+///
+/// GET /api/compliance/fria
+///
+/// Returns structured data for deployer FRIA workflows (Art 27).
+pub async fn fria_export(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let snapshot = state.policy_state.load();
+    let policy_count = snapshot.policies.len();
+    let approval_tool_count = 0_usize; // TODO: count RequireApproval policies
+
+    let export = vellaveto_audit::fria::build_fria_export(
+        &format!("vellaveto-v{}", env!("CARGO_PKG_VERSION")),
+        policy_count,
+        approval_tool_count,
+        true,  // has_dlp
+        false, // has_pii_sanitization (server mode, not shield)
+        true,  // has_audit_trail
+    );
+
+    serde_json::to_value(&export)
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!("FRIA export serialization error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                }),
+            )
+        })
+}

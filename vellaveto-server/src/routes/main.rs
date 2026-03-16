@@ -69,6 +69,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/audit/export", get(super::audit::audit_export))
         .route("/api/audit/report", get(super::audit::audit_report))
         .route("/api/audit/verify", get(super::audit::audit_verify))
+        .route("/api/audit/otel-spans", get(super::audit::otel_spans))
         // Compliance evidence endpoints (Phase 19/21)
         .route(
             "/api/compliance/status",
@@ -116,6 +117,19 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/compliance/evidence-pack/{framework}",
             get(super::compliance::evidence_pack),
+        )
+        // Phase 4: Compliance evidence factory endpoints
+        .route(
+            "/api/compliance/annex-iv",
+            get(super::compliance::annex_iv_package),
+        )
+        .route(
+            "/api/compliance/incident-report",
+            post(super::compliance::create_incident_report),
+        )
+        .route(
+            "/api/compliance/fria",
+            get(super::compliance::fria_export),
         )
         .route(
             "/api/audit/checkpoints",

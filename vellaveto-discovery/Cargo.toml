@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }
 vellaveto-canonical = { path = "../vellaveto-canonical" }
-petgraph = "0.7"
+petgraph = "0.8"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["time", "sync", "rt", "macros"] }

@@ -24,6 +24,7 @@ pub mod cascading;
 pub mod circuit_breaker;
 pub mod collusion;
 mod compiled;
+pub mod contagion;
 mod constraint_eval;
 mod context_check;
 pub mod coverage;

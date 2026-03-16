@@ -804,3 +804,51 @@ mod tests {
         assert!(MAX_DESCRIPTION_PREVIEW_LEN <= 500);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 2: AI Asset Inventory (structured types from vellaveto-types)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Return the full AI asset inventory using structured `AiAsset` types.
+///
+/// GET /api/inventory/assets
+///
+/// Unlike the other inventory endpoints that use inline types, this returns
+/// the canonical `AiAssetInventory` from `vellaveto-types` for interoperability.
+pub async fn inventory_assets(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    use vellaveto_types::asset_inventory::*;
+
+    let snapshot = state.policy_state.load();
+    let mut inventory = AiAssetInventory::new();
+    inventory.generated_at = Some(chrono::Utc::now().to_rfc3339());
+
+    // Add policies as logical assets
+    for policy in &snapshot.policies {
+        inventory.add_asset(AiAsset {
+            id: policy.id.clone(),
+            name: policy.name.clone(),
+            asset_type: AiAssetType::Tool, // Policies protect tools
+            server_id: None,
+            trust_level: AssetTrustLevel::Default,
+            active: true,
+            first_seen: None,
+            last_seen: None,
+            security: AssetSecurityMetadata::default(),
+            tags: vec!["policy".to_string()],
+        });
+    }
+
+    serde_json::to_value(&inventory)
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!("Asset inventory serialization error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                }),
+            )
+        })
+}

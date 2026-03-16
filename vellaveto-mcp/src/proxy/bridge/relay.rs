@@ -751,6 +751,7 @@ pub(super) struct RelayState {
     session_semantics: SessionSemanticState,
     /// Phase 3: Contagion tracker — taint propagation across tool chains.
     contagion: vellaveto_engine::contagion::ContagionTracker,
+    /// Phase 1: Mint a SecurityContextToken from the current session state.
     /// Phase 3: Delegation tracker — multi-agent chain control.
     /// Wired but not yet called from handler paths (requires inter-server
     /// delegation detection which is a transport-level feature).

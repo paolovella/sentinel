@@ -561,6 +561,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/inventory/graph",
             get(super::inventory::inventory_graph),
         )
+        .route(
+            "/api/inventory/assets",
+            get(super::inventory::inventory_assets),
+        )
         // ═══════════════════════════════════════════════════════════════════
         // Phase 35.3: Model Projector
         // ═══════════════════════════════════════════════════════════════════

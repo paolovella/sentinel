@@ -152,6 +152,13 @@ pub struct SamplingConfig {
     /// Default: 4096. Set to 0 to disable the cap.
     #[serde(default = "default_max_sampling_tokens")]
     pub max_tokens: u32,
+    /// Phase 1: Tool allowlist for sampling requests (glob patterns).
+    /// When non-empty, `sampling/createMessage` requests that reference tools
+    /// not in this list are denied. Prevents servers from using sampling to
+    /// trick the LLM into invoking tools the server is not allowed to call.
+    /// Default: empty (all tools allowed when sampling is enabled).
+    #[serde(default)]
+    pub allowed_tools_in_sampling: Vec<String>,
 }
 
 fn default_max_sampling() -> u32 {
@@ -185,6 +192,7 @@ impl Default for SamplingConfig {
             per_tool_window_secs: default_sampling_per_tool_window(),
             allowed_include_context: default_allowed_include_context(),
             max_tokens: default_max_sampling_tokens(),
+            allowed_tools_in_sampling: Vec::new(),
         }
     }
 }
@@ -197,6 +205,12 @@ pub const MAX_ALLOWED_MODELS: usize = 100;
 /// SECURITY (FIND-R125-003): Unbounded entries could waste memory during
 /// model name matching in `inspect_sampling()`.
 pub const MAX_ALLOWED_MODEL_LENGTH: usize = 256;
+
+/// Maximum number of tool patterns in `allowed_tools_in_sampling`.
+pub const MAX_ALLOWED_TOOLS_IN_SAMPLING: usize = 256;
+
+/// Maximum length of a single tool pattern entry.
+pub const MAX_TOOL_PATTERN_LENGTH: usize = 256;
 
 impl SamplingConfig {
     /// Validate configuration bounds.
@@ -250,6 +264,30 @@ impl SamplingConfig {
             if !VALID_INCLUDE_CONTEXT.contains(&val.as_str()) {
                 return Err(format!(
                     "sampling.allowed_include_context[{i}] '{val}' is not valid (must be one of: none, thisServer, allServers)"
+                ));
+            }
+        }
+        // Phase 1: Validate allowed_tools_in_sampling.
+        if self.allowed_tools_in_sampling.len() > MAX_ALLOWED_TOOLS_IN_SAMPLING {
+            return Err(format!(
+                "sampling.allowed_tools_in_sampling exceeds {MAX_ALLOWED_TOOLS_IN_SAMPLING} entries"
+            ));
+        }
+        for (i, entry) in self.allowed_tools_in_sampling.iter().enumerate() {
+            if entry.is_empty() {
+                return Err(format!(
+                    "sampling.allowed_tools_in_sampling[{i}] is empty"
+                ));
+            }
+            if entry.len() > MAX_TOOL_PATTERN_LENGTH {
+                return Err(format!(
+                    "sampling.allowed_tools_in_sampling[{i}] length {} exceeds max {MAX_TOOL_PATTERN_LENGTH}",
+                    entry.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(entry) {
+                return Err(format!(
+                    "sampling.allowed_tools_in_sampling[{i}] contains control or format characters"
                 ));
             }
         }

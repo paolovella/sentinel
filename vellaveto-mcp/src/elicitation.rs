@@ -503,6 +503,22 @@ pub fn inspect_sampling(
         }
     }
 
+    // Phase 1: Tool allowlist — deny if sampling references tools not in the allowlist.
+    // Prevents servers from using sampling to trick the LLM into invoking disallowed tools.
+    if !config.allowed_tools_in_sampling.is_empty() {
+        let referenced_tools = extract_tool_references_from_sampling(params);
+        for tool_name in &referenced_tools {
+            if !tool_matches_any_pattern(tool_name, &config.allowed_tools_in_sampling) {
+                return SamplingVerdict::Deny {
+                    reason: format!(
+                        "sampling references tool '{}' not in allowed_tools_in_sampling",
+                        &tool_name[..tool_name.len().min(64)]
+                    ),
+                };
+            }
+        }
+    }
+
     // Check for tool output in messages
     if config.block_if_contains_tool_output {
         if let Some(messages) = params.get("messages").and_then(|m| m.as_array()) {
@@ -584,6 +600,73 @@ fn content_contains_tool_result(content: &Value) -> bool {
             .is_some_and(is_tool_content_type),
         _ => false,
     }
+}
+
+/// Maximum number of tool references to extract from a sampling request.
+/// Prevents OOM from adversarial messages with thousands of tool_use blocks.
+const MAX_TOOL_REFS: usize = 256;
+
+/// Extract tool names referenced in a `sampling/createMessage` request.
+///
+/// Scans `messages[].content` for:
+/// - Content blocks with `type: "tool_use"` and a `name` field
+/// - Content blocks with `type: "tool_result"` and a `tool_name` field
+///
+/// Returns a deduplicated list of tool names found.
+fn extract_tool_references_from_sampling(params: &Value) -> Vec<String> {
+    let mut tools = Vec::new();
+    let messages = match params.get("messages").and_then(|m| m.as_array()) {
+        Some(m) => m,
+        None => return tools,
+    };
+
+    for msg in messages {
+        let content = match msg.get("content") {
+            Some(c) => c,
+            None => continue,
+        };
+        let blocks: &[Value] = match content {
+            Value::Array(arr) => arr,
+            Value::Object(_) => std::slice::from_ref(content),
+            _ => continue,
+        };
+        for block in blocks {
+            if tools.len() >= MAX_TOOL_REFS {
+                break;
+            }
+            let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            let name = match block_type {
+                "tool_use" => block.get("name").and_then(|n| n.as_str()),
+                "tool_result" => block.get("tool_name").and_then(|n| n.as_str()),
+                _ => None,
+            };
+            if let Some(n) = name {
+                if !n.is_empty() && !tools.iter().any(|existing: &String| existing == n) {
+                    tools.push(n.to_string());
+                }
+            }
+        }
+    }
+    tools
+}
+
+/// Check if a tool name matches any of the given glob patterns.
+///
+/// Supports simple `*` wildcard matching consistent with the policy engine's
+/// tool_pattern matching.
+fn tool_matches_any_pattern(tool_name: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|pattern| {
+        if pattern == "*" {
+            return true;
+        }
+        if let Some(star_pos) = pattern.find('*') {
+            let prefix = &pattern[..star_pos];
+            let suffix = &pattern[star_pos + 1..];
+            tool_name.starts_with(prefix) && tool_name.ends_with(suffix)
+        } else {
+            pattern == tool_name
+        }
+    })
 }
 
 #[cfg(test)]
@@ -1872,6 +1955,167 @@ mod tests {
             }
             SamplingVerdict::Allow => panic!("Expected Deny when rate limited"),
         }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 1: Sampling tool allowlist tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_sampling_tool_allowlist_blocks_disallowed_tool() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_tools_in_sampling: vec!["read_file".to_string(), "list_dir".to_string()],
+            ..SamplingConfig::default()
+        };
+        let params = json!({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "tool_use", "name": "execute_command", "input": {"cmd": "rm -rf /"}}
+                ]
+            }]
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        match verdict {
+            SamplingVerdict::Deny { reason } => {
+                assert!(reason.contains("execute_command"), "Should name the blocked tool: {reason}");
+                assert!(reason.contains("allowed_tools_in_sampling"), "{reason}");
+            }
+            SamplingVerdict::Allow => panic!("Expected Deny for disallowed tool in sampling"),
+        }
+    }
+
+    #[test]
+    fn test_sampling_tool_allowlist_allows_permitted_tool() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_tools_in_sampling: vec!["read_file".to_string()],
+            ..SamplingConfig::default()
+        };
+        let params = json!({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "tool_use", "name": "read_file", "input": {"path": "/tmp/test"}}
+                ]
+            }]
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(matches!(verdict, SamplingVerdict::Allow));
+    }
+
+    #[test]
+    fn test_sampling_tool_allowlist_empty_allows_all() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_tools_in_sampling: Vec::new(),
+            ..SamplingConfig::default()
+        };
+        let params = json!({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "tool_use", "name": "anything_goes", "input": {}}
+                ]
+            }]
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(matches!(verdict, SamplingVerdict::Allow));
+    }
+
+    #[test]
+    fn test_sampling_tool_allowlist_glob_pattern() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_tools_in_sampling: vec!["read_*".to_string(), "list_*".to_string()],
+            ..SamplingConfig::default()
+        };
+        // read_file matches read_*
+        let params = json!({
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "tool_use", "name": "read_file", "input": {}}]
+            }]
+        });
+        assert!(matches!(inspect_sampling(&params, &config, 0), SamplingVerdict::Allow));
+
+        // write_file does NOT match read_* or list_*
+        let params2 = json!({
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "tool_use", "name": "write_file", "input": {}}]
+            }]
+        });
+        assert!(matches!(inspect_sampling(&params2, &config, 0), SamplingVerdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_sampling_tool_allowlist_tool_result_extraction() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_tools_in_sampling: vec!["safe_tool".to_string()],
+            ..SamplingConfig::default()
+        };
+        // tool_result blocks should also be scanned
+        let params = json!({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_name": "dangerous_tool", "content": "data"}
+                ]
+            }]
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(matches!(verdict, SamplingVerdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_sampling_tool_allowlist_no_tool_refs_allows() {
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_tools_in_sampling: vec!["read_file".to_string()],
+            ..SamplingConfig::default()
+        };
+        // Plain text message — no tool references
+        let params = json!({
+            "messages": [{
+                "role": "user",
+                "content": {"type": "text", "text": "Hello world"}
+            }]
+        });
+        let verdict = inspect_sampling(&params, &config, 0);
+        assert!(matches!(verdict, SamplingVerdict::Allow));
+    }
+
+    #[test]
+    fn test_extract_tool_references_deduplicates() {
+        let params = json!({
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "tool_use", "name": "read_file", "input": {}},
+                    {"type": "tool_use", "name": "read_file", "input": {}},
+                    {"type": "tool_use", "name": "write_file", "input": {}}
+                ]}
+            ]
+        });
+        let refs = extract_tool_references_from_sampling(&params);
+        assert_eq!(refs.len(), 2);
+        assert!(refs.contains(&"read_file".to_string()));
+        assert!(refs.contains(&"write_file".to_string()));
+    }
+
+    #[test]
+    fn test_tool_matches_any_pattern_exact() {
+        assert!(tool_matches_any_pattern("read_file", &["read_file".to_string()]));
+        assert!(!tool_matches_any_pattern("write_file", &["read_file".to_string()]));
+    }
+
+    #[test]
+    fn test_tool_matches_any_pattern_wildcard() {
+        assert!(tool_matches_any_pattern("read_file", &["read_*".to_string()]));
+        assert!(tool_matches_any_pattern("anything", &["*".to_string()]));
+        assert!(!tool_matches_any_pattern("write_file", &["read_*".to_string()]));
     }
 
     // ═══════════════════════════════════════════════════

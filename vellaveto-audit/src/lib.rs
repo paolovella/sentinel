@@ -66,6 +66,11 @@ pub mod access_review;
 // ── Phase 2: OpenTelemetry span generation ──────────────────────────────────
 pub mod otel_spans;
 
+// ── Phase 4: Compliance evidence factory ────────────────────────────────────
+pub mod annex_iv;
+pub mod article73;
+pub mod fria;
+
 // ── Pre-existing submodules ──────────────────────────────────────────────────
 pub mod aivss;
 pub mod atlas;

@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-engine"
-version = "6.0.7"
+version = "6.0.8"
 description = "Policy evaluation engine with glob, regex, and domain matching"
 edition = "2021"
 license = "MPL-2.0"
@@ -19,8 +19,8 @@ default = []
 discovery = ["dep:vellaveto-discovery"]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.7" }
-vellaveto-discovery = { path = "../vellaveto-discovery", version = "6.0.7", optional = true }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.8" }
+vellaveto-discovery = { path = "../vellaveto-discovery", version = "6.0.8", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

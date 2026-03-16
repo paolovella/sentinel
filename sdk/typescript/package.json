@@ -1,6 +1,6 @@
 {
   "name": "@vellaveto-sdk/typescript",
-  "version": "6.0.7",
+  "version": "6.0.8",
   "description": "TypeScript SDK for the Vellaveto agent interaction firewall",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

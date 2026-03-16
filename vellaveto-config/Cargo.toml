@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-config"
-version = "6.0.7"
+version = "6.0.8"
 description = "Configuration parsing and validation for Vellaveto policies"
 edition = "2021"
 license = "MPL-2.0"
@@ -12,7 +12,7 @@ rust-version.workspace = true
 readme = "README.md"
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.7" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.8" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

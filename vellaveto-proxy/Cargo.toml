@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-proxy"
-version = "6.0.7"
+version = "6.0.8"
 description = "MCP stdio proxy with built-in security presets — zero config needed"
 edition = "2021"
 license = "MPL-2.0"
@@ -20,12 +20,12 @@ default = []
 discovery = ["vellaveto-discovery", "vellaveto-mcp/discovery"]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.7" }
-vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.7" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.7" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.7" }
-vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.7" }
-vellaveto-discovery = { path = "../vellaveto-discovery", version = "6.0.7", optional = true }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.8" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.8" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.8" }
+vellaveto-config = { path = "../vellaveto-config", version = "6.0.8" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.8" }
+vellaveto-discovery = { path = "../vellaveto-discovery", version = "6.0.8", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

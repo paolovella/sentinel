@@ -27,7 +27,7 @@ info:
     - **readonly** — moderate (default 200 req/s)
 
     HTTP 429 is returned when limits are exceeded.
-  version: 6.0.7
+  version: 6.0.8
   license:
     name: "See LICENSING.md (multi-license model)"
     url: https://github.com/vellaveto/vellaveto/blob/main/LICENSING.md

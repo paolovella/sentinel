@@ -96,8 +96,8 @@ VellaVeto enforces four boundary invariants at the runtime surface where agents 
 
 These invariants are enforced by concrete runtime capabilities:
 
-- **Policy engine** — glob/regex/domain matching, parameter constraints, time windows, call limits, Cedar-style ABAC, Wasm plugins. <5ms P99 evaluation.
-- **Threat detection** — injection, tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion, semantic output contracts, and trust-tier containment. 20+ detection layers, not just regex.
+- **Policy engine** — glob/regex/domain matching, parameter constraints, time windows, call limits, per-tool quotas, secret substitution, Cedar-style ABAC, Wasm plugins. <5ms P99 evaluation.
+- **Threat detection** — injection, tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion, semantic output contracts, trust-tier containment, and response metadata stripping. 20+ detection layers, not just regex.
 - **Identity and access** — OAuth 2.1/JWT, OIDC/SAML, RBAC, capability delegation, DPoP (RFC 9449), non-human identity lifecycle.
 - **Topology discovery** — auto-discover MCP servers, tools, and resources. Detect drift, tool shadowing, and namespace collisions.
 - **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes, ZK proofs, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more frameworks.
@@ -410,7 +410,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 |---|---|
 | [Quick Start](docs/QUICKSTART.md) | Framework integration guides (Anthropic, OpenAI, LangChain, LangGraph, MCP) |
 | [15-Minute Secure Start](docs/SECURE_QUICKSTART_15_MIN.md) | End-to-end deny-by-default walkthrough with audit verification |
-| [Policy Configuration](docs/POLICY.md) | Policy syntax, operators, presets, elicitation, sampling, DLP |
+| [Policy Configuration](docs/POLICY.md) | Policy syntax, operators, presets, elicitation, sampling, DLP, tool quotas, secret substitution |
 | [CLI Reference](docs/CLI.md) | All binaries and commands |
 | [Environment Variables](docs/ENV.md) | Configuration via environment |
 

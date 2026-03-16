@@ -264,3 +264,78 @@ path = "plugins/custom-checker.wasm"
 ```
 
 Plugins implement a WIT interface and are hot-reloadable. Fuel metering prevents runaway execution.
+
+## Tool Quotas
+
+Per-tool rate limits without writing full Conditional policies:
+
+```toml
+# Limit execute_command to 10 calls per minute
+[[tool_quotas]]
+tool_pattern = "execute_command"
+max_calls = 10
+window_secs = 60
+
+# Limit all write operations to 50 per 5 minutes, require approval on exceed
+[[tool_quotas]]
+tool_pattern = "write_*"
+max_calls = 50
+window_secs = 300
+on_exceed = "require_approval"
+```
+
+Fields:
+- `tool_pattern` — tool name or glob pattern (`*` wildcard)
+- `max_calls` — maximum calls allowed in the window (must be > 0)
+- `window_secs` — sliding time window in seconds (1–86400, default: 60)
+- `on_exceed` — `"deny"` (default) or `"require_approval"`
+
+## Secret Substitution
+
+Replace secrets with placeholders before the model sees tool parameters, restore at execution:
+
+```toml
+[[secret_substitutions]]
+name = "GITHUB_TOKEN"
+env_var = "GITHUB_TOKEN"
+placeholder = "{{GITHUB_TOKEN}}"
+tool_patterns = ["github_*", "git_*"]
+param_paths = ["token", "auth.token"]
+```
+
+Fields:
+- `name` — human-readable name
+- `env_var` — environment variable holding the real value
+- `placeholder` — string that replaces the secret in model-visible params
+- `tool_patterns` — glob patterns for tools this applies to (empty = all)
+- `param_paths` — JSON paths to substitute (empty = scan all strings)
+
+## Sampling Controls
+
+Control `sampling/createMessage` requests from MCP servers:
+
+```toml
+[sampling]
+enabled = true
+allowed_models = ["claude-3-*"]
+block_if_contains_tool_output = true
+max_per_session = 10
+allowed_tools_in_sampling = ["read_file", "list_*"]
+```
+
+When `allowed_tools_in_sampling` is non-empty, sampling requests that reference tools not in the list are denied. Prevents servers from using sampling to trick the LLM into invoking disallowed tools.
+
+## Elicitation Controls
+
+Control `elicitation/create` requests:
+
+```toml
+[elicitation]
+enabled = true
+blocked_field_types = ["password", "ssn"]
+max_per_session = 5
+blocked_url_domains = ["evil.com", "*.phishing.net"]
+allowed_url_domains = ["example.com", "*.myapp.io"]
+```
+
+URL domain validation scans title, message, and schema defaults/descriptions for HTTP(S) URLs. Blocked domains are checked first, then the allowed list (if non-empty).

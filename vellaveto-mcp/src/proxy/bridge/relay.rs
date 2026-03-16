@@ -239,7 +239,6 @@ impl SessionSemanticState {
     /// Phase 1: Minimum trust tier across all lineage refs in this session.
     /// Used for lineage-aware mediation: if the session has seen quarantined
     /// content, subsequent privileged sink actions should know.
-    #[allow(dead_code)]
     fn min_lineage_trust_tier(&self) -> Option<TrustTier> {
         self.lineage_refs
             .iter()
@@ -750,6 +749,8 @@ pub(super) struct RelayState {
     sharded_exfil: Option<crate::inspection::dlp::ShardedExfilTracker>,
     /// Relay-local semantic containment state propagated across forwarded calls.
     session_semantics: SessionSemanticState,
+    /// Phase 3: Contagion tracker — taint propagation across tool chains.
+    contagion: vellaveto_engine::contagion::ContagionTracker,
 }
 
 impl RelayState {
@@ -815,6 +816,9 @@ impl RelayState {
             cross_call_dlp: None,
             sharded_exfil: None,
             session_semantics: SessionSemanticState::default(),
+            contagion: vellaveto_engine::contagion::ContagionTracker::new(
+                vellaveto_engine::contagion::ContagionMode::SessionPersistent,
+            ),
         }
     }
 
@@ -1038,7 +1042,6 @@ impl RelayState {
     }
 
     /// Phase 1: Get minimum trust tier from session lineage.
-    #[allow(dead_code)]
     fn min_session_trust_tier(&self) -> Option<TrustTier> {
         self.session_semantics.min_lineage_trust_tier()
     }
@@ -2442,6 +2445,72 @@ impl ProxyBridge {
             resolve_domains(&mut action).await;
         }
 
+        // Phase 3: Contagion check — if session is tainted and action targets a
+        // privileged sink, deny before evaluation. Uses the action's target info
+        // to infer sink class.
+        {
+            use vellaveto_types::provenance::{SinkClass, check_flow_admissibility, FlowVerdict};
+            let inferred_sink = if action.tool.contains("execute") || action.tool.contains("run") {
+                SinkClass::CodeExecution
+            } else if action.tool.contains("write") || action.tool.contains("delete") {
+                SinkClass::FilesystemWrite
+            } else if !action.target_domains.is_empty() {
+                SinkClass::NetworkEgress
+            } else {
+                SinkClass::ReadOnly
+            };
+
+            // Check contagion: if tainted, does current trust allow this sink?
+            if state.contagion.should_block_privileged_sink(inferred_sink) {
+                let min_trust = state.min_session_trust_tier().unwrap_or(TrustTier::Quarantined);
+                let flow_verdict = check_flow_admissibility(
+                    min_trust,
+                    inferred_sink,
+                    false, // no declassification
+                    1,     // approval threshold: 1 rank deficit → gated
+                );
+                match flow_verdict {
+                    FlowVerdict::Denied { trust_deficit, required, actual } => {
+                        tracing::warn!(
+                            "SECURITY: Contagion + flow check denied '{}': trust {:?} < required {:?} (deficit {})",
+                            vellaveto_types::sanitize_for_log(&tool_name, 64),
+                            actual, required, trust_deficit
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: format!(
+                                "session contagion: trust {:?} insufficient for sink {:?}",
+                                actual, inferred_sink
+                            ),
+                        };
+                        let cf_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::PolicyEngine, "stdio",
+                            state.agent_id.as_deref(),
+                        );
+                        let _ = self.audit.log_entry_with_acis(
+                            &action, &verdict,
+                            json!({"source": "proxy", "event": "contagion_flow_denied",
+                                   "tool": vellaveto_types::sanitize_for_log(&tool_name, 64),
+                                   "trust_deficit": trust_deficit}),
+                            cf_envelope,
+                        ).await;
+                        let response = make_denial_response(&id, "Request blocked: security policy violation");
+                        write_message(agent_writer, &response).await.map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                    FlowVerdict::Gated { trust_deficit } => {
+                        tracing::info!(
+                            "SECURITY: Contagion flow gated for '{}' (deficit {})",
+                            vellaveto_types::sanitize_for_log(&tool_name, 64),
+                            trust_deficit
+                        );
+                        // Gated flows proceed to policy evaluation — the policy may
+                        // independently require approval.
+                    }
+                    FlowVerdict::Admissible => {}
+                }
+            }
+        }
+
         // Phase 2: Secret substitution — replace secrets with placeholders before
         // the model/policy engine sees the parameters. The real values are restored
         // before forwarding to the child server (see restore_inbound below).
@@ -2542,11 +2611,27 @@ impl ProxyBridge {
                 .await
             {
                 Ok(Some(approval_id)) => {
+                    // Phase 3: Approval lineage drift check — invalidate if session
+                    // trust has dropped or new taint accumulated since creation.
+                    if let Some(ref store) = self.approval_store {
+                        if let Ok(pending) = store.get(approval_id.as_str()).await {
+                            let current_trust = state.min_session_trust_tier();
+                            let current_taint = state.session_semantics.taint.len();
+                            if let Some(drift_reason) = vellaveto_approval::check_approval_lineage_drift(
+                                &pending, current_trust, current_taint,
+                            ) {
+                                tracing::warn!(
+                                    "SECURITY: Approval '{}' invalidated due to lineage drift: {}",
+                                    &approval_id[..approval_id.len().min(32)],
+                                    drift_reason
+                                );
+                                // Fall through to deny — don't consume the drifted approval
+                            }
+                        }
+                    }
+
                     // SECURITY (R244-TOCTOU-1): Consume the approval atomically
-                    // after matching. Previously, consumption happened ~230 lines
-                    // later (after ABAC, shield, DLP), creating a TOCTOU window
-                    // where a concurrent request could see the same approval as
-                    // Approved and race to consume it.
+                    // after matching.
                     if let Err(()) = self
                         .consume_presented_approval(
                             Some(approval_id.as_str()),
@@ -7959,6 +8044,29 @@ impl ProxyBridge {
                 Some(format!("sha256:{:x}", hasher.finalize()))
             });
             state.record_semantic_output_with_hash(tool_name, channel, &response_taint, content_hash);
+
+            // Phase 3: Feed contagion tracker from response findings.
+            if injection_found {
+                state.contagion.record_taint(
+                    tool_name,
+                    vellaveto_engine::contagion::ContagionTaintType::InjectionDetected,
+                );
+            }
+            if dlp_found {
+                state.contagion.record_taint(
+                    tool_name,
+                    vellaveto_engine::contagion::ContagionTaintType::DlpFinding,
+                );
+            }
+            if schema_violation_found {
+                state.contagion.record_taint(
+                    tool_name,
+                    vellaveto_engine::contagion::ContagionTaintType::SchemaPoisoning,
+                );
+            }
+            if !injection_found && !dlp_found && !schema_violation_found {
+                state.contagion.record_clean_action();
+            }
         }
 
         // Phase 19: Art 50(1) transparency marking

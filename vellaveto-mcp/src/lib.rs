@@ -69,6 +69,7 @@ pub mod shadow_ai_discovery;
 pub mod task_security;
 pub mod task_state;
 pub mod token_security;
+pub mod secret_substitution;
 pub mod tool_namespace;
 pub mod tool_quota;
 pub mod tool_registry;

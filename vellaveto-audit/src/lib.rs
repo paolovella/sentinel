@@ -63,6 +63,9 @@ pub mod sink;
 // ── Phase 38: SOC 2 Type II Access Review Reports ───────────────────────────
 pub mod access_review;
 
+// ── Phase 2: OpenTelemetry span generation ──────────────────────────────────
+pub mod otel_spans;
+
 // ── Pre-existing submodules ──────────────────────────────────────────────────
 pub mod aivss;
 pub mod atlas;

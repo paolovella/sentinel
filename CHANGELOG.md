@@ -149,6 +149,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `compute_trust_decision()` scores from attestation verification, SBOM
   vulnerabilities, and behavioral reputation. 6 new tests.
 
+- **Runtime wiring — 15 modules activated (Mar 2026):**
+  All standalone modules from Phase 1-5 wired into runtime enforcement
+  or API surface. Key integrations:
+  - `ToolQuotaTracker` + `SecretSubstitutionEngine` in `handle_tool_call`
+  - `ContagionTracker` fed from response findings, blocks privileged sinks
+  - `check_flow_admissibility()` enforces trust lattice in tool call path
+  - `check_approval_lineage_drift()` at approval consumption
+  - `ReputationTracker` fed injection/DLP/schema signals from responses
+  - Policy template `expand()` called during `to_policies()` config loading
+  - `fact_summary()` exposed in `GET /api/approvals/{id}`
+  - `SecurityContextToken` minted on every response via `security_context_mint.rs`
+  - API routes: `/api/compliance/annex-iv`, `/api/compliance/incident-report`,
+    `/api/compliance/fria`, `/api/audit/otel-spans`, `/api/inventory/assets`
+
 ### Fixed
 
 - **R255-ENG-1: Regex constraint bypass via path normalization (Mar 2026):**

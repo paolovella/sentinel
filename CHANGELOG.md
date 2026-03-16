@@ -73,6 +73,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-tool sliding window counters, glob pattern matching, and
   deny/require_approval outcomes. 6 new tests.
 
+- **Phase 2 Sprint 4 — Secret substitution runtime (Mar 2026):**
+  `SecretSubstitutionEngine` — replaces secrets with placeholders before
+  model visibility (`substitute_outbound`), restores at execution
+  (`restore_inbound`). Env var resolution, tool pattern filtering,
+  param path targeting, recursive scan of nested objects. 7 new tests.
+
+- **Phase 2 Sprint 5 — OpenTelemetry span generation (Mar 2026):**
+  `AuditSpan` and `build_evaluation_span()` in `vellaveto-audit/src/otel_spans.rs`.
+  Converts audit entries to OTel-compatible span records with trace/span IDs,
+  timing, vellaveto-specific attributes, and status mapping. 3 new tests.
+
+- **Phase 2 Sprint 6 — Server reputation scoring (Mar 2026):**
+  `ReputationTracker` — per-server behavioral signal tracking with exponential
+  decay scoring (injection, DLP, rug-pull, squatting, memory/schema poisoning).
+  Deny rate computation, threshold checking. Bounded 1024 servers. 6 new tests.
+
+- **Phase 2 Sprint 7 — AI asset inventory types (Mar 2026):**
+  `AiAsset`, `AiAssetInventory`, `AssetSecurityMetadata` types in
+  `vellaveto-types`. Operator-facing AI BOM with trust levels, security
+  metadata, type/trust filtering. 4 new tests.
+
+- **Phase 2 Sprint 8 — Approval fact summaries (Mar 2026):**
+  `ApprovalFactSummary` on `PendingApproval` — human-readable review briefs
+  with headline, risk indicators (trust, sink, taint, risk score),
+  requester, and time-to-expiry. 2 new tests.
+
+- **Phase 2 Sprint 9 — Declarative policy templates (Mar 2026):**
+  `PolicyTemplate` with 5 types (block_paths, block_domains, block_commands,
+  require_approval_paths, allow_paths). `expand()` generates full policy
+  rule JSON from 3-line TOML declarations. 6 new tests.
+
 ### Fixed
 
 - **R255-ENG-1: Regex constraint bypass via path normalization (Mar 2026):**

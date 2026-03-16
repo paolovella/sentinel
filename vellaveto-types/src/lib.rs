@@ -17,6 +17,7 @@
 
 pub mod abac;
 pub mod acis;
+pub mod asset_inventory;
 pub mod audit_store;
 pub mod capability;
 pub mod command;
@@ -58,6 +59,7 @@ mod tests;
 pub use self::core::*;
 pub use abac::*;
 pub use acis::*;
+pub use asset_inventory::*;
 pub use audit_store::*;
 pub use capability::*;
 pub use command::*;

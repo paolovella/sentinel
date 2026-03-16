@@ -266,6 +266,43 @@ impl PendingApproval {
     }
 }
 
+/// Phase 3: Check if a pending approval should be invalidated due to
+/// lineage drift — the session's trust or taint state has changed since
+/// the approval was created.
+///
+/// Returns `Some(reason)` if the approval should be invalidated, `None` if valid.
+pub fn check_approval_lineage_drift(
+    approval: &PendingApproval,
+    current_trust: Option<TrustTier>,
+    current_taint_count: usize,
+) -> Option<String> {
+    let ctx = match &approval.containment_context {
+        Some(c) => c,
+        None => return None, // No containment context → can't detect drift
+    };
+
+    // Trust downgrade: if current trust is lower than when approval was created
+    if let (Some(approval_trust), Some(current)) = (ctx.effective_trust_tier, current_trust) {
+        if current.rank() < approval_trust.rank() {
+            return Some(format!(
+                "trust downgraded since approval creation: was {:?}, now {:?}",
+                approval_trust, current
+            ));
+        }
+    }
+
+    // Taint accumulation: if more taint labels exist now than at approval time
+    let approval_taint_count = ctx.semantic_taint.len();
+    if current_taint_count > approval_taint_count {
+        return Some(format!(
+            "new taint accumulated since approval: was {}, now {}",
+            approval_taint_count, current_taint_count
+        ));
+    }
+
+    None
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ReviewSafeProvenanceSummary {
     pub signature_status: Option<SignatureVerificationStatus>,
@@ -4654,6 +4691,88 @@ mod tests {
         assert_eq!(summary.requester, "agent-1");
         assert!(summary.expires_in_secs > 0);
         assert!(summary.risk_indicators.is_empty());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 3: Approval lineage drift tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_lineage_drift_trust_downgrade_invalidates() {
+        let approval = PendingApproval {
+            id: "apr-d1".to_string(),
+            action: Action::new("op", "*", json!({})),
+            reason: "test".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(300),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: None,
+            session_id: None,
+            action_fingerprint: None,
+            containment_context: Some(ApprovalContainmentContext {
+                effective_trust_tier: Some(TrustTier::High),
+                ..ApprovalContainmentContext::default()
+            }),
+        };
+        // Trust dropped from High to Low
+        let result = check_approval_lineage_drift(&approval, Some(TrustTier::Low), 0);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("trust downgraded"));
+    }
+
+    #[test]
+    fn test_lineage_drift_taint_accumulation_invalidates() {
+        let approval = PendingApproval {
+            id: "apr-d2".to_string(),
+            action: Action::new("op", "*", json!({})),
+            reason: "test".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(300),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: None,
+            session_id: None,
+            action_fingerprint: None,
+            containment_context: Some(ApprovalContainmentContext {
+                semantic_taint: vec![SemanticTaint::Untrusted],
+                ..ApprovalContainmentContext::default()
+            }),
+        };
+        // 3 taint labels now vs 1 at creation
+        let result = check_approval_lineage_drift(&approval, None, 3);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("new taint"));
+    }
+
+    #[test]
+    fn test_lineage_drift_no_change_valid() {
+        let approval = PendingApproval {
+            id: "apr-d3".to_string(),
+            action: Action::new("op", "*", json!({})),
+            reason: "test".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(300),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: None,
+            session_id: None,
+            action_fingerprint: None,
+            containment_context: Some(ApprovalContainmentContext {
+                effective_trust_tier: Some(TrustTier::Medium),
+                semantic_taint: vec![SemanticTaint::Untrusted],
+                ..ApprovalContainmentContext::default()
+            }),
+        };
+        // Same trust, same taint count
+        let result = check_approval_lineage_drift(&approval, Some(TrustTier::Medium), 1);
+        assert!(result.is_none());
     }
 
     #[test]

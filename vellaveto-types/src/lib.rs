@@ -61,6 +61,7 @@ pub use abac::*;
 pub use acis::*;
 pub use asset_inventory::*;
 pub use audit_store::*;
+pub mod output_contract;
 pub use capability::*;
 pub use command::*;
 pub use compliance::*;

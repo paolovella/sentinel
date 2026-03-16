@@ -197,7 +197,19 @@ struct SessionSemanticState {
 }
 
 impl SessionSemanticState {
+    #[cfg(test)]
     fn record_output(&mut self, source: &str, channel: ContextChannel, taints: &[SemanticTaint]) {
+        self.record_output_with_hash(source, channel, taints, None);
+    }
+
+    /// Phase 1: Record output with optional content hash for lineage graph queries.
+    fn record_output_with_hash(
+        &mut self,
+        source: &str,
+        channel: ContextChannel,
+        taints: &[SemanticTaint],
+        content_hash: Option<String>,
+    ) {
         self.next_lineage_seq = self.next_lineage_seq.saturating_add(1);
         if self.lineage_refs.len() >= MAX_SESSION_LINEAGE_REFS {
             self.lineage_refs.pop_front();
@@ -205,7 +217,7 @@ impl SessionSemanticState {
         self.lineage_refs.push_back(LineageRef {
             id: format!("relay-session-{:016x}", self.next_lineage_seq),
             channel,
-            content_hash: None,
+            content_hash,
             source: Some(sanitize_for_log(source, 256)),
             trust_tier: Some(
                 if taints.contains(&vellaveto_types::minja::TaintLabel::Quarantined) {
@@ -222,6 +234,24 @@ impl SessionSemanticState {
                 self.taint.push(*taint);
             }
         }
+    }
+
+    /// Phase 1: Minimum trust tier across all lineage refs in this session.
+    /// Used for lineage-aware mediation: if the session has seen quarantined
+    /// content, subsequent privileged sink actions should know.
+    #[allow(dead_code)]
+    fn min_lineage_trust_tier(&self) -> Option<TrustTier> {
+        self.lineage_refs
+            .iter()
+            .filter_map(|r| r.trust_tier)
+            .min_by_key(|t| match t {
+                TrustTier::Quarantined => 0,
+                TrustTier::Untrusted | TrustTier::Unknown => 1,
+                TrustTier::Low => 2,
+                TrustTier::Medium => 3,
+                TrustTier::High => 4,
+                TrustTier::Verified => 5,
+            })
     }
 
     fn merge_into(&self, security_context: &mut RuntimeSecurityContext) {
@@ -876,6 +906,7 @@ impl RelayState {
         }
     }
 
+    #[cfg(test)]
     fn record_semantic_output(
         &mut self,
         source: &str,
@@ -884,6 +915,24 @@ impl RelayState {
     ) {
         self.session_semantics
             .record_output(source, channel, taints);
+    }
+
+    /// Phase 1: Record semantic output with content hash for lineage tracking.
+    fn record_semantic_output_with_hash(
+        &mut self,
+        source: &str,
+        channel: ContextChannel,
+        taints: &[SemanticTaint],
+        content_hash: Option<String>,
+    ) {
+        self.session_semantics
+            .record_output_with_hash(source, channel, taints, content_hash);
+    }
+
+    /// Phase 1: Get minimum trust tier from session lineage.
+    #[allow(dead_code)]
+    fn min_session_trust_tier(&self) -> Option<TrustTier> {
+        self.session_semantics.min_lineage_trust_tier()
     }
 
     /// SECURITY (FIND-R46-007): Insert into flagged_tools with capacity check.
@@ -7648,7 +7697,17 @@ impl ProxyBridge {
                     ContextChannel::ToolOutput
                 }
             });
-            state.record_semantic_output(tool_name, channel, &response_taint);
+            // Phase 1: Compute content hash for lineage graph queries.
+            // Uses SHA-256 of the serialized result field (truncated to 64 bytes
+            // of input to bound computation on large responses).
+            let content_hash = msg.get("result").and_then(|result| {
+                let serialized = serde_json::to_string(result).ok()?;
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(&serialized.as_bytes()[..serialized.len().min(4096)]);
+                Some(format!("sha256:{:x}", hasher.finalize()))
+            });
+            state.record_semantic_output_with_hash(tool_name, channel, &response_taint, content_hash);
         }
 
         // Phase 19: Art 50(1) transparency marking

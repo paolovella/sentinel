@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 1 Sprint 1 — Sampling tool allowlist (Mar 2026):**
+  `allowed_tools_in_sampling` field on `SamplingConfig` — glob patterns that
+  restrict which tools can be referenced in `sampling/createMessage` requests.
+  Prevents servers from using sampling to trick the LLM into invoking tools
+  the server is not allowed to call directly. 9 new tests.
+
+- **Phase 1 Sprint 2 — Elicitation URL domain policy (Mar 2026):**
+  `blocked_url_domains` and `allowed_url_domains` fields on `ElicitationConfig`.
+  Scans elicitation title, message, and schema defaults/descriptions/examples
+  for HTTP(S) URLs and validates their domains. Wildcard patterns supported.
+  8 new tests.
+
+- **Phase 1 Sprint 3 — Task creator access enforcement (Mar 2026):**
+  `verify_task_access()` on `TaskStateManager` — denies `tasks/get` and
+  `tasks/send` when the requester's agent_id or session doesn't match the
+  task creator. Prevents lower-trust agents from retrieving results authorized
+  under a higher-trust context. `require_task_creator_match` config option
+  (default: true). 7 new tests.
+
+- **Phase 1 Sprint 4 — Security context propagation (Mar 2026):**
+  Content hashing (SHA-256) on lineage refs so tool response data can be
+  tracked across the session lineage graph. `min_lineage_trust_tier()` for
+  querying the minimum trust level in the session's lineage chain.
+  Taint propagation from injection/DLP/schema findings into session context
+  was already implemented — verified and documented.
+
+### Fixed
+
+- **R255-ENG-1: Regex constraint bypass via path normalization (Mar 2026):**
+  Path normalization mangled non-path parameter values before regex matching.
+  Shell command patterns like `rm -rf /` were not blocked because the trailing
+  `/` was consumed as a path separator. Fix: match raw value first, then
+  normalized. Both constraint_eval.rs and traced.rs updated.
+
 - **Gap Analysis — ACIS coverage hardening (Mar 2026):**
   Expert gap analysis identified 6 gaps across ACIS system; 3 closed:
   - **Gap 1 (P0 — ACIS test coverage):** 6 server-level tests verifying ACIS

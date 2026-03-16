@@ -58,6 +58,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count across transport boundaries (e.g., stdio → HTTP). Validated with
   bounded field checks and dangerous char rejection. 4 new tests.
 
+- **Phase 2 Sprint 1 — Tool quotas config (Mar 2026):**
+  `ToolQuota` type with `[[tool_quotas]]` TOML section — per-tool rate limits
+  without writing full Conditional policies. Glob patterns, configurable
+  window (1-86400s), deny or require_approval on exceed. 7 new tests.
+
+- **Phase 2 Sprint 2 — Secret substitution config (Mar 2026):**
+  `SecretSubstitution` type with `[[secret_substitutions]]` TOML section —
+  replace named secrets with placeholders before model visibility, restore
+  at execution boundaries. 4 new tests.
+
+- **Phase 2 Sprint 3 — Tool quota runtime enforcement (Mar 2026):**
+  `ToolQuotaTracker` runtime module — enforces configured quotas with
+  per-tool sliding window counters, glob pattern matching, and
+  deny/require_approval outcomes. 6 new tests.
+
 ### Fixed
 
 - **R255-ENG-1: Regex constraint bypass via path normalization (Mar 2026):**

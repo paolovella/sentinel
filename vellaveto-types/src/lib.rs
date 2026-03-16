@@ -63,6 +63,7 @@ pub use asset_inventory::*;
 pub use audit_store::*;
 pub mod delegation_token;
 pub mod output_contract;
+pub mod supply_chain;
 pub use capability::*;
 pub use command::*;
 pub use compliance::*;

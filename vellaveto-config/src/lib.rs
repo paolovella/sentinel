@@ -90,8 +90,9 @@ pub use manifest::{
 
 pub use mcp_protocol::{
     AsyncTaskConfig, CimdConfig, ElicitationConfig, ResourceIndicatorConfig, SamplingConfig,
-    StepUpAuthConfig, StreamableHttpConfig, MAX_ALLOWED_MODELS, MAX_ALLOWED_RESOURCES,
-    MAX_ALLOW_CANCELLATION, MAX_BLOCKED_FIELD_TYPES, MAX_CAPABILITIES, MAX_TRIGGER_TOOLS,
+    StepUpAuthConfig, StreamableHttpConfig, ToolQuota, MAX_ALLOWED_MODELS, MAX_ALLOWED_RESOURCES,
+    MAX_ALLOW_CANCELLATION, MAX_BLOCKED_FIELD_TYPES, MAX_CAPABILITIES, MAX_TOOL_QUOTAS,
+    MAX_TRIGGER_TOOLS,
 };
 
 pub use etdi::{AllowedSignersConfig, AttestationConfig, EtdiConfig, VersionPinningConfig};
@@ -286,6 +287,30 @@ pub struct PolicyConfig {
     /// Async task lifecycle configuration (MCP 2025-11-25).
     #[serde(default)]
     pub async_tasks: AsyncTaskConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 2: TOOL QUOTAS
+    // ═══════════════════════════════════════════════════
+    /// Per-tool rate limits and quotas.
+    /// Simpler alternative to writing full Conditional policies with
+    /// MaxCallsInWindow context conditions. Each entry specifies a tool
+    /// pattern and its maximum calls per time window.
+    ///
+    /// # TOML Example
+    ///
+    /// ```toml
+    /// [[tool_quotas]]
+    /// tool_pattern = "execute_command"
+    /// max_calls = 10
+    /// window_secs = 60
+    ///
+    /// [[tool_quotas]]
+    /// tool_pattern = "write_*"
+    /// max_calls = 50
+    /// window_secs = 300
+    /// ```
+    #[serde(default)]
+    pub tool_quotas: Vec<ToolQuota>,
 
     /// RFC 8707 Resource Indicator configuration.
     #[serde(default)]

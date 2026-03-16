@@ -753,6 +753,86 @@ impl StreamableHttpConfig {
     }
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 2: TOOL QUOTAS
+// ═══════════════════════════════════════════════════
+
+/// Per-tool rate limit / quota entry.
+///
+/// Provides a simple operator-facing surface for rate limiting individual
+/// tools without writing full Conditional policies.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [[tool_quotas]]
+/// tool_pattern = "execute_command"
+/// max_calls = 10
+/// window_secs = 60
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolQuota {
+    /// Tool name or glob pattern (e.g., `execute_command`, `write_*`).
+    pub tool_pattern: String,
+    /// Maximum number of calls allowed within the time window.
+    pub max_calls: u32,
+    /// Time window in seconds. Default: 60.
+    #[serde(default = "default_quota_window")]
+    pub window_secs: u64,
+    /// Action when quota is exceeded. Default: "deny".
+    /// Options: "deny", "require_approval".
+    #[serde(default = "default_quota_action")]
+    pub on_exceed: String,
+}
+
+fn default_quota_window() -> u64 {
+    60
+}
+
+fn default_quota_action() -> String {
+    "deny".to_string()
+}
+
+/// Maximum number of tool quota entries.
+pub const MAX_TOOL_QUOTAS: usize = 256;
+
+impl ToolQuota {
+    /// Validate a single tool quota entry.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool_pattern.is_empty() {
+            return Err("tool_quotas[].tool_pattern is empty".to_string());
+        }
+        if self.tool_pattern.len() > 256 {
+            return Err(format!(
+                "tool_quotas[].tool_pattern length {} exceeds max 256",
+                self.tool_pattern.len()
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.tool_pattern) {
+            return Err(
+                "tool_quotas[].tool_pattern contains control or format characters".to_string(),
+            );
+        }
+        if self.max_calls == 0 {
+            return Err("tool_quotas[].max_calls must be > 0".to_string());
+        }
+        if self.window_secs == 0 || self.window_secs > 86400 {
+            return Err(format!(
+                "tool_quotas[].window_secs must be in [1, 86400], got {}",
+                self.window_secs
+            ));
+        }
+        if self.on_exceed != "deny" && self.on_exceed != "require_approval" {
+            return Err(format!(
+                "tool_quotas[].on_exceed must be 'deny' or 'require_approval', got '{}'",
+                self.on_exceed
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Default step-up auth expiry (30 minutes in seconds).
 fn default_step_up_expiry_secs() -> u64 {
     1800
@@ -1208,6 +1288,87 @@ mod tests {
         let mut config = StreamableHttpConfig::default();
         config.sse_retry_ms = Some(60_000);
         assert!(config.validate().is_ok());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 2: ToolQuota validate() tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_tool_quota_validate_ok() {
+        let q = ToolQuota {
+            tool_pattern: "execute_command".to_string(),
+            max_calls: 10,
+            window_secs: 60,
+            on_exceed: "deny".to_string(),
+        };
+        assert!(q.validate().is_ok());
+    }
+
+    #[test]
+    fn test_tool_quota_validate_empty_pattern_rejected() {
+        let q = ToolQuota {
+            tool_pattern: String::new(),
+            max_calls: 10,
+            window_secs: 60,
+            on_exceed: "deny".to_string(),
+        };
+        assert!(q.validate().unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_tool_quota_validate_zero_max_calls_rejected() {
+        let q = ToolQuota {
+            tool_pattern: "test".to_string(),
+            max_calls: 0,
+            window_secs: 60,
+            on_exceed: "deny".to_string(),
+        };
+        assert!(q.validate().unwrap_err().contains("max_calls"));
+    }
+
+    #[test]
+    fn test_tool_quota_validate_zero_window_rejected() {
+        let q = ToolQuota {
+            tool_pattern: "test".to_string(),
+            max_calls: 10,
+            window_secs: 0,
+            on_exceed: "deny".to_string(),
+        };
+        assert!(q.validate().unwrap_err().contains("window_secs"));
+    }
+
+    #[test]
+    fn test_tool_quota_validate_invalid_on_exceed_rejected() {
+        let q = ToolQuota {
+            tool_pattern: "test".to_string(),
+            max_calls: 10,
+            window_secs: 60,
+            on_exceed: "allow".to_string(),
+        };
+        assert!(q.validate().unwrap_err().contains("on_exceed"));
+    }
+
+    #[test]
+    fn test_tool_quota_validate_require_approval_ok() {
+        let q = ToolQuota {
+            tool_pattern: "write_*".to_string(),
+            max_calls: 50,
+            window_secs: 300,
+            on_exceed: "require_approval".to_string(),
+        };
+        assert!(q.validate().is_ok());
+    }
+
+    #[test]
+    fn test_tool_quota_validate_dangerous_chars_rejected() {
+        let q = ToolQuota {
+            tool_pattern: "test\x00tool".to_string(),
+            max_calls: 10,
+            window_secs: 60,
+            on_exceed: "deny".to_string(),
+        };
+        assert!(q.validate().unwrap_err().contains("control"));
     }
 
     // ═══════════════════════════════════════════════════

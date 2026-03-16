@@ -394,6 +394,19 @@ impl PolicyConfig {
         // the validation logic is not duplicated as dead code.
         self.tool_registry.validate()?;
 
+        // Phase 2: Validate tool quotas.
+        if self.tool_quotas.len() > crate::MAX_TOOL_QUOTAS {
+            return Err(format!(
+                "tool_quotas exceeds {} entries",
+                crate::MAX_TOOL_QUOTAS
+            ));
+        }
+        for (i, quota) in self.tool_quotas.iter().enumerate() {
+            quota
+                .validate()
+                .map_err(|e| format!("tool_quotas[{i}]: {e}"))?;
+        }
+
         // SECURITY (R24-SUP-6): Validate webhook_url scheme to prevent SSRF.
         // Only HTTPS is allowed for webhook destinations.
         if let Some(ref wh_url) = self.audit_export.webhook_url {

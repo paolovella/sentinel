@@ -3,8 +3,6 @@ name: Provenance and SBOM
 on:
   push:
     tags: ["v*"]
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -66,6 +64,7 @@ jobs:
             target/release/vellaveto
             target/release/vellaveto-proxy
             target/release/vellaveto-http-proxy
+            target/release/vellaveto-shield
 
       - name: Skip attestation on private repositories
         if: ${{ github.event.repository.private == true && vars.ENABLE_ATTESTATIONS != 'true' }}

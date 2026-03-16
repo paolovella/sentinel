@@ -191,6 +191,81 @@ pub struct ApprovalContainmentContext {
     pub counterfactual_review_required: bool,
 }
 
+/// Phase 2: Structured fact summary for human reviewers.
+///
+/// Generates a concise, human-readable review brief from a pending approval
+/// so operators can make informed decisions without parsing raw JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalFactSummary {
+    /// One-line summary (e.g., "execute_command requests approval: destructive operation").
+    pub headline: String,
+    /// What tool/action is being requested.
+    pub action_summary: String,
+    /// Why this was escalated to approval.
+    pub escalation_reason: String,
+    /// Risk indicators (taint, trust tier, sink class).
+    pub risk_indicators: Vec<String>,
+    /// Who requested it.
+    pub requester: String,
+    /// Time remaining before expiry.
+    pub expires_in_secs: i64,
+}
+
+impl PendingApproval {
+    /// Phase 2: Generate a structured fact summary for human review.
+    pub fn fact_summary(&self) -> ApprovalFactSummary {
+        let tool = &self.action.tool;
+        let function = &self.action.function;
+
+        let mut risk_indicators = Vec::new();
+
+        if let Some(ref ctx) = self.containment_context {
+            if let Some(ref tier) = ctx.effective_trust_tier {
+                risk_indicators.push(format!("trust: {tier:?}"));
+            }
+            if let Some(ref sink) = ctx.sink_class {
+                risk_indicators.push(format!("sink: {sink:?}"));
+            }
+            if !ctx.semantic_taint.is_empty() {
+                risk_indicators.push(format!(
+                    "taint: {:?}",
+                    ctx.semantic_taint
+                        .iter()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                ));
+            }
+            if let Some(ref score) = ctx.semantic_risk_score {
+                risk_indicators.push(format!("risk_score: {}", score.value));
+            }
+            if ctx.counterfactual_review_required {
+                risk_indicators.push("counterfactual_review_required".to_string());
+            }
+        }
+
+        let expires_in = (self.expires_at - Utc::now()).num_seconds();
+
+        ApprovalFactSummary {
+            headline: format!(
+                "{tool} requests approval: {}",
+                &self.reason[..self.reason.len().min(80)]
+            ),
+            action_summary: format!(
+                "tool={tool}, function={function}, paths={}, domains={}",
+                self.action.target_paths.len(),
+                self.action.target_domains.len()
+            ),
+            escalation_reason: self.reason.clone(),
+            risk_indicators,
+            requester: self
+                .requested_by
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
+            expires_in_secs: expires_in,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ReviewSafeProvenanceSummary {
     pub signature_status: Option<SignatureVerificationStatus>,
@@ -4550,5 +4625,67 @@ mod tests {
             )
             .await;
         assert!(result2.is_ok(), "MIN_FINGERPRINT_LEN should be accepted");
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 2: Approval fact summary tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_fact_summary_basic() {
+        let approval = PendingApproval {
+            id: "apr-1".to_string(),
+            action: Action::new("execute_command", "run", json!({"cmd": "rm -rf /"})),
+            reason: "destructive operation requires approval".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(300),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: Some("agent-1".to_string()),
+            session_id: Some("session-abc".to_string()),
+            action_fingerprint: Some("sha256:abc".to_string()),
+            containment_context: None,
+        };
+        let summary = approval.fact_summary();
+        assert!(summary.headline.contains("execute_command"));
+        assert!(summary.action_summary.contains("execute_command"));
+        assert_eq!(summary.requester, "agent-1");
+        assert!(summary.expires_in_secs > 0);
+        assert!(summary.risk_indicators.is_empty());
+    }
+
+    #[test]
+    fn test_fact_summary_with_containment_context() {
+        let approval = PendingApproval {
+            id: "apr-2".to_string(),
+            action: Action::new("delete_db", "drop", json!({})),
+            reason: "high risk operation".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: None,
+            session_id: None,
+            action_fingerprint: None,
+            containment_context: Some(ApprovalContainmentContext {
+                effective_trust_tier: Some(TrustTier::Low),
+                sink_class: Some(SinkClass::CodeExecution),
+                semantic_taint: vec![SemanticTaint::Untrusted],
+                counterfactual_review_required: true,
+                ..ApprovalContainmentContext::default()
+            }),
+        };
+        let summary = approval.fact_summary();
+        assert!(summary.risk_indicators.iter().any(|r| r.contains("trust")));
+        assert!(summary.risk_indicators.iter().any(|r| r.contains("sink")));
+        assert!(summary
+            .risk_indicators
+            .iter()
+            .any(|r| r.contains("counterfactual")));
+        assert_eq!(summary.requester, "unknown");
     }
 }

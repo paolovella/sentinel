@@ -26,6 +26,7 @@ pub mod gateway;
 pub mod iam;
 pub mod manifest;
 pub mod mcp_protocol;
+pub mod policy_templates;
 pub mod memory_nhi;
 pub mod rag_defense_config;
 pub mod semantic_guardrails_config;

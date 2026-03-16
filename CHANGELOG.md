@@ -35,6 +35,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Taint propagation from injection/DLP/schema findings into session context
   was already implemented — verified and documented.
 
+- **Phase 1 Sprint 5 — Response metadata stripping (Mar 2026):**
+  Strip 10 security-sensitive `_meta` fields (`security_context`,
+  `client_provenance`, `agent_identity`, `trust_tier`, `lineage_refs`, etc.)
+  from server responses before forwarding to the agent. Prevents servers from
+  injecting fake security context into responses. Covers `result._meta`,
+  `content[]._meta`, and `contents[]._meta`. 4 new tests.
+
+- **Phase 1 Sprint 6 — Extension registry enforcement (Mar 2026):**
+  `check_method_permitted()` on `ExtensionRegistry` — checks allow/block
+  patterns before policy evaluation. Wired into relay's `handle_extension_method`
+  via new `extension_registry` field on `ProxyBridge`.
+
+- **Phase 1 Sprint 7 — Cross-tool lineage graph queries (Mar 2026):**
+  `has_source_in_lineage()`, `has_tainted_source()`, `distinct_lineage_sources()`
+  on `SessionSemanticState` for detecting parasitic toolchain patterns
+  (Living-Off-AI). Exposed through `RelayState` for mediation use. 4 new tests.
+
+- **Phase 1 Sprint 8 — Cross-transport security context token (Mar 2026):**
+  `SecurityContextToken` type in `vellaveto-types` — a compact HMAC-signed
+  token carrying session scope, trust tier, taint labels, and lineage source
+  count across transport boundaries (e.g., stdio → HTTP). Validated with
+  bounded field checks and dangerous char rejection. 4 new tests.
+
 ### Fixed
 
 - **R255-ENG-1: Regex constraint bypass via path normalization (Mar 2026):**

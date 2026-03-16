@@ -244,14 +244,42 @@ impl SessionSemanticState {
         self.lineage_refs
             .iter()
             .filter_map(|r| r.trust_tier)
-            .min_by_key(|t| match t {
-                TrustTier::Quarantined => 0,
-                TrustTier::Untrusted | TrustTier::Unknown => 1,
-                TrustTier::Low => 2,
-                TrustTier::Medium => 3,
-                TrustTier::High => 4,
-                TrustTier::Verified => 5,
-            })
+            .min_by_key(|t| trust_tier_ord(*t))
+    }
+
+    /// Phase 1: Check if a tool's output has appeared in this session's lineage.
+    /// Used to detect parasitic toolchain patterns (Living-Off-AI) where an
+    /// untrusted tool's output flows into a privileged tool's input.
+    fn has_source_in_lineage(&self, source_tool: &str) -> bool {
+        self.lineage_refs
+            .iter()
+            .any(|r| r.source.as_deref() == Some(source_tool))
+    }
+
+    /// Phase 1: Check if any lineage ref from a given source has a trust tier
+    /// at or below the given threshold. Returns true if tainted data from
+    /// `source_tool` exists in the lineage with trust <= `max_tier`.
+    fn has_tainted_source(&self, source_tool: &str, max_tier: TrustTier) -> bool {
+        let max_ord = trust_tier_ord(max_tier);
+        self.lineage_refs.iter().any(|r| {
+            r.source.as_deref() == Some(source_tool)
+                && r.trust_tier
+                    .map(|t| trust_tier_ord(t) <= max_ord)
+                    .unwrap_or(true) // Unknown trust → treat as low
+        })
+    }
+
+    /// Phase 1: Count distinct tools that have contributed to this session's lineage.
+    fn distinct_lineage_sources(&self) -> usize {
+        let mut seen = Vec::new();
+        for r in &self.lineage_refs {
+            if let Some(src) = &r.source {
+                if !seen.iter().any(|s: &String| s == src) {
+                    seen.push(src.clone());
+                }
+            }
+        }
+        seen.len()
     }
 
     fn merge_into(&self, security_context: &mut RuntimeSecurityContext) {
@@ -356,6 +384,18 @@ fn strip_server_meta_security_fields(msg: &mut Value) {
                 }
             }
         }
+    }
+}
+
+/// Map TrustTier to an ordinal for comparison (lower = less trusted).
+fn trust_tier_ord(t: TrustTier) -> u8 {
+    match t {
+        TrustTier::Quarantined => 0,
+        TrustTier::Untrusted | TrustTier::Unknown => 1,
+        TrustTier::Low => 2,
+        TrustTier::Medium => 3,
+        TrustTier::High => 4,
+        TrustTier::Verified => 5,
     }
 }
 
@@ -1001,6 +1041,24 @@ impl RelayState {
     #[allow(dead_code)]
     fn min_session_trust_tier(&self) -> Option<TrustTier> {
         self.session_semantics.min_lineage_trust_tier()
+    }
+
+    /// Phase 1: Check if a tool's output is in the session lineage.
+    #[allow(dead_code)]
+    fn has_tool_in_lineage(&self, tool: &str) -> bool {
+        self.session_semantics.has_source_in_lineage(tool)
+    }
+
+    /// Phase 1: Check for tainted data from a specific tool in the lineage.
+    #[allow(dead_code)]
+    fn has_tainted_tool_in_lineage(&self, tool: &str, max_tier: TrustTier) -> bool {
+        self.session_semantics.has_tainted_source(tool, max_tier)
+    }
+
+    /// Phase 1: Count distinct tools in the session lineage.
+    #[allow(dead_code)]
+    fn lineage_source_count(&self) -> usize {
+        self.session_semantics.distinct_lineage_sources()
     }
 
     /// SECURITY (FIND-R46-007): Insert into flagged_tools with capacity check.
@@ -9361,6 +9419,72 @@ mod tests {
         let original = msg.clone();
         strip_server_meta_security_fields(&mut msg);
         assert_eq!(msg, original);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 1: Lineage graph query tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_lineage_has_source_in_lineage() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_semantic_output(
+            "read_file",
+            ContextChannel::ToolOutput,
+            &[vellaveto_types::minja::TaintLabel::Untrusted],
+        );
+        assert!(state.has_tool_in_lineage("read_file"));
+        assert!(!state.has_tool_in_lineage("write_file"));
+    }
+
+    #[test]
+    fn test_lineage_has_tainted_source() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_semantic_output(
+            "malicious_tool",
+            ContextChannel::ToolOutput,
+            &[
+                vellaveto_types::minja::TaintLabel::Untrusted,
+                vellaveto_types::minja::TaintLabel::Quarantined,
+            ],
+        );
+        state.record_semantic_output(
+            "safe_tool",
+            ContextChannel::ToolOutput,
+            &[],
+        );
+        // malicious_tool has Quarantined trust → tainted at Low
+        assert!(state.has_tainted_tool_in_lineage("malicious_tool", TrustTier::Low));
+        // safe_tool has Untrusted trust (default when no taints) → tainted at Untrusted but not at Quarantined
+        assert!(state.has_tainted_tool_in_lineage("safe_tool", TrustTier::Low));
+        assert!(!state.has_tainted_tool_in_lineage("safe_tool", TrustTier::Quarantined));
+    }
+
+    #[test]
+    fn test_lineage_distinct_sources() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_semantic_output("tool_a", ContextChannel::ToolOutput, &[]);
+        state.record_semantic_output("tool_b", ContextChannel::ToolOutput, &[]);
+        state.record_semantic_output("tool_a", ContextChannel::ToolOutput, &[]); // duplicate
+        assert_eq!(state.lineage_source_count(), 2);
+    }
+
+    #[test]
+    fn test_lineage_min_trust_tier() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_semantic_output(
+            "good_tool",
+            ContextChannel::ToolOutput,
+            &[],
+        );
+        assert_eq!(state.min_session_trust_tier(), Some(TrustTier::Untrusted));
+
+        state.record_semantic_output(
+            "bad_tool",
+            ContextChannel::ToolOutput,
+            &[vellaveto_types::minja::TaintLabel::Quarantined],
+        );
+        assert_eq!(state.min_session_trust_tier(), Some(TrustTier::Quarantined));
     }
 
     #[test]

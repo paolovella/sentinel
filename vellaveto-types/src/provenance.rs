@@ -698,6 +698,79 @@ fn validate_bounded_field(value: &str, field: &str, max_len: usize) -> Result<()
     Ok(())
 }
 
+/// Phase 1: Compact signed token for cross-transport security context propagation.
+///
+/// When a request crosses transport boundaries (e.g., stdio proxy → HTTP backend),
+/// the originating proxy can attach this token via `_meta.security_context_token`.
+/// The receiving transport verifies the HMAC before ingesting the context,
+/// preventing untrusted callers from injecting fake trust tiers or taint labels.
+///
+/// The token carries a summary of the session's security state — not the full
+/// `RuntimeSecurityContext`, which is too large and contains internal fields.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SecurityContextToken {
+    /// Opaque session scope binding from the originating transport.
+    pub session_scope_binding: String,
+    /// Effective trust tier at the time of token issuance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_trust_tier: Option<TrustTier>,
+    /// Accumulated taint label names from the session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub taint_labels: Vec<String>,
+    /// Number of distinct tool sources in the session lineage.
+    #[serde(default)]
+    pub lineage_source_count: usize,
+    /// Unix epoch seconds when the token was issued.
+    pub issued_at_epoch_secs: u64,
+    /// HMAC-SHA256 over the token fields using a shared secret.
+    /// The receiving transport verifies this before ingesting.
+    pub hmac_sha256: String,
+}
+
+/// Maximum taint labels in a security context token.
+const MAX_TOKEN_TAINT_LABELS: usize = 64;
+
+impl SecurityContextToken {
+    /// Validate token field bounds and content.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.session_scope_binding.is_empty() {
+            return Err("security_context_token.session_scope_binding is empty".to_string());
+        }
+        if self.session_scope_binding.len() > 512 {
+            return Err(format!(
+                "security_context_token.session_scope_binding length {} exceeds max 512",
+                self.session_scope_binding.len()
+            ));
+        }
+        if has_dangerous_chars(&self.session_scope_binding) {
+            return Err(
+                "security_context_token.session_scope_binding contains dangerous characters"
+                    .to_string(),
+            );
+        }
+        if self.taint_labels.len() > MAX_TOKEN_TAINT_LABELS {
+            return Err(format!(
+                "security_context_token.taint_labels exceeds {MAX_TOKEN_TAINT_LABELS} entries"
+            ));
+        }
+        for (i, label) in self.taint_labels.iter().enumerate() {
+            if label.len() > 128 || has_dangerous_chars(label) {
+                return Err(format!(
+                    "security_context_token.taint_labels[{i}] invalid"
+                ));
+            }
+        }
+        if self.hmac_sha256.is_empty() {
+            return Err("security_context_token.hmac_sha256 is empty".to_string());
+        }
+        if self.hmac_sha256.len() > 128 {
+            return Err("security_context_token.hmac_sha256 too long".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1034,5 +1107,61 @@ mod tests {
             ctx.semantic_risk_score,
             Some(SemanticRiskScore { value: 70 })
         );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 1: SecurityContextToken tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_security_context_token_validate_ok() {
+        let token = SecurityContextToken {
+            session_scope_binding: "scope-abc".to_string(),
+            effective_trust_tier: Some(TrustTier::Medium),
+            taint_labels: vec!["untrusted".to_string()],
+            lineage_source_count: 3,
+            issued_at_epoch_secs: 1710547200,
+            hmac_sha256: "abcdef0123456789".to_string(),
+        };
+        assert!(token.validate().is_ok());
+    }
+
+    #[test]
+    fn test_security_context_token_validate_empty_scope_rejected() {
+        let token = SecurityContextToken {
+            session_scope_binding: String::new(),
+            effective_trust_tier: None,
+            taint_labels: Vec::new(),
+            lineage_source_count: 0,
+            issued_at_epoch_secs: 0,
+            hmac_sha256: "abc".to_string(),
+        };
+        assert!(token.validate().is_err());
+    }
+
+    #[test]
+    fn test_security_context_token_validate_too_many_taints_rejected() {
+        let token = SecurityContextToken {
+            session_scope_binding: "scope".to_string(),
+            effective_trust_tier: None,
+            taint_labels: (0..65).map(|i| format!("taint_{i}")).collect(),
+            lineage_source_count: 0,
+            issued_at_epoch_secs: 0,
+            hmac_sha256: "abc".to_string(),
+        };
+        assert!(token.validate().is_err());
+    }
+
+    #[test]
+    fn test_security_context_token_validate_dangerous_chars_rejected() {
+        let token = SecurityContextToken {
+            session_scope_binding: "scope\x00bad".to_string(),
+            effective_trust_tier: None,
+            taint_labels: Vec::new(),
+            lineage_source_count: 0,
+            issued_at_epoch_secs: 0,
+            hmac_sha256: "abc".to_string(),
+        };
+        assert!(token.validate().is_err());
     }
 }

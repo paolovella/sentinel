@@ -145,6 +145,15 @@ impl ProxyBridge {
         self
     }
 
+    /// Phase 1: Set the extension registry for allow/block pattern enforcement.
+    pub fn with_extension_registry(
+        mut self,
+        registry: Arc<crate::extension_registry::ExtensionRegistry>,
+    ) -> Self {
+        self.extension_registry = Some(registry);
+        self
+    }
+
     /// Set the auth level tracker for step-up authentication.
     /// When set, sensitive operations may require elevated authentication.
     pub fn with_auth_level(mut self, tracker: Arc<AuthLevelTracker>) -> Self {

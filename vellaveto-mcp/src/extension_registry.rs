@@ -370,6 +370,24 @@ impl ExtensionRegistry {
     }
 
     /// Check if an extension ID is allowed by the allow patterns.
+    /// Phase 1: Check if an extension method is permitted by the registry's
+    /// allow/block patterns. Returns Ok(()) if allowed, Err(reason) if denied.
+    pub fn check_method_permitted(&self, extension_id: &str) -> Result<(), String> {
+        if self.is_blocked(extension_id) {
+            return Err(format!(
+                "extension '{}' blocked by registry pattern",
+                &extension_id[..extension_id.len().min(64)]
+            ));
+        }
+        if !self.is_allowed(extension_id) {
+            return Err(format!(
+                "extension '{}' not in registry allowed patterns",
+                &extension_id[..extension_id.len().min(64)]
+            ));
+        }
+        Ok(())
+    }
+
     fn is_allowed(&self, id: &str) -> bool {
         if self.allowed_patterns.is_empty() {
             return true; // Empty allowlist = allow all (subject to blocklist)

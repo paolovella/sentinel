@@ -103,6 +103,9 @@ pub struct ProxyBridge {
     /// Task state manager for async task lifecycle tracking (Phase 1).
     task_state: Option<Arc<TaskStateManager>>,
 
+    /// Phase 1: Extension registry for allow/block pattern enforcement.
+    extension_registry: Option<Arc<crate::extension_registry::ExtensionRegistry>>,
+
     /// Auth level tracker for step-up authentication (Phase 1).
     auth_level: Option<Arc<AuthLevelTracker>>,
 
@@ -286,6 +289,7 @@ impl ProxyBridge {
             },
             // Phase 1 & 2 managers (default: disabled)
             task_state: None,
+            extension_registry: None,
             auth_level: None,
             circuit_breaker: None,
             deputy: None,

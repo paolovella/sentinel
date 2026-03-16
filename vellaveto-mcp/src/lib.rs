@@ -56,9 +56,12 @@ pub mod proxy;
 pub mod rag_defense;
 pub mod red_team;
 pub mod rekor;
+pub mod reputation;
 pub mod rug_pull;
 pub mod sampling_detector;
 pub mod schema_poisoning;
+pub mod secret_substitution;
+pub mod security_context_mint;
 #[cfg(feature = "semantic-detection")]
 pub mod semantic_detection;
 #[cfg(feature = "semantic-guardrails")]
@@ -69,9 +72,6 @@ pub mod shadow_ai_discovery;
 pub mod task_security;
 pub mod task_state;
 pub mod token_security;
-pub mod reputation;
-pub mod secret_substitution;
-pub mod security_context_mint;
 pub mod tool_namespace;
 pub mod tool_quota;
 pub mod tool_registry;

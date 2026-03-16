@@ -851,9 +851,7 @@ impl SecurityContextToken {
         }
         for (i, label) in self.taint_labels.iter().enumerate() {
             if label.len() > 128 || has_dangerous_chars(label) {
-                return Err(format!(
-                    "security_context_token.taint_labels[{i}] invalid"
-                ));
+                return Err(format!("security_context_token.taint_labels[{i}] invalid"));
             }
         }
         if self.hmac_sha256.is_empty() {
@@ -1244,12 +1242,7 @@ mod tests {
 
     #[test]
     fn test_check_flow_admissibility_admissible() {
-        let v = check_flow_admissibility(
-            TrustTier::Verified,
-            SinkClass::CodeExecution,
-            false,
-            2,
-        );
+        let v = check_flow_admissibility(TrustTier::Verified, SinkClass::CodeExecution, false, 2);
         assert_eq!(v, FlowVerdict::Admissible);
     }
 
@@ -1274,7 +1267,9 @@ mod tests {
             1, // threshold < deficit → denied
         );
         match v {
-            FlowVerdict::Denied { required, actual, .. } => {
+            FlowVerdict::Denied {
+                required, actual, ..
+            } => {
                 assert_eq!(required, TrustTier::Verified);
                 assert_eq!(actual, TrustTier::Untrusted);
             }

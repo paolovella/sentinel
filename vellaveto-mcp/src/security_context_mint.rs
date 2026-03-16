@@ -87,25 +87,13 @@ mod tests {
 
     #[test]
     fn test_verify_fails_wrong_secret() {
-        let token = mint_token(
-            "scope",
-            None,
-            Vec::new(),
-            0,
-            b"correct-secret",
-        );
+        let token = mint_token("scope", None, Vec::new(), 0, b"correct-secret");
         assert!(!verify_token(&token, b"wrong-secret"));
     }
 
     #[test]
     fn test_verify_fails_tampered_token() {
-        let mut token = mint_token(
-            "scope",
-            Some(TrustTier::High),
-            Vec::new(),
-            0,
-            b"secret",
-        );
+        let mut token = mint_token("scope", Some(TrustTier::High), Vec::new(), 0, b"secret");
         // Tamper with trust tier
         token.effective_trust_tier = Some(TrustTier::Verified);
         // HMAC was computed with High, so verification should fail

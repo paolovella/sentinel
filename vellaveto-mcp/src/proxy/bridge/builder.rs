@@ -146,10 +146,7 @@ impl ProxyBridge {
     }
 
     /// Phase 2: Set the tool quota tracker for per-tool rate limiting.
-    pub fn with_tool_quota_tracker(
-        mut self,
-        tracker: crate::tool_quota::ToolQuotaTracker,
-    ) -> Self {
+    pub fn with_tool_quota_tracker(mut self, tracker: crate::tool_quota::ToolQuotaTracker) -> Self {
         self.tool_quota_tracker = Some(std::sync::Mutex::new(tracker));
         self
     }

@@ -137,7 +137,8 @@ fn compute_notification_deadlines(
     deadlines.push(NotificationDeadline {
         regulation: "EU AI Act".to_string(),
         article: "Art 73".to_string(),
-        description: "Initial serious incident notification to market surveillance authority".to_string(),
+        description: "Initial serious incident notification to market surveillance authority"
+            .to_string(),
         hours_from_detection: 72,
         deadline_at: offset_timestamp(detected_at, 72),
         notified: false,
@@ -211,7 +212,8 @@ mod tests {
             classification: IncidentClassification::SecurityBreach,
             severity: 4,
             detected_at: "2026-03-16T12:00:00Z".to_string(),
-            description: "Agent attempted to read AWS credentials and exfiltrate via webhook".to_string(),
+            description: "Agent attempted to read AWS credentials and exfiltrate via webhook"
+                .to_string(),
             affected_assets: vec!["read_file".to_string(), "http_request".to_string()],
             evidence_refs: vec!["audit-entry-42".to_string()],
         });

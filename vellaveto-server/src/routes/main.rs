@@ -127,10 +127,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/compliance/incident-report",
             post(super::compliance::create_incident_report),
         )
-        .route(
-            "/api/compliance/fria",
-            get(super::compliance::fria_export),
-        )
+        .route("/api/compliance/fria", get(super::compliance::fria_export))
         .route(
             "/api/audit/checkpoints",
             get(super::audit::list_checkpoints),

@@ -322,9 +322,7 @@ impl SamplingConfig {
         }
         for (i, entry) in self.allowed_tools_in_sampling.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!(
-                    "sampling.allowed_tools_in_sampling[{i}] is empty"
-                ));
+                return Err(format!("sampling.allowed_tools_in_sampling[{i}] is empty"));
             }
             if entry.len() > MAX_TOOL_PATTERN_LENGTH {
                 return Err(format!(
@@ -891,30 +889,22 @@ impl SecretSubstitution {
             return Err("secret_substitutions[].env_var must be 1-256 chars".to_string());
         }
         if vellaveto_types::has_dangerous_chars(&self.env_var) {
-            return Err(
-                "secret_substitutions[].env_var contains dangerous characters".to_string(),
-            );
+            return Err("secret_substitutions[].env_var contains dangerous characters".to_string());
         }
         if self.placeholder.is_empty() || self.placeholder.len() > 128 {
             return Err("secret_substitutions[].placeholder must be 1-128 chars".to_string());
         }
         for (i, pattern) in self.tool_patterns.iter().enumerate() {
             if pattern.len() > 256 || vellaveto_types::has_dangerous_chars(pattern) {
-                return Err(format!(
-                    "secret_substitutions[].tool_patterns[{i}] invalid"
-                ));
+                return Err(format!("secret_substitutions[].tool_patterns[{i}] invalid"));
             }
         }
         if self.tool_patterns.len() > 64 {
-            return Err(
-                "secret_substitutions[].tool_patterns exceeds 64 entries".to_string(),
-            );
+            return Err("secret_substitutions[].tool_patterns exceeds 64 entries".to_string());
         }
         for (i, path) in self.param_paths.iter().enumerate() {
             if path.len() > 256 || vellaveto_types::has_dangerous_chars(path) {
-                return Err(format!(
-                    "secret_substitutions[].param_paths[{i}] invalid"
-                ));
+                return Err(format!("secret_substitutions[].param_paths[{i}] invalid"));
             }
         }
         if self.param_paths.len() > 64 {

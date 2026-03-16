@@ -14,7 +14,7 @@
 //! This module provides the contagion policy engine that determines how taint
 //! propagates through action chains and when it decays.
 
-use vellaveto_types::{TrustTier, provenance::SinkClass};
+use vellaveto_types::{provenance::SinkClass, TrustTier};
 
 /// Contagion propagation mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,7 +245,11 @@ mod tests {
         tracker.record_taint("tool_a", ContagionTaintType::DlpFinding); // Low floor
         tracker.record_taint("tool_b", ContagionTaintType::InjectionDetected); // Quarantined floor
         match tracker.check() {
-            ContagionVerdict::Tainted { trust_floor, active_taint_count, .. } => {
+            ContagionVerdict::Tainted {
+                trust_floor,
+                active_taint_count,
+                ..
+            } => {
                 assert_eq!(trust_floor, TrustTier::Quarantined); // strictest
                 assert_eq!(active_taint_count, 2);
             }

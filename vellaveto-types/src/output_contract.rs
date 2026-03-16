@@ -63,7 +63,9 @@ pub fn check_output_contract(
     contracts: &[OutputContract],
 ) -> ContractCheckResult {
     // Find matching contract
-    let contract = contracts.iter().find(|c| tool_matches(&c.tool_pattern, tool_name));
+    let contract = contracts
+        .iter()
+        .find(|c| tool_matches(&c.tool_pattern, tool_name));
 
     let contract = match contract {
         Some(c) => c,
@@ -118,7 +120,9 @@ mod tests {
         }];
         let result = check_output_contract("read_file", ContextChannel::CommandLike, &contracts);
         match result {
-            ContractCheckResult::Violation { observed, action, .. } => {
+            ContractCheckResult::Violation {
+                observed, action, ..
+            } => {
                 assert_eq!(observed, ContextChannel::CommandLike);
                 assert_eq!(action, ContractViolationAction::Block);
             }

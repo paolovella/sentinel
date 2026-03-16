@@ -1352,7 +1352,10 @@ pub async fn annex_iv_package(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let snapshot = state.policy_state.load();
     let policy_count = snapshot.policies.len();
-    let audit_entry_count = state.metrics.evaluations_total.load(std::sync::atomic::Ordering::Relaxed);
+    let audit_entry_count = state
+        .metrics
+        .evaluations_total
+        .load(std::sync::atomic::Ordering::Relaxed);
     let compliance_frameworks: Vec<String> = vec![
         "EU AI Act".to_string(),
         "SOC 2".to_string(),
@@ -1378,17 +1381,15 @@ pub async fn annex_iv_package(
         &HashMap::new(),
     );
 
-    serde_json::to_value(&package)
-        .map(Json)
-        .map_err(|e| {
-            tracing::error!("Annex IV serialization error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Internal server error".to_string(),
-                }),
-            )
-        })
+    serde_json::to_value(&package).map(Json).map_err(|e| {
+        tracing::error!("Annex IV serialization error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Internal server error".to_string(),
+            }),
+        )
+    })
 }
 
 /// Generate an Article 73 incident report template.
@@ -1415,10 +1416,7 @@ pub async fn create_incident_report(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let severity = body
-        .get("severity")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3) as u8;
+    let severity = body.get("severity").and_then(|v| v.as_u64()).unwrap_or(3) as u8;
     let classification = match body
         .get("classification")
         .and_then(|v| v.as_str())
@@ -1429,9 +1427,7 @@ pub async fn create_incident_report(
         "fundamental_rights" => {
             vellaveto_audit::article73::IncidentClassification::FundamentalRightsImpact
         }
-        "supply_chain" => {
-            vellaveto_audit::article73::IncidentClassification::SupplyChainCompromise
-        }
+        "supply_chain" => vellaveto_audit::article73::IncidentClassification::SupplyChainCompromise,
         _ => vellaveto_audit::article73::IncidentClassification::SystemMalfunction,
     };
 
@@ -1456,17 +1452,15 @@ pub async fn create_incident_report(
         },
     );
 
-    serde_json::to_value(&report)
-        .map(Json)
-        .map_err(|e| {
-            tracing::error!("Incident report serialization error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Internal server error".to_string(),
-                }),
-            )
-        })
+    serde_json::to_value(&report).map(Json).map_err(|e| {
+        tracing::error!("Incident report serialization error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Internal server error".to_string(),
+            }),
+        )
+    })
 }
 
 /// Generate a FRIA (Fundamental Rights Impact Assessment) data export.
@@ -1490,15 +1484,13 @@ pub async fn fria_export(
         true,  // has_audit_trail
     );
 
-    serde_json::to_value(&export)
-        .map(Json)
-        .map_err(|e| {
-            tracing::error!("FRIA export serialization error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Internal server error".to_string(),
-                }),
-            )
-        })
+    serde_json::to_value(&export).map(Json).map_err(|e| {
+        tracing::error!("FRIA export serialization error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Internal server error".to_string(),
+            }),
+        )
+    })
 }

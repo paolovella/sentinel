@@ -279,13 +279,8 @@ mod tests {
 
     #[test]
     fn test_roundtrip_substitution() {
-        let engine = make_engine_with_secret(
-            "KEY",
-            "{{KEY}}",
-            "my-secret-key",
-            Vec::new(),
-            Vec::new(),
-        );
+        let engine =
+            make_engine_with_secret("KEY", "{{KEY}}", "my-secret-key", Vec::new(), Vec::new());
         let original = json!({"token": "Bearer my-secret-key", "count": 42});
         let mut params = original.clone();
 
@@ -317,13 +312,7 @@ mod tests {
 
     #[test]
     fn test_nested_value_substitution() {
-        let engine = make_engine_with_secret(
-            "KEY",
-            "{{KEY}}",
-            "secret",
-            Vec::new(),
-            Vec::new(),
-        );
+        let engine = make_engine_with_secret("KEY", "{{KEY}}", "secret", Vec::new(), Vec::new());
         let mut params = json!({
             "nested": {"deep": {"value": "prefix-secret-suffix"}},
             "array": ["secret", "other"]

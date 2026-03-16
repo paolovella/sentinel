@@ -357,10 +357,7 @@ fn strip_server_meta_security_fields(msg: &mut Value) {
         .and_then(|c| c.as_array_mut())
     {
         for block in content.iter_mut() {
-            if let Some(meta) = block
-                .get_mut("_meta")
-                .and_then(|m| m.as_object_mut())
-            {
+            if let Some(meta) = block.get_mut("_meta").and_then(|m| m.as_object_mut()) {
                 for field in STRIPPED_META_FIELDS {
                     meta.remove(*field);
                 }
@@ -374,10 +371,7 @@ fn strip_server_meta_security_fields(msg: &mut Value) {
         .and_then(|c| c.as_array_mut())
     {
         for item in contents.iter_mut() {
-            if let Some(meta) = item
-                .get_mut("_meta")
-                .and_then(|m| m.as_object_mut())
-            {
+            if let Some(meta) = item.get_mut("_meta").and_then(|m| m.as_object_mut()) {
                 for field in STRIPPED_META_FIELDS {
                     meta.remove(*field);
                 }
@@ -2461,7 +2455,7 @@ impl ProxyBridge {
         // privileged sink, deny before evaluation. Uses the action's target info
         // to infer sink class.
         {
-            use vellaveto_types::provenance::{SinkClass, check_flow_admissibility, FlowVerdict};
+            use vellaveto_types::provenance::{check_flow_admissibility, FlowVerdict, SinkClass};
             let inferred_sink = if action.tool.contains("execute") || action.tool.contains("run") {
                 SinkClass::CodeExecution
             } else if action.tool.contains("write") || action.tool.contains("delete") {
@@ -2474,7 +2468,9 @@ impl ProxyBridge {
 
             // Check contagion: if tainted, does current trust allow this sink?
             if state.contagion.should_block_privileged_sink(inferred_sink) {
-                let min_trust = state.min_session_trust_tier().unwrap_or(TrustTier::Quarantined);
+                let min_trust = state
+                    .min_session_trust_tier()
+                    .unwrap_or(TrustTier::Quarantined);
                 let flow_verdict = check_flow_admissibility(
                     min_trust,
                     inferred_sink,
@@ -2482,7 +2478,11 @@ impl ProxyBridge {
                     1,     // approval threshold: 1 rank deficit → gated
                 );
                 match flow_verdict {
-                    FlowVerdict::Denied { trust_deficit, required, actual } => {
+                    FlowVerdict::Denied {
+                        trust_deficit,
+                        required,
+                        actual,
+                    } => {
                         tracing::warn!(
                             "SECURITY: Contagion + flow check denied '{}': trust {:?} < required {:?} (deficit {})",
                             vellaveto_types::sanitize_for_log(&tool_name, 64),
@@ -2495,18 +2495,28 @@ impl ProxyBridge {
                             ),
                         };
                         let cf_envelope = crate::mediation::build_secondary_acis_envelope(
-                            &action, &verdict, DecisionOrigin::PolicyEngine, "stdio",
+                            &action,
+                            &verdict,
+                            DecisionOrigin::PolicyEngine,
+                            "stdio",
                             state.agent_id.as_deref(),
                         );
-                        let _ = self.audit.log_entry_with_acis(
-                            &action, &verdict,
-                            json!({"source": "proxy", "event": "contagion_flow_denied",
+                        let _ = self
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &verdict,
+                                json!({"source": "proxy", "event": "contagion_flow_denied",
                                    "tool": vellaveto_types::sanitize_for_log(&tool_name, 64),
                                    "trust_deficit": trust_deficit}),
-                            cf_envelope,
-                        ).await;
-                        let response = make_denial_response(&id, "Request blocked: security policy violation");
-                        write_message(agent_writer, &response).await.map_err(ProxyError::Framing)?;
+                                cf_envelope,
+                            )
+                            .await;
+                        let response =
+                            make_denial_response(&id, "Request blocked: security policy violation");
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
                         return Ok(());
                     }
                     FlowVerdict::Gated { trust_deficit } => {
@@ -2629,9 +2639,13 @@ impl ProxyBridge {
                         if let Ok(pending) = store.get(approval_id.as_str()).await {
                             let current_trust = state.min_session_trust_tier();
                             let current_taint = state.session_semantics.taint.len();
-                            if let Some(drift_reason) = vellaveto_approval::check_approval_lineage_drift(
-                                &pending, current_trust, current_taint,
-                            ) {
+                            if let Some(drift_reason) =
+                                vellaveto_approval::check_approval_lineage_drift(
+                                    &pending,
+                                    current_trust,
+                                    current_taint,
+                                )
+                            {
                                 tracing::warn!(
                                     "SECURITY: Approval '{}' invalidated due to lineage drift: {}",
                                     &approval_id[..approval_id.len().min(32)],
@@ -5332,7 +5346,8 @@ impl ProxyBridge {
                         {
                             tracing::warn!("Failed to audit task access denial: {}", e);
                         }
-                        let response = make_denial_response(&id, "Request blocked: security policy violation");
+                        let response =
+                            make_denial_response(&id, "Request blocked: security policy violation");
                         write_message(agent_writer, &response)
                             .await
                             .map_err(ProxyError::Framing)?;
@@ -5771,7 +5786,8 @@ impl ProxyBridge {
                 {
                     tracing::warn!("Failed to audit extension registry block: {}", e);
                 }
-                let response = make_denial_response(&id, "Request blocked: security policy violation");
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
                 write_message(agent_writer, &response)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -8055,7 +8071,12 @@ impl ProxyBridge {
                 hasher.update(&serialized.as_bytes()[..serialized.len().min(4096)]);
                 Some(format!("sha256:{:x}", hasher.finalize()))
             });
-            state.record_semantic_output_with_hash(tool_name, channel, &response_taint, content_hash);
+            state.record_semantic_output_with_hash(
+                tool_name,
+                channel,
+                &response_taint,
+                content_hash,
+            );
 
             // Phase 3: Feed contagion tracker from response findings.
             if injection_found {
@@ -8082,22 +8103,13 @@ impl ProxyBridge {
 
             // Phase 2: Feed reputation tracker from response findings.
             if let Some(ref tracker) = self.reputation_tracker {
-                let server_id = state
-                    .server_name
-                    .as_deref()
-                    .unwrap_or("unknown-server");
+                let server_id = state.server_name.as_deref().unwrap_or("unknown-server");
                 if let Ok(mut guard) = tracker.lock() {
                     if injection_found {
-                        guard.record_signal(
-                            server_id,
-                            crate::reputation::SignalType::Injection,
-                        );
+                        guard.record_signal(server_id, crate::reputation::SignalType::Injection);
                     }
                     if dlp_found {
-                        guard.record_signal(
-                            server_id,
-                            crate::reputation::SignalType::DlpFinding,
-                        );
+                        guard.record_signal(server_id, crate::reputation::SignalType::DlpFinding);
                     }
                     if schema_violation_found {
                         guard.record_signal(
@@ -8183,9 +8195,7 @@ impl ProxyBridge {
             if let Ok(token_json) = serde_json::to_value(&token) {
                 if let Some(result) = msg.get_mut("result") {
                     if let Some(obj) = result.as_object_mut() {
-                        let meta = obj
-                            .entry("_meta")
-                            .or_insert_with(|| serde_json::json!({}));
+                        let meta = obj.entry("_meta").or_insert_with(|| serde_json::json!({}));
                         if let Some(meta_obj) = meta.as_object_mut() {
                             meta_obj.insert("security_context_token".to_string(), token_json);
                         }
@@ -9620,10 +9630,22 @@ mod tests {
         });
         strip_server_meta_security_fields(&mut msg);
         let meta = msg.pointer("/result/_meta").unwrap();
-        assert!(meta.get("security_context").is_none(), "security_context should be stripped");
-        assert!(meta.get("client_provenance").is_none(), "client_provenance should be stripped");
-        assert!(meta.get("agent_identity").is_none(), "agent_identity should be stripped");
-        assert_eq!(meta.get("server_custom_field").and_then(|v| v.as_str()), Some("keep-this"));
+        assert!(
+            meta.get("security_context").is_none(),
+            "security_context should be stripped"
+        );
+        assert!(
+            meta.get("client_provenance").is_none(),
+            "client_provenance should be stripped"
+        );
+        assert!(
+            meta.get("agent_identity").is_none(),
+            "agent_identity should be stripped"
+        );
+        assert_eq!(
+            meta.get("server_custom_field").and_then(|v| v.as_str()),
+            Some("keep-this")
+        );
     }
 
     #[test]
@@ -9647,7 +9669,10 @@ mod tests {
         strip_server_meta_security_fields(&mut msg);
         let block_meta = msg.pointer("/result/content/0/_meta").unwrap();
         assert!(block_meta.get("trust_tier").is_none());
-        assert_eq!(block_meta.get("custom").and_then(|v| v.as_str()), Some("preserved"));
+        assert_eq!(
+            block_meta.get("custom").and_then(|v| v.as_str()),
+            Some("preserved")
+        );
     }
 
     #[test]
@@ -9671,7 +9696,10 @@ mod tests {
         strip_server_meta_security_fields(&mut msg);
         let item_meta = msg.pointer("/result/contents/0/_meta").unwrap();
         assert!(item_meta.get("lineage_refs").is_none());
-        assert_eq!(item_meta.get("mime_type").and_then(|v| v.as_str()), Some("text/plain"));
+        assert_eq!(
+            item_meta.get("mime_type").and_then(|v| v.as_str()),
+            Some("text/plain")
+        );
     }
 
     #[test]
@@ -9709,11 +9737,7 @@ mod tests {
                 vellaveto_types::minja::TaintLabel::Quarantined,
             ],
         );
-        state.record_semantic_output(
-            "safe_tool",
-            ContextChannel::ToolOutput,
-            &[],
-        );
+        state.record_semantic_output("safe_tool", ContextChannel::ToolOutput, &[]);
         // malicious_tool has Quarantined trust → tainted at Low
         assert!(state.has_tainted_tool_in_lineage("malicious_tool", TrustTier::Low));
         // safe_tool has Untrusted trust (default when no taints) → tainted at Untrusted but not at Quarantined
@@ -9733,11 +9757,7 @@ mod tests {
     #[test]
     fn test_lineage_min_trust_tier() {
         let mut state = RelayState::new(HashSet::new());
-        state.record_semantic_output(
-            "good_tool",
-            ContextChannel::ToolOutput,
-            &[],
-        );
+        state.record_semantic_output("good_tool", ContextChannel::ToolOutput, &[]);
         assert_eq!(state.min_session_trust_tier(), Some(TrustTier::Untrusted));
 
         state.record_semantic_output(

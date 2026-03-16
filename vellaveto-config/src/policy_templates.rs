@@ -127,7 +127,7 @@ impl PolicyTemplate {
             "block_commands" => {
                 if self.patterns.is_empty() {
                     return Err(
-                        "template 'block_commands' requires non-empty 'patterns'".to_string(),
+                        "template 'block_commands' requires non-empty 'patterns'".to_string()
                     );
                 }
             }
@@ -292,7 +292,8 @@ mod tests {
         let expanded = tpl.expand();
         assert_eq!(expanded["name"], "Block credentials");
         assert_eq!(expanded["priority"], 300);
-        let constraints = &expanded["policy_type"]["Conditional"]["conditions"]["parameter_constraints"];
+        let constraints =
+            &expanded["policy_type"]["Conditional"]["conditions"]["parameter_constraints"];
         assert_eq!(constraints.as_array().unwrap().len(), 2);
     }
 
@@ -308,7 +309,8 @@ mod tests {
         };
         assert!(tpl.validate().is_ok());
         let expanded = tpl.expand();
-        let constraints = &expanded["policy_type"]["Conditional"]["conditions"]["parameter_constraints"];
+        let constraints =
+            &expanded["policy_type"]["Conditional"]["conditions"]["parameter_constraints"];
         assert_eq!(constraints.as_array().unwrap().len(), 2);
         // Check regex escaping
         assert_eq!(constraints[0]["pattern"], "pastebin\\.com");
@@ -326,7 +328,8 @@ mod tests {
         };
         assert!(tpl.validate().is_ok());
         let expanded = tpl.expand();
-        let constraints = &expanded["policy_type"]["Conditional"]["conditions"]["parameter_constraints"];
+        let constraints =
+            &expanded["policy_type"]["Conditional"]["conditions"]["parameter_constraints"];
         assert_eq!(constraints[0]["op"], "regex");
     }
 

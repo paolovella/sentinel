@@ -129,7 +129,8 @@ pub fn build_fria_export(
         controls.push(FriaControl {
             name: "Data Loss Prevention".to_string(),
             protects_right: "privacy, data protection".to_string(),
-            mechanism: "5-layer credential/secret scanning on tool parameters and responses".to_string(),
+            mechanism: "5-layer credential/secret scanning on tool parameters and responses"
+                .to_string(),
             automated: true,
             evidence_ref: None,
         });
@@ -139,7 +140,8 @@ pub fn build_fria_export(
         controls.push(FriaControl {
             name: "PII sanitization".to_string(),
             protects_right: "privacy, data protection".to_string(),
-            mechanism: "Bidirectional PII replacement with placeholders before provider processing".to_string(),
+            mechanism: "Bidirectional PII replacement with placeholders before provider processing"
+                .to_string(),
             automated: true,
             evidence_ref: None,
         });
@@ -149,7 +151,9 @@ pub fn build_fria_export(
         controls.push(FriaControl {
             name: "Human-in-the-loop approval".to_string(),
             protects_right: "safety, non-discrimination".to_string(),
-            mechanism: format!("{approval_tool_count} tools require human approval before execution"),
+            mechanism: format!(
+                "{approval_tool_count} tools require human approval before execution"
+            ),
             automated: false,
             evidence_ref: None,
         });

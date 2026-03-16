@@ -229,10 +229,7 @@ impl PendingApproval {
             if !ctx.semantic_taint.is_empty() {
                 risk_indicators.push(format!(
                     "taint: {:?}",
-                    ctx.semantic_taint
-                        .iter()
-                        .take(3)
-                        .collect::<Vec<_>>()
+                    ctx.semantic_taint.iter().take(3).collect::<Vec<_>>()
                 ));
             }
             if let Some(ref score) = ctx.semantic_risk_score {

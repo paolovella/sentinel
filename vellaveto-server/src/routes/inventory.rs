@@ -840,15 +840,13 @@ pub async fn inventory_assets(
         });
     }
 
-    serde_json::to_value(&inventory)
-        .map(Json)
-        .map_err(|e| {
-            tracing::error!("Asset inventory serialization error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Internal server error".to_string(),
-                }),
-            )
-        })
+    serde_json::to_value(&inventory).map(Json).map_err(|e| {
+        tracing::error!("Asset inventory serialization error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Internal server error".to_string(),
+            }),
+        )
+    })
 }

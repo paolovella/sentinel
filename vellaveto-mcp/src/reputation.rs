@@ -242,7 +242,11 @@ mod tests {
         tracker.record_signal("server-b", SignalType::Injection);
         tracker.record_signal("server-b", SignalType::RugPull);
         let score = tracker.score("server-b").unwrap();
-        assert!(score.score < 100, "Score should be lowered: {}", score.score);
+        assert!(
+            score.score < 100,
+            "Score should be lowered: {}",
+            score.score
+        );
         assert_eq!(score.total_signals, 3);
         assert_eq!(score.signal_counts[&SignalType::Injection], 2);
         assert_eq!(score.signal_counts[&SignalType::RugPull], 1);

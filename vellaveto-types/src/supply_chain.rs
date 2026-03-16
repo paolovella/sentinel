@@ -254,7 +254,10 @@ mod tests {
             None,
         );
         assert!(decision.score < 80);
-        assert!(decision.factors.iter().any(|f| f.name == "known_vulnerabilities"));
+        assert!(decision
+            .factors
+            .iter()
+            .any(|f| f.name == "known_vulnerabilities"));
     }
 
     #[test]

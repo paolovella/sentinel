@@ -26,8 +26,8 @@ pub mod gateway;
 pub mod iam;
 pub mod manifest;
 pub mod mcp_protocol;
-pub mod policy_templates;
 pub mod memory_nhi;
+pub mod policy_templates;
 pub mod rag_defense_config;
 pub mod semantic_guardrails_config;
 pub mod supply_chain;
@@ -682,17 +682,16 @@ impl PolicyConfig {
             match serde_json::from_value::<PolicyRule>(expanded_json) {
                 Ok(rule) => expanded_rules.push(rule),
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to expand policy template '{}': {}",
-                        tpl.name,
-                        e
-                    );
+                    tracing::warn!("Failed to expand policy template '{}': {}", tpl.name, e);
                 }
             }
         }
         let expanded_refs: Vec<&PolicyRule> = expanded_rules.iter().collect();
         // Templates come first so they're included in the policy set
-        let combined: Vec<&PolicyRule> = expanded_refs.into_iter().chain(all_rules.drain(..)).collect();
+        let combined: Vec<&PolicyRule> = expanded_refs
+            .into_iter()
+            .chain(all_rules.drain(..))
+            .collect();
 
         combined
             .iter()

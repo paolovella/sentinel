@@ -331,7 +331,7 @@ impl TaskStateManager {
                 Some(requester) if requester == creator => {}
                 Some(_) => {
                     return Err(
-                        "task access denied: requester does not match task creator".to_string(),
+                        "task access denied: requester does not match task creator".to_string()
                     );
                 }
                 None => {

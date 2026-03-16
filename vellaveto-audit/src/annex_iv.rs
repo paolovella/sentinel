@@ -180,12 +180,16 @@ pub fn build_annex_iv_package(
             },
             EvidenceItem {
                 evidence_type: EvidenceType::SecurityControl,
-                description: "Approval workflows for privileged sinks with human-readable fact summaries".to_string(),
+                description:
+                    "Approval workflows for privileged sinks with human-readable fact summaries"
+                        .to_string(),
                 reference: None,
             },
             EvidenceItem {
                 evidence_type: EvidenceType::SecurityControl,
-                description: "ACIS decision envelopes on every verdict for structured observability".to_string(),
+                description:
+                    "ACIS decision envelopes on every verdict for structured observability"
+                        .to_string(),
                 reference: None,
             },
         ],

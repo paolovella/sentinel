@@ -89,11 +89,7 @@ impl DelegationTracker {
     }
 
     /// Check if a delegation is permitted before recording it.
-    pub fn check_delegation(
-        &self,
-        session_id: &str,
-        link: &DelegationLink,
-    ) -> DelegationVerdict {
+    pub fn check_delegation(&self, session_id: &str, link: &DelegationLink) -> DelegationVerdict {
         // Check target against block/allow lists
         if self
             .blocked_targets
@@ -116,11 +112,7 @@ impl DelegationTracker {
         }
 
         // Check chain depth
-        let current_depth = self
-            .chains
-            .get(session_id)
-            .map(|c| c.len())
-            .unwrap_or(0);
+        let current_depth = self.chains.get(session_id).map(|c| c.len()).unwrap_or(0);
         if current_depth >= self.max_depth {
             return DelegationVerdict::TooDeep {
                 depth: current_depth + 1,
@@ -143,9 +135,7 @@ impl DelegationTracker {
         }
 
         // Check trust monotonicity
-        if self.forbid_trust_escalation
-            && link.target_trust.rank() > link.source_trust.rank()
-        {
+        if self.forbid_trust_escalation && link.target_trust.rank() > link.source_trust.rank() {
             return DelegationVerdict::TrustEscalation {
                 source_trust: link.source_trust,
                 target_trust: link.target_trust,
@@ -208,7 +198,10 @@ mod tests {
     fn test_delegation_allowed_simple() {
         let tracker = DelegationTracker::new(5, Vec::new(), Vec::new(), true);
         let l = link("agent-A", "agent-B", "read_file");
-        assert_eq!(tracker.check_delegation("s1", &l), DelegationVerdict::Allowed);
+        assert_eq!(
+            tracker.check_delegation("s1", &l),
+            DelegationVerdict::Allowed
+        );
     }
 
     #[test]
@@ -217,7 +210,10 @@ mod tests {
         tracker.record_delegation("s1", link("A", "B", "t1"));
         tracker.record_delegation("s1", link("B", "C", "t2"));
         let verdict = tracker.check_delegation("s1", &link("C", "D", "t3"));
-        assert!(matches!(verdict, DelegationVerdict::TooDeep { depth: 3, max: 2 }));
+        assert!(matches!(
+            verdict,
+            DelegationVerdict::TooDeep { depth: 3, max: 2 }
+        ));
     }
 
     #[test]
@@ -261,17 +257,15 @@ mod tests {
             target_trust: TrustTier::High,
             tool: "op".to_string(),
         };
-        assert_eq!(tracker.check_delegation("s1", &l), DelegationVerdict::Allowed);
+        assert_eq!(
+            tracker.check_delegation("s1", &l),
+            DelegationVerdict::Allowed
+        );
     }
 
     #[test]
     fn test_delegation_blocked_target() {
-        let tracker = DelegationTracker::new(
-            5,
-            Vec::new(),
-            vec!["evil-*".to_string()],
-            true,
-        );
+        let tracker = DelegationTracker::new(5, Vec::new(), vec!["evil-*".to_string()], true);
         let l = link("A", "evil-agent", "op");
         assert!(matches!(
             tracker.check_delegation("s1", &l),
@@ -281,12 +275,7 @@ mod tests {
 
     #[test]
     fn test_delegation_allowed_target_list() {
-        let tracker = DelegationTracker::new(
-            5,
-            vec!["trusted-*".to_string()],
-            Vec::new(),
-            true,
-        );
+        let tracker = DelegationTracker::new(5, vec!["trusted-*".to_string()], Vec::new(), true);
         assert_eq!(
             tracker.check_delegation("s1", &link("A", "trusted-B", "op")),
             DelegationVerdict::Allowed

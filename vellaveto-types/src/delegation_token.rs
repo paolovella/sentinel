@@ -172,7 +172,13 @@ mod tests {
     fn test_derive_child_monotonic_trust() {
         let parent = root_token(); // High trust, depth 3
         let child = parent
-            .derive_child("tok-2", "agent-C", TrustTier::Verified, 1710600000, "sig-child")
+            .derive_child(
+                "tok-2",
+                "agent-C",
+                TrustTier::Verified,
+                1710600000,
+                "sig-child",
+            )
             .unwrap();
         // Verified > High → clamped to High
         assert_eq!(child.max_trust_tier, TrustTier::High);
@@ -220,6 +226,8 @@ mod tests {
             .derive_child("t4", "E", TrustTier::Low, 1710500000, "s4")
             .unwrap();
         assert_eq!(hop3.remaining_depth, 0);
-        assert!(hop3.derive_child("t5", "F", TrustTier::Low, 0, "s5").is_none());
+        assert!(hop3
+            .derive_child("t5", "F", TrustTier::Low, 0, "s5")
+            .is_none());
     }
 }

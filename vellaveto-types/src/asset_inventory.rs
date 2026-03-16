@@ -183,8 +183,16 @@ mod tests {
     #[test]
     fn test_inventory_add_and_find() {
         let mut inv = AiAssetInventory::new();
-        inv.add_asset(make_tool("read_file", "fs-server", AssetTrustLevel::Verified));
-        inv.add_asset(make_tool("write_file", "fs-server", AssetTrustLevel::Default));
+        inv.add_asset(make_tool(
+            "read_file",
+            "fs-server",
+            AssetTrustLevel::Verified,
+        ));
+        inv.add_asset(make_tool(
+            "write_file",
+            "fs-server",
+            AssetTrustLevel::Default,
+        ));
         assert_eq!(inv.tool_count, 2);
         assert!(inv.find_by_id("read_file").is_some());
         assert!(inv.find_by_id("unknown").is_none());

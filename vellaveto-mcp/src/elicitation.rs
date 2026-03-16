@@ -164,10 +164,9 @@ pub fn inspect_elicitation(
             }
             // If allowed list is non-empty, domain must match at least one
             if !config.allowed_url_domains.is_empty()
-                && !config
-                    .allowed_url_domains
-                    .iter()
-                    .any(|allowed| vellaveto_engine::PolicyEngine::match_domain_pattern(&domain, allowed))
+                && !config.allowed_url_domains.iter().any(|allowed| {
+                    vellaveto_engine::PolicyEngine::match_domain_pattern(&domain, allowed)
+                })
             {
                 return ElicitationVerdict::Deny {
                     reason: format!(
@@ -1154,7 +1153,10 @@ mod tests {
     #[test]
     fn test_extract_urls_from_text_basic() {
         let mut urls = Vec::new();
-        extract_urls_from_text("Visit https://example.com/docs and http://test.io/api for info", &mut urls);
+        extract_urls_from_text(
+            "Visit https://example.com/docs and http://test.io/api for info",
+            &mut urls,
+        );
         assert_eq!(urls.len(), 2);
         assert!(urls.contains(&"https://example.com/docs".to_string()));
         assert!(urls.contains(&"http://test.io/api".to_string()));
@@ -1163,7 +1165,10 @@ mod tests {
     #[test]
     fn test_extract_urls_from_text_deduplicates() {
         let mut urls = Vec::new();
-        extract_urls_from_text("https://example.com and https://example.com again", &mut urls);
+        extract_urls_from_text(
+            "https://example.com and https://example.com again",
+            &mut urls,
+        );
         assert_eq!(urls.len(), 1);
     }
 
@@ -2248,7 +2253,10 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 0);
         match verdict {
             SamplingVerdict::Deny { reason } => {
-                assert!(reason.contains("execute_command"), "Should name the blocked tool: {reason}");
+                assert!(
+                    reason.contains("execute_command"),
+                    "Should name the blocked tool: {reason}"
+                );
                 assert!(reason.contains("allowed_tools_in_sampling"), "{reason}");
             }
             SamplingVerdict::Allow => panic!("Expected Deny for disallowed tool in sampling"),
@@ -2307,7 +2315,10 @@ mod tests {
                 "content": [{"type": "tool_use", "name": "read_file", "input": {}}]
             }]
         });
-        assert!(matches!(inspect_sampling(&params, &config, 0), SamplingVerdict::Allow));
+        assert!(matches!(
+            inspect_sampling(&params, &config, 0),
+            SamplingVerdict::Allow
+        ));
 
         // write_file does NOT match read_* or list_*
         let params2 = json!({
@@ -2316,7 +2327,10 @@ mod tests {
                 "content": [{"type": "tool_use", "name": "write_file", "input": {}}]
             }]
         });
-        assert!(matches!(inspect_sampling(&params2, &config, 0), SamplingVerdict::Deny { .. }));
+        assert!(matches!(
+            inspect_sampling(&params2, &config, 0),
+            SamplingVerdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -2376,15 +2390,27 @@ mod tests {
 
     #[test]
     fn test_tool_matches_any_pattern_exact() {
-        assert!(tool_matches_any_pattern("read_file", &["read_file".to_string()]));
-        assert!(!tool_matches_any_pattern("write_file", &["read_file".to_string()]));
+        assert!(tool_matches_any_pattern(
+            "read_file",
+            &["read_file".to_string()]
+        ));
+        assert!(!tool_matches_any_pattern(
+            "write_file",
+            &["read_file".to_string()]
+        ));
     }
 
     #[test]
     fn test_tool_matches_any_pattern_wildcard() {
-        assert!(tool_matches_any_pattern("read_file", &["read_*".to_string()]));
+        assert!(tool_matches_any_pattern(
+            "read_file",
+            &["read_*".to_string()]
+        ));
         assert!(tool_matches_any_pattern("anything", &["*".to_string()]));
-        assert!(!tool_matches_any_pattern("write_file", &["read_*".to_string()]));
+        assert!(!tool_matches_any_pattern(
+            "write_file",
+            &["read_*".to_string()]
+        ));
     }
 
     // ═══════════════════════════════════════════════════

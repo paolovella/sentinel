@@ -71,6 +71,7 @@ pub mod task_state;
 pub mod token_security;
 pub mod reputation;
 pub mod secret_substitution;
+pub mod security_context_mint;
 pub mod tool_namespace;
 pub mod tool_quota;
 pub mod tool_registry;

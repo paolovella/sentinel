@@ -8164,6 +8164,36 @@ impl ProxyBridge {
         // downstream tools might trust.
         strip_server_meta_security_fields(&mut msg);
 
+        // Phase 1: Attach SecurityContextToken for cross-transport consumers.
+        {
+            let taint_labels: Vec<String> = state
+                .session_semantics
+                .taint
+                .iter()
+                .take(64)
+                .map(|t| format!("{t:?}"))
+                .collect();
+            let token = crate::security_context_mint::mint_token(
+                &state.session_scope_binding,
+                state.min_session_trust_tier(),
+                taint_labels,
+                state.session_semantics.distinct_lineage_sources(),
+                b"vellaveto-relay-secret",
+            );
+            if let Ok(token_json) = serde_json::to_value(&token) {
+                if let Some(result) = msg.get_mut("result") {
+                    if let Some(obj) = result.as_object_mut() {
+                        let meta = obj
+                            .entry("_meta")
+                            .or_insert_with(|| serde_json::json!({}));
+                        if let Some(meta_obj) = meta.as_object_mut() {
+                            meta_obj.insert("security_context_token".to_string(), token_json);
+                        }
+                    }
+                }
+            }
+        }
+
         // Relay child response to agent
         write_message(agent_writer, &msg)
             .await

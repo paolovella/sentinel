@@ -140,6 +140,7 @@ jobs:
           path: .
           format: cyclonedx-json
           output-file: sbom.cdx.json
+          upload-release-assets: false
 
       - name: Extract changelog for this version
         id: changelog

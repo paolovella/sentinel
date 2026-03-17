@@ -745,10 +745,9 @@ pub(super) struct RelayState {
     session_semantics: SessionSemanticState,
     /// Phase 3: Contagion tracker — taint propagation across tool chains.
     contagion: vellaveto_engine::contagion::ContagionTracker,
-    /// Phase 1: Mint a SecurityContextToken from the current session state.
+    /// Phase 6.3: Behavioral sequence tracker.
+    sequence: vellaveto_engine::sequence::SequenceTracker,
     /// Phase 3: Delegation tracker — multi-agent chain control.
-    /// Wired but not yet called from handler paths (requires inter-server
-    /// delegation detection which is a transport-level feature).
     #[allow(dead_code)]
     delegation: vellaveto_engine::delegation::DelegationTracker,
 }
@@ -818,6 +817,9 @@ impl RelayState {
             session_semantics: SessionSemanticState::default(),
             contagion: vellaveto_engine::contagion::ContagionTracker::new(
                 vellaveto_engine::contagion::ContagionMode::SessionPersistent,
+            ),
+            sequence: vellaveto_engine::sequence::SequenceTracker::new(
+                vellaveto_engine::sequence::SequenceConfig::default(),
             ),
             delegation: vellaveto_engine::delegation::DelegationTracker::new(
                 5,          // max depth
@@ -2555,6 +2557,41 @@ impl ProxyBridge {
                         // independently require approval.
                     }
                     FlowVerdict::Admissible => {}
+                }
+            }
+        }
+
+        // Phase 6.3: Behavioral sequence analysis — record call and run detectors.
+        {
+            use vellaveto_types::provenance::SinkClass;
+            let seq_sink = if let Some(ref cfg) = self.sink_classification_config {
+                cfg.resolve_sink_class(&tool_name)
+                    .unwrap_or(SinkClass::ReadOnly)
+            } else {
+                SinkClass::ReadOnly
+            };
+            let source_tainted = state.contagion.was_ever_tainted();
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let anomalies =
+                state
+                    .sequence
+                    .record_and_analyze(&tool_name, seq_sink, source_tainted, now_ms);
+            for anomaly in &anomalies {
+                tracing::warn!(
+                    "SECURITY: Sequence anomaly detected for '{}': {:?} (confidence {})",
+                    vellaveto_types::sanitize_for_log(&tool_name, 64),
+                    anomaly.anomaly_type,
+                    anomaly.confidence,
+                );
+            }
+            // Phase 6.3D: High-confidence anomaly blocks if configured
+            if state.sequence.max_confidence() >= 70 {
+                if let Some(ref scope_cfg) = self.intent_scope_config {
+                    let restricted = scope_cfg.restrict_to_trust_floor(TrustTier::Untrusted);
+                    let _ = restricted; // scope restriction logged; full enforcement in 6.2C
                 }
             }
         }

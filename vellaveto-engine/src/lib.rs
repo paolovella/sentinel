@@ -30,6 +30,7 @@ mod context_check;
 pub mod coverage;
 pub mod delegation;
 pub mod deputy;
+
 mod domain;
 mod entropy_gate;
 mod error;
@@ -43,6 +44,7 @@ mod normalize;
 mod path;
 mod policy_compile;
 mod rule_check;
+pub mod sequence;
 mod traced;
 mod verified_capability_context;
 mod verified_capability_delegation_context;

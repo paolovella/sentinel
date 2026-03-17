@@ -8180,6 +8180,19 @@ impl ProxyBridge {
                 content_hash,
             );
 
+            // Multi-modal injection indicator scan on tool responses.
+            {
+                let mm_findings = crate::multimodal_indicator::scan_json_for_multimodal(&msg);
+                for finding in &mm_findings {
+                    tracing::warn!(
+                        "SECURITY: Multi-modal indicator in '{}': {:?} (confidence {})",
+                        vellaveto_types::sanitize_for_log(tool_name, 64),
+                        finding.indicator_type,
+                        finding.confidence,
+                    );
+                }
+            }
+
             // RAG poisoning indicator scan on tool responses.
             {
                 let rag_findings = crate::rag_poisoning::scan_json_for_rag_poisoning(&msg);

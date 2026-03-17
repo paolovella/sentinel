@@ -46,6 +46,7 @@ pub mod inspection;
 pub mod mediation;
 pub mod memory_security;
 pub mod memory_tracking;
+pub mod multimodal_indicator;
 pub mod nhi;
 pub mod output_contracts;
 pub mod output_security;

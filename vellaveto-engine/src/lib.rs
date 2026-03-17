@@ -35,6 +35,7 @@ pub mod cumulative_harm;
 pub mod delegation;
 pub mod denial_of_wallet;
 pub mod deputy;
+pub mod exfil_path;
 
 #[cfg(test)]
 mod channel_separation_tests;

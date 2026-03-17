@@ -52,6 +52,7 @@ pub mod memory_security;
 pub mod memory_tracking;
 pub mod multimodal_indicator;
 pub mod nhi;
+pub mod output_anomaly;
 pub mod output_contracts;
 pub mod output_security;
 pub mod output_validation;

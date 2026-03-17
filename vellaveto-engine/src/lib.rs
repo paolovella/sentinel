@@ -18,6 +18,7 @@
 pub mod abac;
 pub mod acis;
 pub mod adaptive_rate;
+pub mod agent_baseline;
 pub mod behavioral;
 pub mod cache;
 pub mod cascading;

@@ -43,6 +43,7 @@ pub mod extensions;
 pub mod extractor;
 pub mod fips;
 pub mod framing;
+pub mod goal_drift;
 pub mod goal_tracking;
 pub mod inspection;
 pub mod jailbreak_patterns;
@@ -58,6 +59,7 @@ pub mod output_security;
 pub mod output_validation;
 #[cfg(feature = "projector")]
 pub mod projector;
+pub mod prompt_template_injection;
 pub mod proxy;
 #[cfg(feature = "rag-defense")]
 pub mod rag_defense;
@@ -74,6 +76,7 @@ pub mod security_context_mint;
 pub mod semantic_detection;
 #[cfg(feature = "semantic-guardrails")]
 pub mod semantic_guardrails;
+pub mod server_fingerprint;
 pub mod session_guard;
 pub mod shadow_agent;
 pub mod shadow_ai_discovery;

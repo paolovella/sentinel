@@ -21,6 +21,7 @@ pub mod adaptive_rate;
 pub mod agent_baseline;
 pub mod behavioral;
 pub mod cache;
+pub mod cascade_graph;
 pub mod cascading;
 pub mod circuit_breaker;
 pub mod collusion;

@@ -93,6 +93,12 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     trace: bool,
 
+    /// Write lightweight notification events to a JSONL file for desktop app
+    /// integration. Each line is a JSON object with ts, tool, action, verdict,
+    /// reason, and severity fields.
+    #[arg(long)]
+    notification_file: Option<String>,
+
     #[command(subcommand)]
     subcommand: Option<Commands>,
 

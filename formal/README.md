@@ -18,6 +18,9 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CredentialVault.tla` | TLA+ | CV1–CV8, CVL1 | Credential vault state machine (Available→Active→Consumed) |
 | `AuditChain.tla` | TLA+ | AC1–AC9, ACL1 | Audit hash chain integrity (append-only, tamper-evident) |
 | `TrustContainment.tla` | TLA+ | TC1–TC6, TCL1 | Trust-tier lattice and privileged-sink containment flow rules |
+| `SourceTaintContainment.tla` | TLA+ | ST1–ST4 | Source-class auto-tainting: completeness, monotonicity, inversion |
+| `IntentScopeContainment.tla` | TLA+ | IS1–IS4 | Intent scope: enforcement completeness, monotonic narrowing, atomic restriction |
+| `SequenceContainment.tla` | TLA+ | SQ1–SQ4 | Behavioral sequence: anomaly persistence, restriction monotonicity, warmup safety |
 | `CapabilityDelegation.als` | Alloy | S11–S16 | Capability token delegation with monotonic attenuation |
 | `AbacForbidOverride.als` | Alloy | S7–S10 | ABAC forbid-override combining algorithm |
 | `Determinism.lean` | Lean 4 | — | Policy evaluation determinism (same input → same verdict) |

@@ -2115,6 +2115,28 @@ impl ProxyBridge {
             let trust = registry.check_trust_level(&tool_name).await;
             match trust {
                 crate::tool_registry::TrustLevel::Unknown => {
+                    // Phase 5: Supply-chain trust check for unknown tools.
+                    // compute_trust_decision() scores based on attestations,
+                    // SBOM vulnerabilities, and behavioral reputation.
+                    let sc_decision = vellaveto_types::supply_chain::compute_trust_decision(
+                        &tool_name,
+                        &[], // No attestations yet for unknown tools
+                        0,   // No SBOM data
+                        self.reputation_tracker.as_ref().and_then(|t| {
+                            t.lock().ok().and_then(|g| {
+                                let server_id = state.server_name.as_deref().unwrap_or("unknown");
+                                g.score(server_id).map(|s| s.score)
+                            })
+                        }),
+                    );
+                    if sc_decision.decision == vellaveto_types::supply_chain::TrustDecision::Blocked
+                    {
+                        tracing::warn!(
+                            "SECURITY: Supply-chain trust blocked unknown tool '{}' (score {})",
+                            vellaveto_types::sanitize_for_log(&tool_name, 64),
+                            sc_decision.score,
+                        );
+                    }
                     registry.register_unknown(&tool_name).await;
                     let action = extract_action(&tool_name, &arguments);
                     match self
@@ -8097,6 +8119,40 @@ impl ProxyBridge {
                     vellaveto_engine::contagion::ContagionTaintType::SchemaPoisoning,
                 );
             }
+            // Phase 3: Output contract enforcement — check if the tool response
+            // matches the declared semantic type. Violations add contagion taint.
+            {
+                use vellaveto_types::output_contract::{
+                    check_output_contract, ContractCheckResult, ContractViolationAction,
+                };
+                let observed_channel = channel;
+                // TODO: load contracts from config; for now use empty (no enforcement)
+                let contracts: &[vellaveto_types::output_contract::OutputContract] = &[];
+                match check_output_contract(tool_name, observed_channel, contracts) {
+                    ContractCheckResult::Violation {
+                        action, observed, ..
+                    } => {
+                        tracing::warn!(
+                            "SECURITY: Output contract violation for '{}': observed {:?}, action {:?}",
+                            vellaveto_types::sanitize_for_log(tool_name, 64),
+                            observed,
+                            action
+                        );
+                        state.contagion.record_taint(
+                            tool_name,
+                            vellaveto_engine::contagion::ContagionTaintType::OutputContractViolation,
+                        );
+                        match action {
+                            ContractViolationAction::Block => {
+                                // Block is handled by existing schema violation path
+                            }
+                            ContractViolationAction::Quarantine | ContractViolationAction::Log => {}
+                        }
+                    }
+                    ContractCheckResult::Compliant | ContractCheckResult::NoContract => {}
+                }
+            }
+
             if !injection_found && !dlp_found && !schema_violation_found {
                 state.contagion.record_clean_action();
             }

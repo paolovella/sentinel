@@ -747,6 +747,8 @@ pub(super) struct RelayState {
     contagion: vellaveto_engine::contagion::ContagionTracker,
     /// Phase 6.3: Behavioral sequence tracker.
     sequence: vellaveto_engine::sequence::SequenceTracker,
+    /// STAC: Cumulative harm tracker for tool chain composition attacks.
+    cumulative_harm: vellaveto_engine::cumulative_harm::CumulativeHarmTracker,
     /// Phase 3: Delegation tracker — multi-agent chain control.
     #[allow(dead_code)]
     delegation: vellaveto_engine::delegation::DelegationTracker,
@@ -821,6 +823,7 @@ impl RelayState {
             sequence: vellaveto_engine::sequence::SequenceTracker::new(
                 vellaveto_engine::sequence::SequenceConfig::default(),
             ),
+            cumulative_harm: vellaveto_engine::cumulative_harm::CumulativeHarmTracker::new(),
             delegation: vellaveto_engine::delegation::DelegationTracker::new(
                 5,          // max depth
                 Vec::new(), // allowed targets (empty = all)
@@ -2593,6 +2596,29 @@ impl ProxyBridge {
                     let restricted = scope_cfg.restrict_to_trust_floor(TrustTier::Untrusted);
                     let _ = restricted; // scope restriction logged; full enforcement in 6.2C
                 }
+            }
+        }
+
+        // STAC: Cumulative harm check — detect harmful tool chain compositions.
+        {
+            let harm_findings = state.cumulative_harm.record_and_check(
+                &tool_name,
+                if let Some(ref cfg) = self.sink_classification_config {
+                    cfg.resolve_sink_class(&tool_name)
+                        .unwrap_or(vellaveto_types::provenance::SinkClass::ReadOnly)
+                } else {
+                    vellaveto_types::provenance::SinkClass::ReadOnly
+                },
+                &action.target_paths,
+                &action.target_domains,
+            );
+            for finding in &harm_findings {
+                tracing::warn!(
+                    "SECURITY: STAC cumulative harm detected: {:?} (severity {}) — {}",
+                    finding.pattern,
+                    finding.severity,
+                    finding.description,
+                );
             }
         }
 
@@ -8140,6 +8166,43 @@ impl ProxyBridge {
                 &response_taint,
                 content_hash,
             );
+
+            // RAG poisoning indicator scan on tool responses.
+            {
+                let rag_findings = crate::rag_poisoning::scan_json_for_rag_poisoning(&msg);
+                for finding in &rag_findings {
+                    tracing::warn!(
+                        "SECURITY: RAG poisoning indicator in '{}': {:?} (confidence {})",
+                        vellaveto_types::sanitize_for_log(tool_name, 64),
+                        finding.indicator_type,
+                        finding.confidence,
+                    );
+                }
+                if !rag_findings.is_empty() {
+                    state.contagion.record_taint(
+                        tool_name,
+                        vellaveto_engine::contagion::ContagionTaintType::SourceClassUntrusted,
+                    );
+                }
+            }
+
+            // Slopsquatting scan on tool responses.
+            {
+                let slop_findings = crate::slopsquatting::scan_json_for_slopsquatting(
+                    &msg,
+                    &std::collections::HashSet::new(), // TODO: populate from tool registry
+                    &std::collections::HashSet::new(), // TODO: populate from known packages
+                );
+                for finding in &slop_findings {
+                    tracing::warn!(
+                        "SECURITY: Slopsquatting indicator in '{}': {:?} '{}' (confidence {})",
+                        vellaveto_types::sanitize_for_log(tool_name, 64),
+                        finding.reference_type,
+                        finding.reference,
+                        finding.confidence,
+                    );
+                }
+            }
 
             // Phase 3: Feed contagion tracker from response findings.
             if injection_found {

@@ -32,6 +32,7 @@ pub mod data_flow;
 pub mod did_plc;
 #[cfg(feature = "discovery")]
 pub mod discovery;
+pub mod divergence_attack;
 pub mod elicitation;
 pub mod escalation_detector;
 pub mod etdi;
@@ -74,6 +75,7 @@ pub mod slopsquatting;
 pub mod task_security;
 pub mod task_state;
 pub mod token_security;
+pub mod tool_description_audit;
 pub mod tool_namespace;
 pub mod tool_quota;
 pub mod tool_registry;

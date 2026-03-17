@@ -4041,6 +4041,19 @@ impl ProxyBridge {
         }
 
         let params = msg.get("params").cloned().unwrap_or(json!({}));
+
+        // Divergence attack / training data extraction scan on sampling params.
+        {
+            let div_findings = crate::divergence_attack::scan_params_for_divergence(&params);
+            for finding in &div_findings {
+                tracing::warn!(
+                    "SECURITY: Divergence attack pattern in sampling request: {:?} (confidence {})",
+                    finding.attack_type,
+                    finding.confidence,
+                );
+            }
+        }
+
         let verdict = crate::elicitation::inspect_sampling(
             &params,
             &self.sampling_config,
@@ -8488,6 +8501,23 @@ impl ProxyBridge {
                 state.flag_tool(finding.tool_name.clone());
                 self.persist_flagged_tool(&finding.tool_name, "description_injection")
                     .await;
+            }
+        }
+
+        // Tool description privilege channel audit — COLING 2025 defense.
+        // Scans for hidden instructions, cross-tool manipulation, credential
+        // harvesting, exfiltration directives, scope escalation, and persistence
+        // directives in tool descriptions.
+        if let Some(tools) = msg.pointer("/result/tools").and_then(|t| t.as_array()) {
+            let priv_findings = crate::tool_description_audit::audit_tools_list(tools);
+            for finding in &priv_findings {
+                tracing::warn!(
+                    "SECURITY: Privilege channel abuse in tool '{}': {:?} (confidence {})",
+                    vellaveto_types::sanitize_for_log(&finding.tool_name, 64),
+                    finding.finding_type,
+                    finding.confidence,
+                );
+                state.flag_tool(finding.tool_name.clone());
             }
         }
 

@@ -150,3 +150,5 @@ vellaveto-formal-verification.pdf
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
+packages/vellaveto-desktop/src-tauri/target/
+packages/vellaveto-desktop/node_modules/

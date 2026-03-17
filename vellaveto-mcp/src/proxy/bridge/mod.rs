@@ -115,6 +115,16 @@ pub struct ProxyBridge {
     /// Phase 2: Server reputation tracker.
     reputation_tracker: Option<std::sync::Mutex<crate::reputation::ReputationTracker>>,
 
+    /// Phase 6: Source trust config for auto-tainting.
+    source_trust_config: Option<vellaveto_config::channel_separation::SourceTrustConfig>,
+
+    /// Phase 6: Sink classification config.
+    sink_classification_config:
+        Option<vellaveto_config::channel_separation::SinkClassificationConfig>,
+
+    /// Phase 6: Intent scope config for session-level enforcement.
+    intent_scope_config: Option<vellaveto_config::channel_separation::IntentScopeConfig>,
+
     /// Auth level tracker for step-up authentication (Phase 1).
     auth_level: Option<Arc<AuthLevelTracker>>,
 
@@ -302,6 +312,9 @@ impl ProxyBridge {
             tool_quota_tracker: None,
             secret_substitution: None,
             reputation_tracker: None,
+            source_trust_config: None,
+            sink_classification_config: None,
+            intent_scope_config: None,
             auth_level: None,
             circuit_breaker: None,
             deputy: None,

@@ -55,6 +55,10 @@ pub enum ContagionTaintType {
     MemoryPoisoning,
     OutputContractViolation,
     TrustDowngrade,
+    /// Phase 6: Auto-taint from tool classified as untrusted source.
+    SourceClassUntrusted,
+    /// Phase 6: Auto-taint from tool with unknown classification.
+    SourceClassUnknown,
 }
 
 impl ContagionTaintType {
@@ -67,6 +71,8 @@ impl ContagionTaintType {
             Self::MemoryPoisoning => TrustTier::Quarantined,
             Self::OutputContractViolation => TrustTier::Untrusted,
             Self::TrustDowngrade => TrustTier::Low,
+            Self::SourceClassUntrusted => TrustTier::Untrusted,
+            Self::SourceClassUnknown => TrustTier::Low,
         }
     }
 }
@@ -160,6 +166,29 @@ impl ContagionTracker {
     /// Whether this session has ever been tainted.
     pub fn was_ever_tainted(&self) -> bool {
         self.ever_tainted
+    }
+
+    /// Phase 6: Record taint based on source trust classification.
+    /// Fires on EVERY response regardless of detection findings.
+    pub fn record_source_response(&mut self, source_tool: &str, source_trust: TrustTier) {
+        match source_trust {
+            TrustTier::Untrusted | TrustTier::Quarantined => {
+                self.record_taint(source_tool, ContagionTaintType::SourceClassUntrusted);
+            }
+            TrustTier::Unknown => {
+                self.record_taint(source_tool, ContagionTaintType::SourceClassUnknown);
+            }
+            _ => {} // Low and above: no auto-taint
+        }
+    }
+
+    /// Phase 6: Get the effective trust floor from all active taints.
+    pub fn effective_trust_floor(&self) -> TrustTier {
+        self.active_taints
+            .iter()
+            .map(|t| t.trust_floor)
+            .min_by_key(|t| t.rank())
+            .unwrap_or(TrustTier::Verified) // no taint = max trust
     }
 
     /// Check if a specific action to a privileged sink should be blocked

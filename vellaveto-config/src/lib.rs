@@ -18,6 +18,7 @@ pub mod validation;
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXTRACTED SUBMODULES (modularization refactor)
 // ═══════════════════════════════════════════════════════════════════════════════
+pub mod channel_separation;
 pub mod detection;
 pub mod enterprise;
 pub mod etdi;
@@ -322,6 +323,22 @@ pub struct PolicyConfig {
     /// to full policy rules during config loading.
     #[serde(default)]
     pub policy_templates: Vec<crate::policy_templates::PolicyTemplate>,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 6: CONTROL/DATA CHANNEL SEPARATION
+    // ═══════════════════════════════════════════════════
+    /// Phase 6.1: Source trust classification — classify tools/servers as
+    /// untrusted/verified to drive auto-tainting.
+    #[serde(default)]
+    pub source_trust: crate::channel_separation::SourceTrustConfig,
+
+    /// Phase 6.1C: Sink classification — policy-driven tool→sink mapping.
+    #[serde(default)]
+    pub sink_classification: crate::channel_separation::SinkClassificationConfig,
+
+    /// Phase 6.2: Intent scope — constrain what tools/sinks the agent can use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent_scope: Option<crate::channel_separation::IntentScopeConfig>,
 
     /// RFC 8707 Resource Indicator configuration.
     #[serde(default)]

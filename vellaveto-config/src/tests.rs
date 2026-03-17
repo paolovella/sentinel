@@ -1142,6 +1142,9 @@ fn test_validate_rejects_too_many_policies() {
         tool_quotas: Default::default(),
         secret_substitutions: Default::default(),
         policy_templates: Default::default(),
+        source_trust: Default::default(),
+        sink_classification: Default::default(),
+        intent_scope: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {

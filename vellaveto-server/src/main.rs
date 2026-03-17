@@ -2096,6 +2096,9 @@ fn cmd_policies(preset: String) -> Result<()> {
         tool_quotas: Default::default(),
         secret_substitutions: Default::default(),
         policy_templates: Default::default(),
+        source_trust: Default::default(),
+        sink_classification: Default::default(),
+        intent_scope: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

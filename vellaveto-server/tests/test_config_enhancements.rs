@@ -219,6 +219,9 @@ fn to_policies_produces_correct_policy_structs() {
         tool_quotas: Default::default(),
         secret_substitutions: Default::default(),
         policy_templates: Default::default(),
+        source_trust: Default::default(),
+        sink_classification: Default::default(),
+        intent_scope: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -310,6 +313,9 @@ fn to_policies_uses_default_priority_when_none() {
         tool_quotas: Default::default(),
         secret_substitutions: Default::default(),
         policy_templates: Default::default(),
+        source_trust: Default::default(),
+        sink_classification: Default::default(),
+        intent_scope: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -511,6 +517,9 @@ fn policy_config_toml_roundtrip() {
         tool_quotas: Default::default(),
         secret_substitutions: Default::default(),
         policy_templates: Default::default(),
+        source_trust: Default::default(),
+        sink_classification: Default::default(),
+        intent_scope: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

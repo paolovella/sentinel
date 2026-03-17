@@ -32,6 +32,7 @@ pub mod coverage;
 pub mod cross_session_leak;
 pub mod cumulative_harm;
 pub mod delegation;
+pub mod denial_of_wallet;
 pub mod deputy;
 
 #[cfg(test)]

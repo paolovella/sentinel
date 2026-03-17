@@ -149,6 +149,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `compute_trust_decision()` scores from attestation verification, SBOM
   vulnerabilities, and behavioral reputation. 6 new tests.
 
+- **AI Security Vulnerability Coverage (Mar 2026):**
+  22 new detector modules addressing vulnerability classes across all 6 major
+  frameworks (OWASP LLM/Agentic/ML, MITRE ATLAS, NIST AI RMF, COLING 2025):
+  slopsquatting (LLM09), RAG poisoning (LLM08), STAC cumulative harm (COLING),
+  divergence attacks (LLM02), tool description privilege audit (COLING),
+  multi-modal indicators (CHAI), cross-session leak (promptfoo), NHI
+  overpermission (ASI03), agent baseline (ASI10), A2A integrity (ASI07),
+  MINJA query poisoning (NeurIPS 2025), denial of wallet (LLM10), jailbreak
+  patterns (AML.T0054), browser agent defense, system prompt leak (LLM07),
+  token leakage, cascading failure graph (ASI08), output anomaly (ML08),
+  exfiltration path analysis, server fingerprint drift, goal drift (ASI01),
+  prompt template injection. 121 new tests, ~11,100 new lines.
+
 - **Phase 6 — Control/Data Channel Separation (Mar 2026):**
   Three-layer structural defense against MCP channel conflation:
   - **6.1A**: `SourceTrustConfig` — classify tools as untrusted/verified/unknown

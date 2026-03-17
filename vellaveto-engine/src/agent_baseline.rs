@@ -33,7 +33,6 @@ pub struct AgentBaseline {
     pub established: bool,
 }
 
-
 /// A behavioral deviation finding.
 #[derive(Debug, Clone)]
 pub struct DeviationFinding {

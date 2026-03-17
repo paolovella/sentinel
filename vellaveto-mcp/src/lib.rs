@@ -54,6 +54,7 @@ pub mod projector;
 pub mod proxy;
 #[cfg(feature = "rag-defense")]
 pub mod rag_defense;
+pub mod rag_poisoning;
 pub mod red_team;
 pub mod rekor;
 pub mod reputation;
@@ -69,6 +70,7 @@ pub mod semantic_guardrails;
 pub mod session_guard;
 pub mod shadow_agent;
 pub mod shadow_ai_discovery;
+pub mod slopsquatting;
 pub mod task_security;
 pub mod task_state;
 pub mod token_security;

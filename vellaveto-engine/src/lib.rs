@@ -28,6 +28,7 @@ mod constraint_eval;
 pub mod contagion;
 mod context_check;
 pub mod coverage;
+pub mod cumulative_harm;
 pub mod delegation;
 pub mod deputy;
 

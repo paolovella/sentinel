@@ -31,6 +31,8 @@ pub mod coverage;
 pub mod delegation;
 pub mod deputy;
 
+#[cfg(test)]
+mod channel_separation_tests;
 mod domain;
 mod entropy_gate;
 mod error;

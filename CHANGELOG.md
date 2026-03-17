@@ -149,6 +149,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `compute_trust_decision()` scores from attestation verification, SBOM
   vulnerabilities, and behavioral reputation. 6 new tests.
 
+- **Phase 6 — Control/Data Channel Separation (Mar 2026):**
+  Three-layer structural defense against MCP channel conflation:
+  - **6.1A**: `SourceTrustConfig` — classify tools as untrusted/verified/unknown
+  - **6.1B**: Source-class auto-tainting (`SourceClassUntrusted`, `SourceClassUnknown`)
+    fires on EVERY response regardless of detection findings
+  - **6.1C**: `SinkClassificationConfig` — policy-driven tool→sink mapping replaces
+    hardcoded heuristics
+  - **6.2**: `IntentScopeConfig` — session-level tool/sink constraints with
+    `restrict_to_trust_floor()` for automatic scope narrowing after taint
+  - **6.3**: `SequenceTracker` — 5 behavioral detectors (ReadThenExfil,
+    PrivilegeEscalationAfterTaint, ToolDiversitySpike, NovelToolAfterUntrusted,
+    PrivilegedActionCluster)
+  - **6.4A**: 8-scenario integration test matrix validating three-layer composition
+  - `docs/CHANNEL_SEPARATION.md` with configuration examples and preset guidance
+  - 30+ new tests across config, engine, and integration
+
 - **Runtime wiring — 15 modules activated (Mar 2026):**
   All standalone modules from Phase 1-5 wired into runtime enforcement
   or API surface. Key integrations:

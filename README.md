@@ -97,7 +97,7 @@ VellaVeto enforces four boundary invariants at the runtime surface where agents 
 These invariants are enforced by concrete runtime capabilities:
 
 - **Policy engine** — glob/regex/domain matching, parameter constraints, time windows, call limits, per-tool quotas, secret substitution, declarative policy templates, Cedar-style ABAC, Wasm plugins. <5ms P99 evaluation.
-- **Threat detection** — injection, tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion, semantic output contracts, trust-tier containment, contagion controls, response metadata stripping, and delegation chain enforcement. 20+ detection layers, not just regex.
+- **Threat detection** — injection, tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion, semantic output contracts, trust-tier containment, contagion controls, response metadata stripping, delegation chain enforcement, and [control/data channel separation](docs/CHANNEL_SEPARATION.md) (source-class tainting, intent scope, behavioral sequence analysis). 20+ detection layers, not just regex.
 - **Identity and access** — OAuth 2.1/JWT, OIDC/SAML, RBAC, capability delegation, DPoP (RFC 9449), non-human identity lifecycle.
 - **Topology discovery** — auto-discover MCP servers, tools, and resources. Detect drift, tool shadowing, and namespace collisions.
 - **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes, ZK proofs, OTel-compatible span generation, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more frameworks. Annex IV documentation, Article 73 incident reports, and FRIA data export generators.

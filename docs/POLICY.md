@@ -406,6 +406,51 @@ allowed_targets = ["trusted-*"]         # Only delegate to trusted agents
 blocked_targets = ["evil-*"]            # Never delegate to these
 ```
 
+## Source Trust Classification
+
+Classify tools by trust tier to drive source-class auto-tainting:
+
+```toml
+[source_trust]
+default_tool_trust = "unknown"
+untrusted_tools = ["fetch_url", "browse_*", "search_*"]
+verified_tools = ["internal_api_*"]
+
+[source_trust.server_trust]
+"filesystem-server" = "low"
+"github-mcp" = "medium"
+```
+
+Untrusted tool responses auto-taint the session regardless of whether any detector fires. See [Channel Separation](CHANNEL_SEPARATION.md) for the full three-layer model.
+
+## Sink Classification
+
+Map tools to sink classes for flow control:
+
+```toml
+[[sink_classification.rules]]
+tool_pattern = "execute_*"
+sink_class = "CodeExecution"
+
+[[sink_classification.rules]]
+tool_pattern = "send_email"
+sink_class = "NetworkEgress"
+```
+
+## Intent Scope
+
+Constrain what tools/sinks the agent can use per session:
+
+```toml
+[intent_scope]
+allowed_sink_classes = ["ReadOnly", "LowRiskWrite", "FilesystemWrite"]
+denied_tools = ["execute_*"]
+out_of_scope_action = "RequireApproval"
+max_distinct_tools = 10
+```
+
+Scope narrows automatically when source-class taint fires.
+
 ## Contagion Controls
 
 Control how taint propagates across tool chains in a session:

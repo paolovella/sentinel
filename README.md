@@ -87,12 +87,13 @@ vellaveto-shield --config consumer-shield.toml -- npx @anthropic/claude-desktop
 
 ## What It Does
 
-VellaVeto enforces four boundary invariants at the runtime surface where agents act on the world:
+VellaVeto enforces five boundary invariants at the runtime surface where agents act on the world:
 
 1. **No tool invocation without capability** — every side-effecting call is mediated through a shared evaluation pipeline, producing a structured ACIS decision envelope regardless of transport
 2. **Delegated capability is monotonic** — capability grants can only attenuate, never escalate; formally verified in Verus and Coq
 3. **Irreversible actions require signed approvals** — bound, replay-safe, single-use approvals with session and fingerprint binding
-4. **No cross-session leakage, coherent cross-session work** — session isolation is a product invariant, not best-effort; credential rotation, context window isolation, and stylometric normalization enforce unlinkability. Users maintain full workflow continuity across sessions — their context stays intact and safe, while deterministic action fingerprinting enables cross-session audit coherence without compromising session boundaries
+4. **No cross-session leakage, coherent cross-session work** — session isolation is a product invariant, not best-effort; credential rotation, context window isolation, and stylometric normalization enforce unlinkability
+5. **Untrusted content cannot silently drive privileged actions** — [control/data channel separation](docs/CHANNEL_SEPARATION.md): untrusted tool responses auto-taint the session regardless of detection, intent scope declarations constrain action space, and behavioral sequence analysis catches anomalous patterns. These three layers compose into detection-independent defense
 
 These invariants are enforced by concrete runtime capabilities:
 
@@ -294,12 +295,13 @@ Lower crates never depend on higher crates. The boundary contract (`vellaveto-ty
 
 | | What It Enforces | Docs |
 |---|---|---|
-| **Policy Engine** | Glob/regex/domain matching, parameter constraints, time windows, call limits, action sequences, Cedar-style ABAC, Wasm plugins. Pre-compiled patterns, <5ms P99, decision cache. | [Policy](docs/POLICY.md) |
-| **Threat Detection** | 20+ detection layers: injection (Aho-Corasick + NFKC + obfuscation decode), tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion, semantic output contracts, and containment-aware audit context. Maps to [OWASP Agentic Top 10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). | [Threat Model](docs/THREAT_MODEL.md) |
+| **Policy Engine** | Glob/regex/domain matching, parameter constraints, time windows, call limits, per-tool quotas, secret substitution, declarative policy templates, action sequences, Cedar-style ABAC, Wasm plugins. Pre-compiled patterns, <5ms P99, decision cache. | [Policy](docs/POLICY.md) |
+| **Threat Detection** | 20+ detection layers: injection (Aho-Corasick + NFKC + obfuscation decode), tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion, semantic output contracts, contagion controls, and containment-aware audit context. Maps to [OWASP Agentic Top 10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). | [Threat Model](docs/THREAT_MODEL.md) |
+| **Channel Separation** | Source-class auto-tainting (untrusted tool responses taint session regardless of detection), intent scope declarations (constrain tools/sinks per session with auto-narrowing on taint), behavioral sequence analysis (5 deterministic detectors for read→exfil, privilege escalation, tool diversity spikes, novel tools, action clustering). Three composing layers for detection-independent defense. | [Channel Separation](docs/CHANNEL_SEPARATION.md) |
 | **Identity & Access** | OAuth 2.1/JWT, OIDC/SAML, RBAC (4 roles, 14 perms), ABAC with forbid-overrides, capability delegation, DPoP (RFC 9449), non-human identity lifecycle. | [IAM](docs/IAM.md) |
-| **Approval Gates** | Bound, replay-safe, single-use approvals with session + fingerprint binding. Irreversible actions classified and gated. Structured containment context, trust/taint summaries, risk scores, and counterfactual-review hints preserved through pending, approve, and deny flows. | [Security Model](docs/SECURITY_MODEL.md) |
+| **Approval Gates** | Bound, replay-safe, single-use approvals with session + fingerprint binding. Irreversible actions classified and gated. Human-readable fact summaries, lineage drift invalidation, structured containment context, trust/taint summaries, and risk scores preserved through pending, approve, and deny flows. | [Security Model](docs/SECURITY_MODEL.md) |
 | **Discovery** | Auto-discover MCP servers, tools, resources via topology graph. Detect drift, tool shadowing, namespace collisions. Topology guard as pre-policy filter. | [Architecture](#architecture) |
-| **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes (structured verdict metadata on every transport), ZK proofs (Pedersen + Groth16), evidence packs for EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more. | [Compliance](docs/COMPLIANCE.md) |
+| **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes, ZK proofs (Pedersen + Groth16), OTel-compatible span export, Annex IV documentation generator, Article 73 incident reports with cross-regulation deadlines, FRIA data export, evidence packs for 12 frameworks. | [Compliance](docs/COMPLIANCE.md) |
 | **Session Isolation** | Per-session credential rotation, context window isolation, stylometric normalization, traffic padding. Cross-session correlation is structurally prevented while users maintain full workflow continuity — context stays coherent and safe across sessions via deterministic action fingerprinting without leaking session boundaries. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Consumer Shield** | User-side PII sanitization, encrypted local audit (XChaCha20-Poly1305), credential vault, warrant canary. All boundary enforcement running client-side. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Deployment** | 6 modes: HTTP, stdio, WebSocket, gRPC, gateway, consumer shield. K8s operator (3 CRDs), Helm chart, Terraform provider, VS Code extension. | [Deployment](docs/DEPLOYMENT.md) |
@@ -321,7 +323,7 @@ We use formal methods to prove — not just test — critical security propertie
 
 | Tool | What's Proven | Files |
 |---|---|---|
-| **TLA+** | Policy engine determinism, ABAC forbid-override correctness, workflow constraint enforcement, task lifecycle safety, cascading failure recovery | [formal/tla/](formal/tla/) |
+| **TLA+** | Policy engine determinism, ABAC forbid-override correctness, workflow constraint enforcement, task lifecycle safety, cascading failure recovery, source-taint containment (ST1-ST4), intent-scope containment (IS1-IS4), sequence containment (SQ1-SQ4) | [formal/tla/](formal/tla/) |
 | **Verus** | Deductive verification on actual Rust (ALL inputs via Z3 SMT): verdict fail-closed, path normalization, rule override correctness, DLP buffer safety, approval scope binding, transport sanitization, capability delegation, NHI delegation, and refinement obligations | [formal/verus/](formal/verus/) |
 | **Kani** | Bounded model checking harnesses on actual Rust covering IP validation, cache safety, capability delegation, rule checking, constraint evaluation, task lifecycle, IDNA normalization, Unicode homoglyph handling, and lock-poisoning safety | [formal/kani/](formal/kani/) |
 | **Lean 4** | Fail-closed property (errors → Deny), evaluation determinism, path normalization idempotence | [formal/lean/](formal/lean/) |
@@ -381,6 +383,7 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Audit trail** | SHA-256 chain + Merkle + Ed25519 + ZK proofs + PostgreSQL | Observability hooks | Logging | Logging |
 | **Compliance** | 12 frameworks (EU AI Act, SOC 2, DORA, NIS2, ...) | None | None | None |
 | **Formal verification** | TLA+, Lean 4, Coq, Alloy, Kani, Verus | None | None | None |
+| **Channel separation** | Source-class tainting, intent scope, behavioral sequence analysis | None | None | None |
 | **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | None | None | PII scanning (Presidio) |
 | **Enterprise IAM** | OIDC, SAML, RBAC, SCIM, DPoP | None | None | None |
 | **MCPSEC score** | 100/100 (Tier 5, reference run) | Not tested | Not applicable | Not tested |
@@ -423,6 +426,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 | [Assurance Case](docs/ASSURANCE_CASE.md) | Claim -> evidence -> reproduce map |
 | [ACIS Contract](docs/ACIS_CONTRACT.md) | Decision envelope structure, builder selection, transport parity |
 | [Boundary Inventory](docs/BOUNDARY_INVENTORY.md) | Transport interception surface map (E1-3) |
+| [Channel Separation](docs/CHANNEL_SEPARATION.md) | Three-layer structural defense against control/data channel conflation |
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
 | [Quantum Migration](docs/quantum-migration.md) | PQC rollout and rollback gates |
 

@@ -1,5 +1,7 @@
 # Control/Data Channel Separation
 
+> **Status**: Shipped and active in all protection presets (shield, fortress, vault, dev-laptop, sandworm-hardened). Source trust, sink classification, and intent scope are wired into the stdio proxy evaluation pipeline via `PolicyConfig`.
+
 VellaVeto addresses MCP's control/data channel conflation through three structural layers that compose into detection-independent defense.
 
 ## The Problem

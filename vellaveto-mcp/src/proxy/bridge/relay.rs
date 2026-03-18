@@ -1974,6 +1974,42 @@ impl ProxyBridge {
             return Ok(());
         }
 
+        // Jailbreak pattern detection in tool call parameters (MITRE AML.T0054).
+        {
+            let jb = crate::jailbreak_patterns::scan_params_for_jailbreak(&arguments);
+            if !jb.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Jailbreak patterns in tool '{}': {} findings",
+                    tool_name,
+                    jb.len()
+                );
+            }
+        }
+
+        // Token/credential leakage detection in tool call parameters.
+        {
+            let tl = crate::token_leakage::scan_params_for_tokens(&arguments);
+            if !tl.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Token leakage in tool '{}': {} findings",
+                    tool_name,
+                    tl.len()
+                );
+            }
+        }
+
+        // Memory query poisoning detection (MINJA, NeurIPS 2025).
+        {
+            let mp = crate::memory_query_poisoning::scan_params_for_memory_poisoning(&arguments);
+            if !mp.is_empty() {
+                tracing::warn!(
+                    "SECURITY: Memory query poisoning in tool '{}': {} indicators",
+                    tool_name,
+                    mp.len()
+                );
+            }
+        }
+
         // SECURITY (FIND-040): Injection scan tool call parameters.
         // Transport parity with HTTP/WS/gRPC handlers — the stdio relay
         // must scan outbound tool call arguments for injection patterns.
@@ -7853,6 +7889,39 @@ impl ProxyBridge {
                     .await
                     .map_err(ProxyError::Framing)?;
                 return Ok(());
+            }
+        }
+
+        // System prompt leakage, browser attacks, and output anomaly detection.
+        {
+            let mut response_texts = Vec::new();
+            crate::inspection::scanner_base::extract_response_text(&msg, &mut |_loc, text| {
+                response_texts.push(text.to_string());
+            });
+            for text in &response_texts {
+                let leaks = crate::system_prompt_leak::scan_for_prompt_leak(text);
+                if !leaks.is_empty() {
+                    tracing::warn!(
+                        "SECURITY: System prompt leak detected in response ({} indicators)",
+                        leaks.len()
+                    );
+                }
+
+                let browser = crate::browser_agent_defense::scan_for_browser_attacks(text);
+                if !browser.is_empty() {
+                    tracing::warn!(
+                        "SECURITY: Browser agent attack patterns in response ({} findings)",
+                        browser.len()
+                    );
+                }
+
+                let anomalies = crate::output_anomaly::scan_for_output_anomalies(text, 1, 100_000);
+                if !anomalies.is_empty() {
+                    tracing::info!(
+                        "Output anomaly detected in response ({} findings)",
+                        anomalies.len()
+                    );
+                }
             }
         }
 

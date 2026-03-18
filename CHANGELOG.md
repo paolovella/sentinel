@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **14 more security modules wired into relay (Mar 2026):**
+- **15 more security modules wired into relay (Mar 2026):**
   Stateless outbound scans: jailbreak patterns (AML.T0054), token/credential
   leakage, memory query poisoning (MINJA). Stateless inbound scans: system
   prompt leak (LLM07), browser agent attacks, output anomalies.
@@ -19,8 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drift detection (tools/list behavioral changes), goal drift (tool usage
   divergence), A2A message integrity (replay/spoofing/sequence), NHI
   overpermission (ambient authority, unused tools, trust inflation), agent
-  behavioral baseline (cross-session deviation detection).
+  behavioral baseline (cross-session deviation detection), prompt template
+  injection (prompts/list interception — the last unwired module).
   All advisory mode. Previously implemented+tested but had zero relay callers.
+  **All 30 standalone security modules now wired into the relay pipeline.**
 
 - **6 stateless security scanners wired into relay (Mar 2026):**
   Outbound: jailbreak patterns (MITRE AML.T0054), token/credential leakage,

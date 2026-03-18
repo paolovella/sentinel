@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-approval"
-version = "6.0.8"
+version = "6.0.9"
 description = "Human-in-the-loop approval workflow with deduplication"
 edition = "2021"
 license = "MPL-2.0"
@@ -12,7 +12,7 @@ rust-version.workspace = true
 readme = "README.md"
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.8" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

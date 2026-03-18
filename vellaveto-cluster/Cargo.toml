@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-cluster"
-version = "6.0.8"
+version = "6.0.9"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
@@ -16,9 +16,9 @@ default = []
 redis-backend = ["deadpool-redis", "dep:sha2", "dep:unicode-normalization", "dep:uuid"]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.8" }
-vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.8" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.8" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.9" }
+vellaveto-config = { path = "../vellaveto-config", version = "6.0.9" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

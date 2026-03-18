@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-mcp-shield"
-version = "6.0.8"
+version = "6.0.9"
 description = "Consumer shield: bidirectional PII sanitization, session isolation, encrypted local audit"
 edition = "2021"
 license = "MPL-2.0"
@@ -12,9 +12,9 @@ rust-version.workspace = true
 readme = "README.md"
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.8" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.8" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.8" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.9" }
+vellaveto-config = { path = "../vellaveto-config", version = "6.0.9" }
 chacha20poly1305 = "0.10"
 argon2 = { workspace = true }
 sha2 = { workspace = true }

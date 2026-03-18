@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **6 stateless security scanners wired into relay (Mar 2026):**
+  Outbound: jailbreak patterns (MITRE AML.T0054), token/credential leakage,
+  memory query poisoning (MINJA). Inbound: system prompt leak (OWASP LLM07),
+  browser agent attack patterns, output anomaly detection. All advisory mode
+  (log warnings). Previously implemented+tested but had zero relay callers.
+
 - **Dead code activation sweep (Mar 2026):**
   Systematic audit found 15+ config-to-bridge wiring gaps where features were
   fully implemented but never activated in the stdio proxy. Now wired:

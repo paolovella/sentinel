@@ -231,6 +231,17 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 
 Replace `shield`/`fortress` with `vault` for maximum security. See [docs/QUICKSTART.md](docs/QUICKSTART.md) for SDK integration guides (Anthropic, OpenAI, LangChain, LangGraph, CrewAI).
 
+### VellaVeto Desktop (native app)
+
+One-click protection for Claude Desktop, Cursor, Windsurf, and VS Code. The desktop app auto-detects your AI tools, wraps their MCP servers with `vellaveto-proxy`, and shows real-time deny/allow notifications.
+
+- **Auto-detection** — finds Claude Desktop, Cursor, Windsurf, VS Code + Continue configs
+- **One-click protect** — rewrites MCP config to wrap servers with `vellaveto-proxy --protect <level>`
+- **Activity feed** — real-time JSONL event stream showing every allow/deny decision
+- **Risk scanning** — flags broad filesystem access, unprotected `npx` commands, missing protection
+
+Built with [Tauri v2](https://tauri.app/) (Rust backend + React frontend). Source: [`packages/vellaveto-desktop/`](packages/vellaveto-desktop/).
+
 ## How It Works
 
 Every side-effecting decision crosses VellaVeto's runtime boundary:
@@ -402,6 +413,7 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | WebSocket Proxy | `vellaveto-http-proxy` | Bidirectional MCP-over-WS at `/mcp/ws` |
 | gRPC Proxy | `vellaveto-http-proxy --grpc` | High-throughput, protobuf-native (feature-gated) |
 | Consumer Shield | `vellaveto-shield` | User-side PII protection |
+| Desktop App | `vellaveto-desktop` | One-click protection for Claude/Cursor/Windsurf/VS Code |
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 

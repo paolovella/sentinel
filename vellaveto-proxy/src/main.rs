@@ -27,6 +27,7 @@ use vellaveto_engine::PolicyEngine;
 use vellaveto_mcp::proxy::ProxyBridge;
 use vellaveto_types::command::resolve_executable;
 
+mod notification_writer;
 mod presets;
 
 #[derive(Parser)]
@@ -560,6 +561,192 @@ async fn main() -> Result<()> {
         tracing::info!("Memory security (MINJA): ENABLED");
     }
 
+    // Phase 8: Wire ETDI for cryptographic tool verification.
+    if policy_config.etdi.enabled {
+        let data_path = policy_config
+            .etdi
+            .data_path
+            .as_deref()
+            .unwrap_or("etdi_data");
+        let store = Arc::new(vellaveto_mcp::etdi::EtdiStore::new(data_path));
+        if let Err(e) = store.load().await {
+            tracing::warn!("Failed to load ETDI store: {} — starting fresh", e);
+        }
+        let verifier = Arc::new(vellaveto_mcp::etdi::ToolSignatureVerifier::new(
+            policy_config.etdi.allowed_signers.clone(),
+        ));
+        bridge = bridge.with_etdi_verifier(verifier);
+        bridge = bridge.with_etdi_require_signatures(policy_config.etdi.require_signatures);
+        tracing::info!(
+            "ETDI signature verification: ENABLED (require_signatures={})",
+            policy_config.etdi.require_signatures,
+        );
+        if policy_config.etdi.version_pinning.enabled {
+            let blocking = policy_config.etdi.version_pinning.is_blocking();
+            let pin_manager = Arc::new(vellaveto_mcp::etdi::VersionPinManager::new(
+                Arc::clone(&store),
+                blocking,
+            ));
+            bridge = bridge.with_etdi_version_pins(pin_manager);
+            tracing::info!(
+                "ETDI version pinning: ENABLED (enforcement={})",
+                policy_config.etdi.version_pinning.enforcement,
+            );
+        }
+        if policy_config.etdi.attestation.enabled {
+            let attestation_chain = Arc::new(vellaveto_mcp::etdi::AttestationChain::new(
+                Arc::clone(&store),
+            ));
+            bridge = bridge.with_etdi_attestations(attestation_chain);
+            tracing::info!("ETDI attestation chain: ENABLED");
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Dead code activation: wire all config-to-bridge gaps
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Wire injection blocking from config.
+    if injection_config.block_on_injection {
+        bridge = bridge.with_injection_blocking(true);
+        tracing::info!("Injection blocking: ENABLED");
+    }
+
+    // Wire DLP response scanning from config.
+    if policy_config.dlp.enabled {
+        bridge = bridge.with_response_dlp_enabled(true);
+        if policy_config.dlp.block_on_finding {
+            bridge = bridge.with_response_dlp_blocking(true);
+            tracing::info!("DLP response scanning: BLOCKING");
+        } else {
+            tracing::info!("DLP response scanning: MONITOR");
+        }
+    }
+
+    // Wire elicitation config.
+    bridge = bridge.with_elicitation_config(policy_config.elicitation.clone());
+    if policy_config.elicitation.enabled {
+        tracing::info!("Elicitation controls: ENABLED");
+    }
+
+    // Wire sampling config.
+    bridge = bridge.with_sampling_config(policy_config.sampling.clone());
+    if policy_config.sampling.enabled {
+        tracing::info!("Sampling controls: ENABLED");
+    }
+
+    // Wire manifest verification for rug-pull detection.
+    if policy_config.manifest.enabled {
+        bridge = bridge.with_manifest_config(policy_config.manifest.clone());
+        tracing::info!("Manifest verification (rug-pull detection): ENABLED");
+    }
+
+    // Wire known tool names for squatting detection.
+    if !policy_config.known_tool_names.is_empty() {
+        tracing::info!(
+            "Custom known tools: {} entries",
+            policy_config.known_tool_names.len()
+        );
+        bridge = bridge.with_known_tools(vellaveto_mcp::rug_pull::build_known_tools(
+            &policy_config.known_tool_names,
+        ));
+    }
+
+    // Wire tool quotas for per-tool rate limiting (Phase 2).
+    if !policy_config.tool_quotas.is_empty() {
+        let tracker =
+            vellaveto_mcp::tool_quota::ToolQuotaTracker::new(policy_config.tool_quotas.clone());
+        tracing::info!("Tool quotas: {} rules", policy_config.tool_quotas.len());
+        bridge = bridge.with_tool_quota_tracker(tracker);
+    }
+
+    // Wire secret substitution for outbound/inbound secret masking (Phase 2).
+    if !policy_config.secret_substitutions.is_empty() {
+        let engine = vellaveto_mcp::secret_substitution::SecretSubstitutionEngine::new(
+            &policy_config.secret_substitutions,
+        );
+        tracing::info!(
+            "Secret substitution: {} rules",
+            policy_config.secret_substitutions.len()
+        );
+        bridge = bridge.with_secret_substitution(engine);
+    }
+
+    // Wire EU AI Act transparency marking (Phase 19).
+    if policy_config.compliance.eu_ai_act.transparency_marking {
+        bridge = bridge.with_transparency_marking(true);
+        tracing::info!("EU AI Act Art 50 transparency marking: ENABLED");
+    }
+    if !policy_config
+        .compliance
+        .eu_ai_act
+        .human_oversight_tools
+        .is_empty()
+    {
+        bridge = bridge.with_human_oversight_tools(
+            policy_config
+                .compliance
+                .eu_ai_act
+                .human_oversight_tools
+                .clone(),
+        );
+    }
+
+    // Wire tool drift blocking (R227).
+    if policy_config.governance.block_tool_drift {
+        bridge = bridge.with_block_tool_drift(true);
+        tracing::info!("Tool drift blocking: ENABLED");
+    }
+
+    // Phase 6: Wire channel separation configs.
+    if !policy_config.source_trust.untrusted_tools.is_empty()
+        || !policy_config.source_trust.verified_tools.is_empty()
+        || !policy_config.source_trust.server_trust.is_empty()
+    {
+        tracing::info!(
+            "Source trust: {} untrusted, {} verified tool patterns",
+            policy_config.source_trust.untrusted_tools.len(),
+            policy_config.source_trust.verified_tools.len(),
+        );
+        bridge = bridge.with_source_trust_config(policy_config.source_trust.clone());
+    }
+    if !policy_config.sink_classification.rules.is_empty() {
+        tracing::info!(
+            "Sink classification: {} rules",
+            policy_config.sink_classification.rules.len()
+        );
+        bridge = bridge.with_sink_classification_config(policy_config.sink_classification.clone());
+    }
+    if let Some(ref scope) = policy_config.intent_scope {
+        tracing::info!(
+            "Intent scope: {} allowed, {} denied tool patterns, action={:?}",
+            scope.allowed_tools.len(),
+            scope.denied_tools.len(),
+            scope.out_of_scope_action,
+        );
+        bridge = bridge.with_intent_scope_config(scope.clone());
+    }
+
+    // Wire notification writer for desktop app integration (--notification-file).
+    if let Some(ref nf_path) = cli.notification_file {
+        let writer = Arc::new(
+            notification_writer::NotificationWriter::new(std::path::PathBuf::from(nf_path))
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+        );
+        tracing::info!("Notification file: {}", writer.path().display());
+        let w = Arc::clone(&writer);
+        bridge =
+            bridge.with_verdict_notify(Arc::new(
+                move |tool, method, verdict, reason| match verdict {
+                    "deny" | "require_approval" => {
+                        w.write_deny(tool, method, "", reason, "");
+                    }
+                    _ => {
+                        w.write_allow(tool, method, "");
+                    }
+                },
+            ));
+    }
     tracing::info!("Request timeout: {}s, trace: {}", cli.timeout, cli.trace);
 
     // Run the proxy

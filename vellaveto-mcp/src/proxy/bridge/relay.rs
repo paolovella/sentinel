@@ -3093,6 +3093,10 @@ impl ProxyBridge {
                     registry.record_call(&tool_name).await;
                 }
                 state.record_forwarded_action(&tool_name);
+                // Desktop notification: emit allow event.
+                if let Some(ref notify) = self.verdict_notify {
+                    notify(&tool_name, "tools/call", "allow", "");
+                }
                 // SECURITY (FIND-R150-003): Truncate tool_name before storing in
                 // PendingRequest — parity with passthrough handler (line ~2057).
                 let truncated_tool: String = tool_name.chars().take(256).collect();
@@ -3164,6 +3168,20 @@ impl ProxyBridge {
                     .await
                 {
                     tracing::warn!("Audit log failed: {}", e);
+                }
+                // Desktop notification: emit deny/requireApproval event.
+                if let Some(ref notify) = self.verdict_notify {
+                    let v = match &verdict {
+                        Verdict::Deny { .. } => "deny",
+                        Verdict::RequireApproval { .. } => "require_approval",
+                        _ => "deny",
+                    };
+                    let reason_str = match &verdict {
+                        Verdict::Deny { reason } => reason.as_str(),
+                        Verdict::RequireApproval { reason } => reason.as_str(),
+                        _ => "",
+                    };
+                    notify(&tool_name, "tools/call", v, reason_str);
                 }
                 write_message(agent_writer, &response)
                     .await
@@ -3794,6 +3812,10 @@ impl ProxyBridge {
                 }
                 // SECURITY (R38-MCP-2): Update call_counts and action_history for ResourceRead.
                 state.record_forwarded_action("resources/read");
+                // Desktop notification: emit resource read allow event.
+                if let Some(ref notify) = self.verdict_notify {
+                    notify("resources/read", &uri, "allow", "");
+                }
                 state.track_pending_request(&id, "resources/read".to_string(), None);
 
                 write_message(child_stdin, &msg)
@@ -3848,6 +3870,20 @@ impl ProxyBridge {
                     .await
                 {
                     tracing::warn!("Audit log failed: {}", e);
+                }
+                // Desktop notification: emit resource read deny event.
+                if let Some(ref notify) = self.verdict_notify {
+                    let v = match &verdict {
+                        Verdict::Deny { .. } => "deny",
+                        Verdict::RequireApproval { .. } => "require_approval",
+                        _ => "deny",
+                    };
+                    let reason_str = match &verdict {
+                        Verdict::Deny { reason } => reason.as_str(),
+                        Verdict::RequireApproval { reason } => reason.as_str(),
+                        _ => "",
+                    };
+                    notify("resources/read", &uri, v, reason_str);
                 }
                 write_message(agent_writer, &response)
                     .await
@@ -8877,6 +8913,186 @@ impl ProxyBridge {
                             error = %e,
                             "Failed to parse tools/list for topology"
                         );
+                    }
+                }
+            }
+        }
+
+        // Phase 8: ETDI Signature Verification & Version Pin Checking.
+        // For each tool, verify ETDI signatures and check version pins.
+        if self.etdi_verifier.is_some() || self.etdi_version_pins.is_some() {
+            if let Some(tools) = msg
+                .get("result")
+                .and_then(|r| r.get("tools"))
+                .and_then(|t| t.as_array())
+            {
+                for tool in tools {
+                    let Some(name) = tool.get("name").and_then(|n| n.as_str()) else {
+                        continue;
+                    };
+                    let schema = tool.get("inputSchema").cloned().unwrap_or(json!({}));
+                    let safe_name = sanitize_for_log(name, 256);
+                    // --- Signature verification ---
+                    if let Some(ref verifier) = self.etdi_verifier {
+                        let maybe_sig = tool.pointer("/_meta/etdi/signature").and_then(|v| {
+                            serde_json::from_value::<vellaveto_types::ToolSignature>(v.clone()).ok()
+                        });
+                        match maybe_sig {
+                            Some(sig) => {
+                                let result = verifier.verify_tool_signature(name, &schema, &sig);
+                                if !result.valid {
+                                    tracing::warn!(
+                                        "SECURITY: ETDI signature invalid for tool '{}': {}",
+                                        safe_name,
+                                        result.message
+                                    );
+                                    let action = Action::new(
+                                        "vellaveto",
+                                        "etdi_signature_invalid",
+                                        json!({"tool": safe_name, "message": result.message}),
+                                    );
+                                    let etdi_v = Verdict::Deny { reason: format!("ETDI signature verification failed for tool '{safe_name}'") };
+                                    let etdi_e = crate::mediation::build_secondary_acis_envelope(
+                                        &action,
+                                        &etdi_v,
+                                        DecisionOrigin::CapabilityEnforcement,
+                                        "stdio",
+                                        None,
+                                    );
+                                    if let Err(e) = self.audit.log_entry_with_acis(&action, &etdi_v, json!({"source": "proxy", "event": "etdi_signature_invalid"}), etdi_e).await { tracing::warn!("Failed to audit ETDI sig failure: {}", e); }
+                                    state.flag_tool(name.to_string());
+                                    self.persist_flagged_tool(name, "etdi_signature_invalid")
+                                        .await;
+                                } else if result.expired {
+                                    tracing::warn!(
+                                        "SECURITY: ETDI signature expired for tool '{}': {}",
+                                        safe_name,
+                                        result.message
+                                    );
+                                    let action = Action::new(
+                                        "vellaveto",
+                                        "etdi_signature_expired",
+                                        json!({"tool": safe_name, "message": result.message}),
+                                    );
+                                    let etdi_v = Verdict::Deny {
+                                        reason: format!(
+                                            "ETDI signature expired for tool '{safe_name}'"
+                                        ),
+                                    };
+                                    let etdi_e = crate::mediation::build_secondary_acis_envelope(
+                                        &action,
+                                        &etdi_v,
+                                        DecisionOrigin::CapabilityEnforcement,
+                                        "stdio",
+                                        None,
+                                    );
+                                    if let Err(e) = self.audit.log_entry_with_acis(&action, &etdi_v, json!({"source": "proxy", "event": "etdi_signature_expired"}), etdi_e).await { tracing::warn!("Failed to audit ETDI sig expiry: {}", e); }
+                                    state.flag_tool(name.to_string());
+                                    self.persist_flagged_tool(name, "etdi_signature_expired")
+                                        .await;
+                                } else if !result.signer_trusted {
+                                    tracing::warn!(
+                                        "ETDI signer untrusted for tool '{}': {}",
+                                        safe_name,
+                                        result.message
+                                    );
+                                    if self.etdi_require_signatures {
+                                        let action = Action::new(
+                                            "vellaveto",
+                                            "etdi_signer_untrusted",
+                                            json!({"tool": safe_name, "message": result.message}),
+                                        );
+                                        let etdi_v = Verdict::Deny {
+                                            reason: format!(
+                                                "ETDI signer not trusted for tool '{safe_name}'"
+                                            ),
+                                        };
+                                        let etdi_e =
+                                            crate::mediation::build_secondary_acis_envelope(
+                                                &action,
+                                                &etdi_v,
+                                                DecisionOrigin::CapabilityEnforcement,
+                                                "stdio",
+                                                None,
+                                            );
+                                        if let Err(e) = self.audit.log_entry_with_acis(&action, &etdi_v, json!({"source": "proxy", "event": "etdi_signer_untrusted"}), etdi_e).await { tracing::warn!("Failed to audit ETDI untrusted: {}", e); }
+                                        state.flag_tool(name.to_string());
+                                        self.persist_flagged_tool(name, "etdi_signer_untrusted")
+                                            .await;
+                                    }
+                                } else {
+                                    tracing::debug!(
+                                        "ETDI signature verified for tool '{}': {}",
+                                        safe_name,
+                                        result.message
+                                    );
+                                }
+                            }
+                            None => {
+                                if self.etdi_require_signatures {
+                                    tracing::warn!("SECURITY: ETDI signature required but missing for tool '{}'", safe_name);
+                                    let action = Action::new(
+                                        "vellaveto",
+                                        "etdi_signature_missing",
+                                        json!({"tool": safe_name}),
+                                    );
+                                    let etdi_v = Verdict::Deny { reason: format!("ETDI signature required but missing for tool '{safe_name}'") };
+                                    let etdi_e = crate::mediation::build_secondary_acis_envelope(
+                                        &action,
+                                        &etdi_v,
+                                        DecisionOrigin::CapabilityEnforcement,
+                                        "stdio",
+                                        None,
+                                    );
+                                    if let Err(e) = self.audit.log_entry_with_acis(&action, &etdi_v, json!({"source": "proxy", "event": "etdi_signature_missing"}), etdi_e).await { tracing::warn!("Failed to audit ETDI missing sig: {}", e); }
+                                    state.flag_tool(name.to_string());
+                                    self.persist_flagged_tool(name, "etdi_signature_missing")
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                    // --- Version pin checking ---
+                    if let Some(ref pin_mgr) = self.etdi_version_pins {
+                        let version = tool.pointer("/_meta/etdi/version").and_then(|v| v.as_str());
+                        let pin_result = pin_mgr.check_pin(name, version, &schema).await;
+                        match &pin_result {
+                            crate::etdi::version_pin::PinCheckResult::VersionDrift(alert)
+                            | crate::etdi::version_pin::PinCheckResult::HashDrift(alert) => {
+                                tracing::warn!("SECURITY: ETDI version drift for tool '{}': type={}, expected={}, actual={}", safe_name, alert.drift_type, alert.expected_version, alert.actual_version);
+                                let action = Action::new(
+                                    "vellaveto",
+                                    "etdi_version_drift",
+                                    json!({"tool": safe_name, "drift_type": alert.drift_type, "expected": alert.expected_version, "actual": alert.actual_version, "blocking": alert.blocking}),
+                                );
+                                let drift_v = Verdict::Deny { reason: format!("ETDI version drift for tool '{safe_name}': {} (expected={}, actual={})", alert.drift_type, alert.expected_version, alert.actual_version) };
+                                let drift_e = crate::mediation::build_secondary_acis_envelope(
+                                    &action,
+                                    &drift_v,
+                                    DecisionOrigin::CapabilityEnforcement,
+                                    "stdio",
+                                    None,
+                                );
+                                if let Err(e) = self
+                                    .audit
+                                    .log_entry_with_acis(
+                                        &action,
+                                        &drift_v,
+                                        json!({"source": "proxy", "event": "etdi_version_drift"}),
+                                        drift_e,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit ETDI drift: {}", e);
+                                }
+                                if alert.blocking {
+                                    state.flag_tool(name.to_string());
+                                    self.persist_flagged_tool(name, "etdi_version_drift").await;
+                                }
+                            }
+                            crate::etdi::version_pin::PinCheckResult::NoPinExists
+                            | crate::etdi::version_pin::PinCheckResult::Matches => {}
+                        }
                     }
                 }
             }

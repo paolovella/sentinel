@@ -44,6 +44,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Default request timeout: 30 seconds.
+/// Callback type for lightweight verdict notifications (desktop app integration).
+/// Arguments: (tool, method, verdict, reason).
+pub type VerdictNotifyFn = dyn Fn(&str, &str, &str, &str) + Send + Sync;
+
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The proxy bridge that sits between agent and child MCP server.
@@ -275,6 +279,14 @@ pub struct ProxyBridge {
     /// are preserved in responses returned to the agent.
     #[cfg(feature = "consumer-shield")]
     shield_desanitize_responses: bool,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Desktop App: Lightweight Verdict Notifications
+    // ═══════════════════════════════════════════════════════════════════
+    /// Optional callback for lightweight verdict notifications (desktop app integration).
+    /// Called on every tools/call verdict with (tool, method, verdict, reason).
+    /// The callback must be non-blocking — file I/O is acceptable but not network.
+    verdict_notify: Option<Arc<VerdictNotifyFn>>,
 }
 
 impl ProxyBridge {
@@ -360,6 +372,8 @@ impl ProxyBridge {
             shield_session_unlinker: None,
             #[cfg(feature = "consumer-shield")]
             shield_desanitize_responses: true,
+            // Desktop notification (default: disabled)
+            verdict_notify: None,
         }
     }
 }

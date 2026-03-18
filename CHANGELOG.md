@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dead code activation sweep (Mar 2026):**
+  Systematic audit found 15+ config-to-bridge wiring gaps where features were
+  fully implemented but never activated in the stdio proxy. Now wired:
+  - Injection blocking mode (`block_on_injection`)
+  - DLP response scanning and blocking (`dlp.enabled/block_on_finding`)
+  - Elicitation controls (`elicitation` config)
+  - Sampling controls (`sampling` config)
+  - Sampling detector rate-limit/content/model enforcement (`sampling_detection`)
+  - Manifest verification / rug-pull detection (`manifest.enabled`)
+  - Custom known tool names for squatting detection (`known_tool_names`)
+  - Tool quotas / per-tool rate limiting (`tool_quotas`)
+  - Secret substitution engine (`secret_substitutions`)
+  - EU AI Act Art 50 transparency marking (`compliance.eu_ai_act`)
+  - Human oversight tool patterns (`compliance.eu_ai_act.human_oversight_tools`)
+  - Tool drift blocking (`governance.block_tool_drift`)
+  - MINJA memory security response recording (`memory_security`)
+  - ETDI signature verification + version pin checking in tools/list
+  - Channel separation: source trust, sink classification, intent scope
+  - Desktop notification pipeline (`--notification-file` CLI flag)
+
+- **Channel separation preset activation (Mar 2026):**
+  Phase 6 three-layer defense was implemented but completely inert. Now active
+  in 5 presets: shield (source trust + 9 sink rules), fortress (+ RequireApproval
+  intent scope), vault (+ Deny, ReadOnly only), dev-laptop, sandworm-hardened
+  (untrusted default, Deny, max 5 tools). 5 new preset tests.
+
 - **Phase 1 Sprint 1 — Sampling tool allowlist (Mar 2026):**
   `allowed_tools_in_sampling` field on `SamplingConfig` — glob patterns that
   restrict which tools can be referenced in `sampling/createMessage` requests.

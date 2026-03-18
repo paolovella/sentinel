@@ -534,6 +534,60 @@ mod tests {
     }
 
     #[test]
+    fn test_shield_has_source_trust() {
+        let config = load_preset("shield").expect("shield should load");
+        assert!(
+            !config.source_trust.untrusted_tools.is_empty(),
+            "shield should have untrusted tool patterns"
+        );
+    }
+
+    #[test]
+    fn test_shield_has_sink_classification() {
+        let config = load_preset("shield").expect("shield should load");
+        assert!(
+            !config.sink_classification.rules.is_empty(),
+            "shield should have sink classification rules"
+        );
+    }
+
+    #[test]
+    fn test_fortress_has_intent_scope() {
+        let config = load_preset("fortress").expect("fortress should load");
+        assert!(
+            config.intent_scope.is_some(),
+            "fortress should have intent scope config"
+        );
+    }
+
+    #[test]
+    fn test_vault_has_strict_intent_scope() {
+        let config = load_preset("vault").expect("vault should load");
+        let scope = config
+            .intent_scope
+            .expect("vault should have intent scope config");
+        assert!(
+            !scope.denied_tools.is_empty(),
+            "vault intent scope should deny some tools"
+        );
+        assert_eq!(
+            scope.out_of_scope_action,
+            vellaveto_config::channel_separation::OutOfScopeAction::Deny,
+            "vault intent scope should deny out-of-scope actions"
+        );
+    }
+
+    #[test]
+    fn test_all_protection_levels_have_source_trust() {
+        for level in ["shield", "fortress", "vault"] {
+            let config = load_preset(level).unwrap_or_else(|e| panic!("{level} should load: {e}"));
+            assert!(
+                !config.source_trust.untrusted_tools.is_empty(),
+                "{level} should have untrusted tool patterns"
+            );
+        }
+    }
+    #[test]
     fn test_preset_descriptions_mention_key_features() {
         let presets = list_presets();
         let shield_desc = presets.iter().find(|(n, _)| *n == "shield").unwrap().1;

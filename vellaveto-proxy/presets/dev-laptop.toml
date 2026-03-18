@@ -257,5 +257,38 @@ enabled = true
 block_on_match = false
 
 # --- Audit ---
+
+# --- Source trust classification (Phase 6 channel separation) ---
+[source_trust]
+default_tool_trust = "unknown"
+untrusted_tools = ["fetch_url", "fetch", "browse_*", "search_*", "scrape_*", "http_*", "curl_*", "wget_*"]
+
+[[sink_classification.rules]]
+tool_pattern = "execute_*"
+sink_class = "code_execution"
+[[sink_classification.rules]]
+tool_pattern = "run_*"
+sink_class = "code_execution"
+[[sink_classification.rules]]
+tool_pattern = "bash"
+sink_class = "code_execution"
+[[sink_classification.rules]]
+tool_pattern = "shell"
+sink_class = "code_execution"
+[[sink_classification.rules]]
+tool_pattern = "write_*"
+sink_class = "filesystem_write"
+[[sink_classification.rules]]
+tool_pattern = "delete_*"
+sink_class = "filesystem_write"
+[[sink_classification.rules]]
+tool_pattern = "read_*"
+sink_class = "read_only"
+[[sink_classification.rules]]
+tool_pattern = "list_*"
+sink_class = "read_only"
+[[sink_classification.rules]]
+tool_pattern = "get_*"
+sink_class = "read_only"
 [audit]
 redaction_level = "KeysAndPatterns"

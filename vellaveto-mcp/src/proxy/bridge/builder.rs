@@ -454,4 +454,47 @@ impl ProxyBridge {
         self.shield_desanitize_responses = desanitize;
         self
     }
+
+    /// Override the known tools set for squatting detection.
+    pub fn with_known_tools(mut self, tools: std::collections::HashSet<String>) -> Self {
+        self.known_tools = tools;
+        self
+    }
+
+    // Phase 6: Channel Separation
+
+    /// Set source trust classification for auto-tainting.
+    pub fn with_source_trust_config(
+        mut self,
+        config: vellaveto_config::channel_separation::SourceTrustConfig,
+    ) -> Self {
+        self.source_trust_config = Some(config);
+        self
+    }
+
+    /// Set sink classification rules.
+    pub fn with_sink_classification_config(
+        mut self,
+        config: vellaveto_config::channel_separation::SinkClassificationConfig,
+    ) -> Self {
+        self.sink_classification_config = Some(config);
+        self
+    }
+
+    /// Set intent scope for session-level enforcement.
+    pub fn with_intent_scope_config(
+        mut self,
+        config: vellaveto_config::channel_separation::IntentScopeConfig,
+    ) -> Self {
+        self.intent_scope_config = Some(config);
+        self
+    }
+
+    // Desktop App: Verdict Notifications
+
+    /// Set a lightweight verdict notification callback.
+    pub fn with_verdict_notify(mut self, notify: Arc<super::VerdictNotifyFn>) -> Self {
+        self.verdict_notify = Some(notify);
+        self
+    }
 }

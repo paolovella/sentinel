@@ -752,6 +752,10 @@ pub(super) struct RelayState {
     /// Phase 3: Delegation tracker — multi-agent chain control.
     #[allow(dead_code)]
     delegation: vellaveto_engine::delegation::DelegationTracker,
+    /// Denial-of-wallet tracker — rate spikes, recursive loops, token exhaustion.
+    dow_tracker: vellaveto_engine::denial_of_wallet::DoWTracker,
+    /// Cascade failure graph — failure propagation across tools.
+    cascade_graph: vellaveto_engine::cascade_graph::CascadeGraph,
 }
 
 impl RelayState {
@@ -829,6 +833,15 @@ impl RelayState {
                 Vec::new(), // allowed targets (empty = all)
                 Vec::new(), // blocked targets
                 true,       // forbid trust escalation
+            ),
+            dow_tracker: vellaveto_engine::denial_of_wallet::DoWTracker::new(
+                120,        // max 120 calls per minute
+                10_000_000, // max 10M tokens per session
+                3_600_000,  // max 1 hour session duration
+            ),
+            cascade_graph: vellaveto_engine::cascade_graph::CascadeGraph::new(
+                60_000, // 60 second window
+                3,      // 3+ tools failing = cascade
             ),
         }
     }
@@ -1972,6 +1985,18 @@ impl ProxyBridge {
                 .await
                 .map_err(ProxyError::Framing)?;
             return Ok(());
+        }
+
+        // Denial-of-wallet detection — rate spikes, recursive loops, token exhaustion.
+        {
+            let dow = state.dow_tracker.record_call(&tool_name, 0);
+            for finding in &dow {
+                tracing::warn!(
+                    "SECURITY: Denial-of-wallet pattern for tool '{}': {:?}",
+                    tool_name,
+                    finding.finding_type
+                );
+            }
         }
 
         // Jailbreak pattern detection in tool call parameters (MITRE AML.T0054).
@@ -7699,6 +7724,19 @@ impl ProxyBridge {
                             cb.record_failure(&pending.tool_name);
                         } else {
                             cb.record_success(&pending.tool_name);
+                        }
+                    }
+                    // Cascade failure graph — detect propagation across tools.
+                    if msg.get("error").is_some() {
+                        if let Some(cascade) = state.cascade_graph.record_failure(
+                            &pending.tool_name,
+                            vellaveto_engine::cascade_graph::FailureType::ToolError,
+                        ) {
+                            tracing::warn!(
+                                "SECURITY: Cascading failure detected: {} tools failing in window — {}",
+                                cascade.affected_tools.len(),
+                                cascade.description,
+                            );
                         }
                     }
                 }

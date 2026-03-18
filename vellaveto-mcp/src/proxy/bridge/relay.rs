@@ -756,6 +756,10 @@ pub(super) struct RelayState {
     dow_tracker: vellaveto_engine::denial_of_wallet::DoWTracker,
     /// Cascade failure graph — failure propagation across tools.
     cascade_graph: vellaveto_engine::cascade_graph::CascadeGraph,
+    /// Exfiltration path tracker — correlates reads with network egress.
+    exfil_tracker: vellaveto_engine::exfil_path::ExfilPathTracker,
+    /// Server fingerprint tracker — detects behavioral drift.
+    server_fingerprint: crate::server_fingerprint::ServerFingerprintTracker,
 }
 
 impl RelayState {
@@ -843,6 +847,8 @@ impl RelayState {
                 60_000, // 60 second window
                 3,      // 3+ tools failing = cascade
             ),
+            exfil_tracker: vellaveto_engine::exfil_path::ExfilPathTracker::new(),
+            server_fingerprint: crate::server_fingerprint::ServerFingerprintTracker::new(),
         }
     }
 
@@ -3154,6 +3160,30 @@ impl ProxyBridge {
                     registry.record_call(&tool_name).await;
                 }
                 state.record_forwarded_action(&tool_name);
+
+                // Exfiltration path analysis — correlate reads with network egress.
+                {
+                    let sink = if let Some(ref cfg) = self.sink_classification_config {
+                        cfg.resolve_sink_class(&tool_name)
+                            .unwrap_or(vellaveto_types::provenance::SinkClass::ReadOnly)
+                    } else {
+                        vellaveto_types::provenance::SinkClass::ReadOnly
+                    };
+                    let exfil = state.exfil_tracker.record_call(
+                        &tool_name,
+                        sink,
+                        &action.target_paths,
+                        &action.target_domains,
+                    );
+                    for finding in &exfil {
+                        tracing::warn!(
+                            "SECURITY: Exfiltration path detected: {:?} (severity {})",
+                            finding.path_type,
+                            finding.severity,
+                        );
+                    }
+                }
+
                 // Desktop notification: emit allow event.
                 if let Some(ref notify) = self.verdict_notify {
                     notify(&tool_name, "tools/call", "allow", "");
@@ -9202,6 +9232,41 @@ impl ProxyBridge {
                         }
                     }
                 }
+            }
+        }
+
+        // Server fingerprint drift detection.
+        if let Some(tools) = msg
+            .get("result")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())
+        {
+            let server_id = state.server_name.as_deref().unwrap_or("stdio");
+            let tool_names: Vec<String> = tools
+                .iter()
+                .filter_map(|t| {
+                    t.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect();
+            let fp = crate::server_fingerprint::ServerFingerprint {
+                protocol_version: state
+                    .negotiated_protocol_version
+                    .clone()
+                    .unwrap_or_default(),
+                server_name: server_id.to_string(),
+                tool_count: tool_names.len(),
+                tool_names,
+                capabilities: Vec::new(),
+            };
+            let drifts = state.server_fingerprint.record_and_check(server_id, fp);
+            for drift in &drifts {
+                tracing::warn!(
+                    "SECURITY: Server fingerprint drift: {:?} (confidence {})",
+                    drift.drift_type,
+                    drift.confidence,
+                );
             }
         }
     }

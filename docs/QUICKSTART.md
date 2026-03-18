@@ -394,6 +394,69 @@ Edit `.cursor/mcp.json` in your project directory:
 }
 ```
 
+### Windsurf
+
+Edit `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "fortress",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "."
+      ]
+    }
+  }
+}
+```
+
+### OpenAI Codex CLI
+
+Edit `~/.codex/config.json`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "shield",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "."
+      ]
+    }
+  }
+}
+```
+
+### VS Code (Copilot / Cline / Roo Code)
+
+Add to your VS Code `settings.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "command": "vellaveto-proxy",
+        "args": [
+          "--protect", "fortress",
+          "--", "npx", "-y",
+          "@modelcontextprotocol/server-filesystem", "."
+        ]
+      }
+    }
+  }
+}
+```
+
+### VellaVeto Desktop (no config editing needed)
+
+The [VellaVeto Desktop app](../packages/vellaveto-desktop/) auto-detects Claude Desktop, Claude Code, Cursor, Windsurf, VS Code (Copilot/Cline/Roo Code), OpenAI Codex CLI, Zed, Continue, Amazon Q Developer, and JetBrains AI — then wraps their MCP servers with one click.
+
 Every tool call is evaluated against your policies before reaching the MCP server. Use `shield` for basic protection, `fortress` for stronger controls, or `vault` for deny-by-default.
 
 ---

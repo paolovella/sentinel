@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri-v2/HEAD/core/tauri-config-schema/schema.json",
   "productName": "VellaVeto",
-  "version": "0.1.0",
+  "version": "6.0.8",
   "identifier": "com.vellaveto.desktop",
   "build": {
     "frontendDist": "../dist",

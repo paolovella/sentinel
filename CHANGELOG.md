@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   intent scope), vault (+ Deny, ReadOnly only), dev-laptop, sandworm-hardened
   (untrusted default, Deny, max 5 tools). 5 new preset tests.
 
+## [6.0.8] - 2026-03-17
+
+### Added
+
 - **Phase 1 Sprint 1 — Sampling tool allowlist (Mar 2026):**
   `allowed_tools_in_sampling` field on `SamplingConfig` — glob patterns that
   restrict which tools can be referenced in `sampling/createMessage` requests.

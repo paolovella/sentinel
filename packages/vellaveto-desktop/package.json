@@ -1,7 +1,7 @@
 {
   "name": "vellaveto-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "6.0.8",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -56,6 +56,7 @@ impl ProtectionLevel {
 /// Get config paths for known AI tools.
 fn tool_config_paths() -> Vec<(&'static str, Vec<PathBuf>)> {
     let home = dirs::home_dir().unwrap_or_default();
+    let config_dir = dirs::config_dir().unwrap_or_default();
 
     vec![
         (
@@ -64,11 +65,16 @@ fn tool_config_paths() -> Vec<(&'static str, Vec<PathBuf>)> {
                 #[cfg(target_os = "macos")]
                 home.join("Library/Application Support/Claude/claude_desktop_config.json"),
                 #[cfg(target_os = "windows")]
-                dirs::config_dir()
-                    .unwrap_or_default()
-                    .join("Claude/claude_desktop_config.json"),
+                config_dir.join("Claude/claude_desktop_config.json"),
                 #[cfg(target_os = "linux")]
                 home.join(".config/Claude/claude_desktop_config.json"),
+            ],
+        ),
+        (
+            "Claude Code",
+            vec![
+                home.join(".claude.json"),
+                home.join(".claude/settings.json"),
             ],
         ),
         (
@@ -84,9 +90,67 @@ fn tool_config_paths() -> Vec<(&'static str, Vec<PathBuf>)> {
             ],
         ),
         (
-            "VS Code + Continue",
+            "VS Code (Copilot)",
+            vec![
+                #[cfg(target_os = "macos")]
+                home.join("Library/Application Support/Code/User/settings.json"),
+                #[cfg(target_os = "windows")]
+                config_dir.join("Code/User/settings.json"),
+                #[cfg(target_os = "linux")]
+                home.join(".config/Code/User/settings.json"),
+            ],
+        ),
+        (
+            "OpenAI Codex CLI",
+            vec![
+                home.join(".codex/config.json"),
+                home.join(".config/codex/config.json"),
+            ],
+        ),
+        (
+            "Zed",
+            vec![
+                #[cfg(target_os = "macos")]
+                home.join("Library/Application Support/Zed/settings.json"),
+                #[cfg(target_os = "linux")]
+                home.join(".config/zed/settings.json"),
+            ],
+        ),
+        (
+            "Continue",
             vec![
                 home.join(".continue/config.json"),
+            ],
+        ),
+        (
+            "Cline (VS Code)",
+            vec![
+                home.join(".cline/mcp_settings.json"),
+                #[cfg(target_os = "macos")]
+                home.join("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"),
+                #[cfg(target_os = "linux")]
+                home.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"),
+            ],
+        ),
+        (
+            "Roo Code (VS Code)",
+            vec![
+                #[cfg(target_os = "macos")]
+                home.join("Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json"),
+                #[cfg(target_os = "linux")]
+                home.join(".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json"),
+            ],
+        ),
+        (
+            "Amazon Q Developer",
+            vec![
+                home.join(".aws/amazonq/mcp.json"),
+            ],
+        ),
+        (
+            "JetBrains AI",
+            vec![
+                home.join(".config/JetBrains/mcp.json"),
             ],
         ),
     ]
@@ -142,9 +206,17 @@ fn parse_mcp_config(path: &Path) -> (Vec<McpServerEntry>, Vec<String>) {
     let mut servers = Vec::new();
     let mut risks = Vec::new();
 
+    // Support multiple config formats:
+    // - Claude Desktop / Cursor / Windsurf: { "mcpServers": { ... } }
+    // - Cline / Roo Code: { "mcpServers": { ... } }
+    // - VS Code Copilot: { "mcp": { "servers": { ... } } }
+    // - Continue: { "mcpServers": { ... } } or { "models": [...] }
+    // - Codex: { "mcpServers": { ... } }
+    // - Generic: { "mcp_servers": { ... } }
     let mcp_servers = config
         .get("mcpServers")
         .or_else(|| config.get("mcp_servers"))
+        .or_else(|| config.pointer("/mcp/servers"))
         .and_then(|v| v.as_object());
 
     if let Some(server_map) = mcp_servers {

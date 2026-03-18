@@ -229,13 +229,55 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 }
 ```
 
-Replace `shield`/`fortress` with `vault` for maximum security. See [docs/QUICKSTART.md](docs/QUICKSTART.md) for SDK integration guides (Anthropic, OpenAI, LangChain, LangGraph, CrewAI).
+Replace `shield`/`fortress` with `vault` for maximum security. The same pattern works with **any MCP client** — wrap the server command with `vellaveto-proxy --protect <level> --`.
+
+### Use with OpenAI Codex CLI
+
+Edit `~/.codex/config.json`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "vellaveto-proxy",
+      "args": [
+        "--protect", "shield",
+        "--", "npx", "-y",
+        "@modelcontextprotocol/server-filesystem", "."
+      ]
+    }
+  }
+}
+```
+
+### Use with VS Code (Copilot / Cline / Roo Code)
+
+Add to your VS Code `settings.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "command": "vellaveto-proxy",
+        "args": [
+          "--protect", "fortress",
+          "--", "npx", "-y",
+          "@modelcontextprotocol/server-filesystem", "."
+        ]
+      }
+    }
+  }
+}
+```
+
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for more providers (Zed, JetBrains, Amazon Q, Continue) and SDK integration guides (Anthropic, OpenAI, LangChain, LangGraph, CrewAI).
 
 ### VellaVeto Desktop (native app)
 
-One-click protection for Claude Desktop, Cursor, Windsurf, and VS Code. The desktop app auto-detects your AI tools, wraps their MCP servers with `vellaveto-proxy`, and shows real-time deny/allow notifications.
+One-click protection for all your AI tools — no manual config editing needed.
 
-- **Auto-detection** — finds Claude Desktop, Cursor, Windsurf, VS Code + Continue configs
+- **Auto-detection** — finds Claude Desktop, Claude Code, Cursor, Windsurf, VS Code (Copilot/Cline/Roo Code), OpenAI Codex CLI, Zed, Continue, Amazon Q Developer, JetBrains AI
 - **One-click protect** — rewrites MCP config to wrap servers with `vellaveto-proxy --protect <level>`
 - **Activity feed** — real-time JSONL event stream showing every allow/deny decision
 - **Risk scanning** — flags broad filesystem access, unprotected `npx` commands, missing protection

@@ -764,6 +764,8 @@ pub(super) struct RelayState {
     goal_drift: crate::goal_drift::GoalDriftTracker,
     /// A2A message integrity tracker — replay, spoofing, sequence detection.
     a2a_integrity: crate::a2a_integrity::A2aIntegrityTracker,
+    /// Track prompts/list request IDs for prompt template injection scanning.
+    prompts_list_request_ids: HashSet<String>,
 }
 
 impl RelayState {
@@ -855,6 +857,7 @@ impl RelayState {
             server_fingerprint: crate::server_fingerprint::ServerFingerprintTracker::new(),
             goal_drift: crate::goal_drift::GoalDriftTracker::new(),
             a2a_integrity: crate::a2a_integrity::A2aIntegrityTracker::new(300), // 5 min max age
+            prompts_list_request_ids: HashSet::with_capacity(4),
         }
     }
 
@@ -7066,6 +7069,13 @@ impl ProxyBridge {
                     }
                 }
 
+                // Track prompts/list requests for prompt template injection scanning.
+                if normalized_method.as_deref() == Some("prompts/list")
+                    && state.prompts_list_request_ids.len() < MAX_REQUEST_TRACKING_IDS
+                {
+                    state.prompts_list_request_ids.insert(id_key.clone());
+                }
+
                 // C-8.4: Track initialize requests for protocol version
                 // SECURITY (FIND-R46-003): Cap set size to prevent OOM.
                 if normalized_method.as_deref() == Some("initialize") {
@@ -7868,6 +7878,26 @@ impl ProxyBridge {
                 // gap between evaluation and forwarding (no raw wire bytes are reused).
                 if state.tools_list_request_ids.remove(&id_key) {
                     self.handle_tools_list_response(&msg, state).await;
+                }
+
+                // Prompt template injection scanning on prompts/list responses.
+                if state.prompts_list_request_ids.remove(&id_key) {
+                    if let Some(prompts) = msg
+                        .get("result")
+                        .and_then(|r| r.get("prompts"))
+                        .and_then(|p| p.as_array())
+                    {
+                        let findings =
+                            crate::prompt_template_injection::audit_prompts_list(prompts);
+                        for finding in &findings {
+                            tracing::warn!(
+                                "SECURITY: Prompt template injection in '{}': {:?} (confidence {})",
+                                vellaveto_types::sanitize_for_log(&finding.prompt_name, 64),
+                                finding.finding_type,
+                                finding.confidence,
+                            );
+                        }
+                    }
                 }
 
                 // C-8.4: If this is an initialize response, extract protocol version

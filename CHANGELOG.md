@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **8 more security modules wired into relay (Mar 2026):**
+- **10 more security modules wired into relay (Mar 2026):**
   Stateless outbound scans: jailbreak patterns (AML.T0054), token/credential
   leakage, memory query poisoning (MINJA). Stateless inbound scans: system
   prompt leak (LLM07), browser agent attacks, output anomalies.
   Stateful per-session: denial-of-wallet tracker (rate spikes, recursive loops,
-  token exhaustion), cascade failure graph (cross-tool failure propagation).
+  token exhaustion), cascade failure graph (cross-tool failure propagation),
+  exfiltration path tracker (read-to-egress correlation), server fingerprint
+  drift detection (tools/list behavioral changes).
   All advisory mode. Previously implemented+tested but had zero relay callers.
 
 - **6 stateless security scanners wired into relay (Mar 2026):**

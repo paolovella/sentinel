@@ -4,7 +4,6 @@
 //! detects installed tools, and wraps MCP servers with vellaveto-proxy.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// An AI tool installation detected on the system.
@@ -56,6 +55,7 @@ impl ProtectionLevel {
 /// Get config paths for known AI tools.
 fn tool_config_paths() -> Vec<(&'static str, Vec<PathBuf>)> {
     let home = dirs::home_dir().unwrap_or_default();
+    #[allow(unused_variables)]
     let config_dir = dirs::config_dir().unwrap_or_default();
 
     vec![
@@ -288,9 +288,16 @@ pub fn protect_tool(
     let mut config: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("Invalid JSON: {e}"))?;
 
+    // Find the MCP servers key — try mcpServers first, then mcp_servers, then mcp.servers.
+    let server_key = if config.get("mcpServers").is_some() {
+        "mcpServers"
+    } else if config.get("mcp_servers").is_some() {
+        "mcp_servers"
+    } else {
+        return Err("No mcpServers found in config".to_string());
+    };
     let mcp_servers = config
-        .get_mut("mcpServers")
-        .or_else(|| config.get_mut("mcp_servers"))
+        .get_mut(server_key)
         .and_then(|v| v.as_object_mut())
         .ok_or_else(|| "No mcpServers found in config".to_string())?;
 

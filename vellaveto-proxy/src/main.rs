@@ -661,15 +661,15 @@ async fn main() -> Result<()> {
     }
 
     // Wire secret substitution for outbound/inbound secret masking (Phase 2).
-    if !policy_config.secret_substitutions.is_empty() {
-        let engine = vellaveto_mcp::secret_substitution::SecretSubstitutionEngine::new(
-            &policy_config.secret_substitutions,
-        );
-        tracing::info!(
-            "Secret substitution: {} rules",
-            policy_config.secret_substitutions.len()
-        );
-        bridge = bridge.with_secret_substitution(engine);
+    {
+        let sub_count = policy_config.secret_substitutions.len();
+        if sub_count > 0 {
+            let engine = vellaveto_mcp::secret_substitution::SecretSubstitutionEngine::new(
+                &policy_config.secret_substitutions,
+            );
+            tracing::info!("Secret substitution: {sub_count} rules");
+            bridge = bridge.with_secret_substitution(engine);
+        }
     }
 
     // Wire EU AI Act transparency marking (Phase 19).

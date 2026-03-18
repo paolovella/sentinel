@@ -530,12 +530,34 @@ async fn main() -> Result<()> {
         bridge = bridge.with_shadow_agent(Arc::new(detector));
     }
 
+    // Wire sampling detector for rate-limit/content/model enforcement.
+    if policy_config.sampling_detection.enabled {
+        let detector = vellaveto_mcp::sampling_detector::SamplingDetector::with_config(
+            policy_config.sampling_detection.max_requests_per_window,
+            policy_config.sampling_detection.window_secs,
+            policy_config.sampling_detection.max_prompt_length,
+            policy_config.sampling_detection.allowed_models.clone(),
+            policy_config.sampling_detection.block_sensitive_patterns,
+        );
+        tracing::info!("Sampling detector: ENABLED");
+        bridge = bridge.with_sampling_detector(Arc::new(detector));
+    }
+
     // Wire topology guard into ProxyBridge for live topology updates from tools/list.
     #[cfg(feature = "discovery")]
     if policy_config.topology.enabled {
         let guard = Arc::new(vellaveto_discovery::guard::TopologyGuard::new());
         bridge = bridge.with_topology_guard(Arc::clone(&guard));
         tracing::info!("Topology guard: ENABLED (stdio proxy)");
+    }
+
+    // Phase 9: Wire MINJA memory security manager for taint tracking.
+    if policy_config.memory_security.enabled {
+        let manager = vellaveto_mcp::memory_security::MemorySecurityManager::new(
+            policy_config.memory_security.clone(),
+        );
+        bridge = bridge.with_memory_security(Arc::new(manager));
+        tracing::info!("Memory security (MINJA): ENABLED");
     }
 
     tracing::info!("Request timeout: {}s, trace: {}", cli.timeout, cli.trace);

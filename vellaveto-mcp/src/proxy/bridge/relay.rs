@@ -4040,6 +4040,64 @@ impl ProxyBridge {
             }
         }
 
+        // Sampling rate/content check via SamplingDetector.
+        if let Some(ref detector) = self.sampling_detector {
+            let model = msg
+                .pointer("/params/modelPreferences/hints")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.pointer("/name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let prompt = msg
+                .pointer("/params/messages")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.last())
+                .and_then(|v| v.pointer("/content/text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if let Err(denied) = detector.check_request(&state.session_id, model, prompt) {
+                let reason = format!("Sampling blocked: {denied}");
+                tracing::warn!("SECURITY: {}", reason);
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "sampling_detector_blocked",
+                    json!({"reason": &reason}),
+                );
+                let sd_verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                let sd_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action,
+                    &sd_verdict,
+                    DecisionOrigin::RateLimiter,
+                    "stdio",
+                    state.agent_id.as_deref(),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &sd_verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "sampling_detector_blocked",
+                        }),
+                        sd_envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit sampling detector block: {}", e);
+                }
+                let deny_response = make_denial_response(&id, "Sampling request denied by policy");
+                write_message(agent_writer, &deny_response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+            detector.record_request(&state.session_id);
+        }
+
         let params = msg.get("params").cloned().unwrap_or(json!({}));
 
         // Divergence attack / training data extraction scan on sampling params.
@@ -8114,6 +8172,32 @@ impl ProxyBridge {
             && !semantic_contract_violation_found
         {
             state.memory_tracker.record_response(&msg);
+
+            // Phase 9: MINJA — record clean response content for taint tracking.
+            // Only record when no security findings detected (same guard as
+            // memory_tracker) to avoid poisoning the taint graph with tainted data.
+            if let Some(ref mem_sec) = self.memory_security {
+                if let Some(tool_name) = response_tool_name.as_deref() {
+                    let mut texts = Vec::new();
+                    crate::inspection::scanner_base::extract_response_text(
+                        &msg,
+                        &mut |_location, text| {
+                            texts.push(text.to_string());
+                        },
+                    );
+                    let agent_id = state.agent_id.as_deref();
+                    for text in &texts {
+                        let _ = mem_sec
+                            .record_response(
+                                text,
+                                tool_name,
+                                Some(state.session_id.as_str()),
+                                agent_id,
+                            )
+                            .await;
+                    }
+                }
+            }
         }
 
         if let Some(tool_name) = response_tool_name.as_deref() {

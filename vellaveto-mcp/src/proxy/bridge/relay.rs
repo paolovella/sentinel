@@ -760,6 +760,10 @@ pub(super) struct RelayState {
     exfil_tracker: vellaveto_engine::exfil_path::ExfilPathTracker,
     /// Server fingerprint tracker — detects behavioral drift.
     server_fingerprint: crate::server_fingerprint::ServerFingerprintTracker,
+    /// Goal drift tracker — detects tool usage divergence from session pattern.
+    goal_drift: crate::goal_drift::GoalDriftTracker,
+    /// A2A message integrity tracker — replay, spoofing, sequence detection.
+    a2a_integrity: crate::a2a_integrity::A2aIntegrityTracker,
 }
 
 impl RelayState {
@@ -849,6 +853,8 @@ impl RelayState {
             ),
             exfil_tracker: vellaveto_engine::exfil_path::ExfilPathTracker::new(),
             server_fingerprint: crate::server_fingerprint::ServerFingerprintTracker::new(),
+            goal_drift: crate::goal_drift::GoalDriftTracker::new(),
+            a2a_integrity: crate::a2a_integrity::A2aIntegrityTracker::new(300), // 5 min max age
         }
     }
 
@@ -3181,6 +3187,69 @@ impl ProxyBridge {
                             finding.path_type,
                             finding.severity,
                         );
+                    }
+                }
+
+                // NHI overpermission check — periodic (every 20 calls).
+                if state.call_counts.values().sum::<u64>() % 20 == 0 {
+                    let tools_used: Vec<String> = state.call_counts.keys().cloned().collect();
+                    let scope = vellaveto_engine::nhi_overpermission::AgentScope {
+                        agent_id: state
+                            .agent_id
+                            .clone()
+                            .unwrap_or_else(|| "anonymous".to_string()),
+                        declared_scopes: Vec::new(), // stdio mode has no OAuth scopes
+                        tools_used,
+                        trust_tier: vellaveto_types::TrustTier::Unknown,
+                        delegation_depth: 0,
+                    };
+                    let overperms =
+                        vellaveto_engine::nhi_overpermission::check_overpermission(&scope);
+                    for finding in &overperms {
+                        tracing::info!(
+                            "NHI overpermission: {:?} — {}",
+                            finding.finding_type,
+                            finding.description,
+                        );
+                    }
+                }
+
+                // Goal drift detection — track tool usage divergence.
+                {
+                    let drifts = state.goal_drift.record_and_check(&tool_name);
+                    for drift in &drifts {
+                        tracing::warn!(
+                            "SECURITY: Goal drift detected: {:?} (confidence {})",
+                            drift.drift_type,
+                            drift.confidence,
+                        );
+                    }
+                }
+
+                // A2A message integrity — check for replay/spoofing if A2A metadata present.
+                if let Some(meta) = msg.pointer("/params/_meta") {
+                    if let Some(msg_id) = meta.get("message_id").and_then(|v| v.as_str()) {
+                        let claimed = meta
+                            .get("sender_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let authenticated = state.agent_id.as_deref();
+                        let ts = meta.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let seq = meta.get("sequence").and_then(|v| v.as_u64());
+                        let issues = state.a2a_integrity.verify_message(
+                            msg_id,
+                            claimed,
+                            authenticated,
+                            ts,
+                            seq,
+                        );
+                        for issue in &issues {
+                            tracing::warn!(
+                                "SECURITY: A2A integrity issue: {:?} — {}",
+                                issue.finding_type,
+                                issue.description,
+                            );
+                        }
                     }
                 }
 

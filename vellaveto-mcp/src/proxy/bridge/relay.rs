@@ -3214,6 +3214,27 @@ impl ProxyBridge {
                     }
                 }
 
+                // Agent behavioral baseline — detect deviations from learned patterns.
+                {
+                    let agent_id = state.agent_id.as_deref().unwrap_or("anonymous");
+                    let sink = if let Some(ref cfg) = self.sink_classification_config {
+                        cfg.resolve_sink_class(&tool_name)
+                            .unwrap_or(vellaveto_types::provenance::SinkClass::ReadOnly)
+                    } else {
+                        vellaveto_types::provenance::SinkClass::ReadOnly
+                    };
+                    if let Ok(mut tracker) = self.agent_baseline.lock() {
+                        let deviations = tracker.record_and_check(agent_id, &tool_name, sink);
+                        for d in &deviations {
+                            tracing::warn!(
+                                "SECURITY: Agent baseline deviation: {:?} (confidence {})",
+                                d.deviation_type,
+                                d.confidence,
+                            );
+                        }
+                    }
+                }
+
                 // Goal drift detection — track tool usage divergence.
                 {
                     let drifts = state.goal_drift.record_and_check(&tool_name);

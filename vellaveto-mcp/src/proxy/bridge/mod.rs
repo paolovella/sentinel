@@ -119,6 +119,9 @@ pub struct ProxyBridge {
     /// Phase 2: Server reputation tracker.
     reputation_tracker: Option<std::sync::Mutex<crate::reputation::ReputationTracker>>,
 
+    /// Agent behavioral baseline tracker (cross-session).
+    agent_baseline: std::sync::Mutex<vellaveto_engine::agent_baseline::AgentBaselineTracker>,
+
     /// Phase 6: Source trust config for auto-tainting.
     source_trust_config: Option<vellaveto_config::channel_separation::SourceTrustConfig>,
 
@@ -324,6 +327,9 @@ impl ProxyBridge {
             tool_quota_tracker: None,
             secret_substitution: None,
             reputation_tracker: None,
+            agent_baseline: std::sync::Mutex::new(
+                vellaveto_engine::agent_baseline::AgentBaselineTracker::new(10),
+            ),
             source_trust_config: None,
             sink_classification_config: None,
             intent_scope_config: None,

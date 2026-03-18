@@ -750,7 +750,6 @@ pub(super) struct RelayState {
     /// STAC: Cumulative harm tracker for tool chain composition attacks.
     cumulative_harm: vellaveto_engine::cumulative_harm::CumulativeHarmTracker,
     /// Phase 3: Delegation tracker — multi-agent chain control.
-    #[allow(dead_code)]
     delegation: vellaveto_engine::delegation::DelegationTracker,
     /// Denial-of-wallet tracker — rate spikes, recursive loops, token exhaustion.
     dow_tracker: vellaveto_engine::denial_of_wallet::DoWTracker,
@@ -3272,6 +3271,38 @@ impl ProxyBridge {
                                 "SECURITY: A2A integrity issue: {:?} — {}",
                                 issue.finding_type,
                                 issue.description,
+                            );
+                        }
+                    }
+                }
+
+                // Delegation chain tracking — check depth, cycles, trust escalation.
+                if let Some(delegation_meta) = msg.pointer("/params/_meta/delegation") {
+                    let source = delegation_meta
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let target = delegation_meta
+                        .get("target")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let link = vellaveto_engine::delegation::DelegationLink {
+                        source: source.to_string(),
+                        target: target.to_string(),
+                        source_trust: vellaveto_types::TrustTier::Unknown,
+                        target_trust: vellaveto_types::TrustTier::Unknown,
+                        tool: tool_name.clone(),
+                    };
+                    let verdict = state.delegation.check_delegation(&state.session_id, &link);
+                    match &verdict {
+                        vellaveto_engine::delegation::DelegationVerdict::Allowed => {
+                            state.delegation.record_delegation(&state.session_id, link);
+                        }
+                        other => {
+                            tracing::warn!(
+                                "SECURITY: Delegation denied for tool '{}': {:?}",
+                                tool_name,
+                                other,
                             );
                         }
                     }

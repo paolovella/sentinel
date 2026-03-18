@@ -480,11 +480,10 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         let pv = &versions[idx];
 
         // Check approval requirements.
-        // NOTE: auto_approve_roles is NOT checked here because the caller's
-        // role is not available at this layer. The promote endpoint is admin-only,
-        // but that's a weaker guarantee than role-specific auto-approval.
-        // When role-based auto-approval is implemented, the caller's role
-        // should be passed as a parameter and checked against auto_approve_roles.
+        // NOTE: auto_approve_roles is parsed and validated in PolicyLifecycleConfig
+        // but requires RBAC role context at the route layer to enforce. The promote
+        // endpoint is admin-only (RBAC gate), which provides a baseline guarantee.
+        // Full role-based auto-approval requires passing caller_role through promote_version.
         if self.config.required_approvals > 0
             && (pv.approvals.len() as u32) < self.config.required_approvals
         {

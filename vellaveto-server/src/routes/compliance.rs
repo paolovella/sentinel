@@ -1150,7 +1150,19 @@ pub async fn fria_export(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let snapshot = state.policy_state.load();
     let policy_count = snapshot.policies.len();
-    let approval_tool_count = 0_usize; // TODO: count RequireApproval policies
+    // Count policies that can produce RequireApproval verdicts.
+    // These are Conditional policies with "require_approval" on_match actions.
+    let approval_tool_count = snapshot
+        .policies
+        .iter()
+        .filter(|p| {
+            if let vellaveto_types::PolicyType::Conditional { ref conditions } = p.policy_type {
+                conditions.to_string().contains("require_approval")
+            } else {
+                false
+            }
+        })
+        .count();
 
     let export = vellaveto_audit::fria::build_fria_export(
         &format!("vellaveto-v{}", env!("CARGO_PKG_VERSION")),

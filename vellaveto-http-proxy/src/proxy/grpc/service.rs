@@ -4463,7 +4463,6 @@ impl McpGrpcService {
     /// from the session, matching the HTTP handler's `build_evaluation_context`
     /// (call_chain.rs:82). Without these, context-aware policies that check
     /// agent identity or call chain depth are ineffective on gRPC.
-    #[allow(dead_code)] // Infrastructure for gRPC feature gate — used by future handlers
     fn build_evaluation_context(&self, session_id: &str) -> EvaluationContext {
         let mut ctx = EvaluationContext::default();
 

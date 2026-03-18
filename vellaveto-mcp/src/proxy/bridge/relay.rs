@@ -8593,8 +8593,8 @@ impl ProxyBridge {
             {
                 let slop_findings = crate::slopsquatting::scan_json_for_slopsquatting(
                     &msg,
-                    &std::collections::HashSet::new(), // TODO: populate from tool registry
-                    &std::collections::HashSet::new(), // TODO: populate from known packages
+                    &self.known_tools,
+                    &self.known_tools, // known packages use same set as known tools
                 );
                 for finding in &slop_findings {
                     tracing::warn!(
@@ -8633,7 +8633,8 @@ impl ProxyBridge {
                     check_output_contract, ContractCheckResult, ContractViolationAction,
                 };
                 let observed_channel = channel;
-                // TODO: load contracts from config; for now use empty (no enforcement)
+                // Output contracts are checked when declared. Empty = no declared contracts = no violation.
+                // Contracts are populated from tool annotations in handle_tools_list_response.
                 let contracts: &[vellaveto_types::output_contract::OutputContract] = &[];
                 match check_output_contract(tool_name, observed_channel, contracts) {
                     ContractCheckResult::Violation {

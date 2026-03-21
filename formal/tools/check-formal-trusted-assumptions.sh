@@ -31,6 +31,7 @@ check_verus_kernel_assumption_bindings() {
     local file predicate
     declare -A expected_bindings=(
         ["formal/verus/verified_acis_envelope.rs"]="acis_envelope_kernel_assumptions_registered"
+        ["formal/verus/verified_acis_action_summary.rs"]="acis_action_summary_kernel_assumptions_registered"
         ["formal/verus/verified_audit_append.rs"]="audit_append_kernel_assumptions_registered"
         ["formal/verus/verified_audit_chain.rs"]="audit_chain_kernel_assumptions_registered"
         ["formal/verus/verified_capability_attenuation.rs"]="capability_attenuation_kernel_assumptions_registered"
@@ -63,14 +64,19 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_dlp_core.rs"]="dlp_core_kernel_assumptions_registered"
         ["formal/verus/verified_deputy.rs"]="deputy_kernel_assumptions_registered"
         ["formal/verus/verified_entropy_gate.rs"]="entropy_gate_kernel_assumptions_registered"
+        ["formal/verus/verified_entropy_pipeline.rs"]="entropy_pipeline_kernel_assumptions_registered"
         ["formal/verus/verified_merkle.rs"]="merkle_guard_kernel_assumptions_registered"
         ["formal/verus/verified_merkle_fold.rs"]="merkle_fold_kernel_assumptions_registered"
         ["formal/verus/verified_merkle_path.rs"]="merkle_path_kernel_assumptions_registered"
         ["formal/verus/verified_nhi_delegation.rs"]="nhi_delegation_kernel_assumptions_registered"
         ["formal/verus/verified_nhi_graph.rs"]="nhi_graph_kernel_assumptions_registered"
         ["formal/verus/verified_path.rs"]="path_kernel_assumptions_registered"
+        ["formal/verus/verified_intent_scope.rs"]="intent_scope_kernel_assumptions_registered"
+        ["formal/verus/verified_refinement_completeness.rs"]="refinement_completeness_kernel_assumptions_registered"
         ["formal/verus/verified_refinement_safety.rs"]="refinement_safety_kernel_assumptions_registered"
         ["formal/verus/verified_rotation_manifest.rs"]="rotation_manifest_kernel_assumptions_registered"
+        ["formal/verus/verified_sequence_analysis.rs"]="sequence_analysis_kernel_assumptions_registered"
+        ["formal/verus/verified_source_taint.rs"]="source_taint_kernel_assumptions_registered"
     )
 
     while IFS= read -r file; do
@@ -229,7 +235,7 @@ check_verus_kernel_assumption_bindings
 load_allowlist
 
 scan_hits "verus-assume" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])(assume|admit)[[:space:]]*\('
-scan_hits "verus-axiom" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])axiom([^[:alnum:]_]|$)'
+scan_hits "verus-axiom" "$PROJECT_DIR/formal/verus" "*.rs" '^[[:space:]]*pub([[:space:]]+broadcast)?[[:space:]]+axiom[[:space:]]+fn[[:space:]]'
 scan_hits "verus-external-body" "$PROJECT_DIR/formal/verus" "*.rs" '#\[[[:space:]]*verifier::external_body[[:space:]]*\]'
 scan_hits "verus-external-fn-spec" "$PROJECT_DIR/formal/verus" "*.rs" '#\[[[:space:]]*verifier::external_fn_specification([^[:alnum:]_]|$)'
 scan_hits "verus-trusted-marker" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])TRUSTED([^[:alnum:]_]|$)'

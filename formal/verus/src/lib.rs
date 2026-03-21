@@ -1,5 +1,7 @@
 #[path = "../verified_acis_envelope.rs"]
 mod verified_acis_envelope;
+#[path = "../verified_acis_action_summary.rs"]
+mod verified_acis_action_summary;
 #[path = "../verified_audit_append.rs"]
 mod verified_audit_append;
 #[path = "../verified_audit_chain.rs"]
@@ -52,6 +54,8 @@ mod verified_deputy_handoff;
 mod verified_dlp_core;
 #[path = "../verified_entropy_gate.rs"]
 mod verified_entropy_gate;
+#[path = "../verified_entropy_pipeline.rs"]
+mod verified_entropy_pipeline;
 #[path = "../verified_evaluation_context_projection.rs"]
 mod verified_evaluation_context_projection;
 #[path = "../verified_presented_approval_id.rs"]
@@ -76,7 +80,15 @@ mod verified_nhi_delegation;
 mod verified_nhi_graph;
 #[path = "../verified_path.rs"]
 mod verified_path;
+#[path = "../verified_intent_scope.rs"]
+mod verified_intent_scope;
+#[path = "../verified_refinement_completeness.rs"]
+mod verified_refinement_completeness;
 #[path = "../verified_refinement_safety.rs"]
 mod verified_refinement_safety;
 #[path = "../verified_rotation_manifest.rs"]
 mod verified_rotation_manifest;
+#[path = "../verified_sequence_analysis.rs"]
+mod verified_sequence_analysis;
+#[path = "../verified_source_taint.rs"]
+mod verified_source_taint;

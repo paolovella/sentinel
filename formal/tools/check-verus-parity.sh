@@ -213,56 +213,16 @@ check_symbol_parity \
     'vstd[[:space:]]*=[[:space:]]*"=0\.0\.0-2026-03-01-0109"' \
     "$VERUS_LIB" \
     'verified_core\.rs'
-for module in \
-    verified_acis_envelope \
-    verified_audit_append \
-    verified_audit_chain \
-    verified_merkle \
-    verified_merkle_fold \
-    verified_merkle_path \
-    verified_rotation_manifest \
-    verified_capability_attenuation \
-    verified_capability_delegation_context \
-    verified_bridge_principal \
-    verified_capability_coverage \
-    verified_capability_domain \
-    verified_delegation_projection \
-    verified_deputy_handoff \
-    verified_evaluation_context_projection \
-    verified_presented_approval_id \
-    verified_server_approval_id \
-    verified_approval_consumption \
-    verified_approval_scope \
-    verified_transport_context \
-    verified_capability_context \
-    verified_context_delegation \
-    verified_capability_glob \
-    verified_capability_glob_subset \
-    verified_capability_grant \
-    verified_capability_identity \
-    verified_capability_literal \
-    verified_capability_pattern \
-    verified_capability_path \
-    verified_capability_selection \
-    verified_capability_verification \
-    verified_constraint_eval \
-    verified_cross_call_dlp \
-    verified_core \
-    verified_deputy \
-    verified_entropy_gate \
-    verified_nhi_delegation \
-    verified_nhi_graph \
-    verified_dlp_core \
-    verified_path \
-    verified_refinement_safety
-do
+while IFS= read -r verus_file; do
+    module="${verus_file##*/}"
+    module="${module%.rs}"
     check_symbol_parity \
         "$module is wired into the cargo-verus shim" \
         "$VERUS_LIB" \
         "${module}\\.rs" \
-        "$PROJECT_DIR/formal/verus/${module}.rs" \
+        "$PROJECT_DIR/$verus_file" \
         'verus!'
-done
+done < <("$PROJECT_DIR/formal/tools/verify-verus.sh" --list)
 echo ""
 
 echo "--- Core Verdict ---"

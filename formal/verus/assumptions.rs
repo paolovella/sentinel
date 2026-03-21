@@ -93,6 +93,10 @@ pub open spec fn entropy_gate_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn entropy_pipeline_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn dlp_core_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
@@ -218,6 +222,26 @@ pub open spec fn nhi_graph_kernel_assumptions_registered() -> bool {
 }
 
 pub open spec fn refinement_safety_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn refinement_completeness_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn acis_action_summary_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn source_taint_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn intent_scope_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn sequence_analysis_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 

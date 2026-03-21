@@ -185,15 +185,16 @@ formal: formal-trusted-assumptions formal-tla formal-alloy formal-lean formal-co
 verify-all: formal ## Run the full local formal verification mesh
 
 .PHONY: formal-tla
-formal-tla: ## Run TLA+ model checking (9 specs, requires Java 11+ and tla2tools.jar)
-	@for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain TrustContainment; do \
-		cfg="formal/tla/$${spec}.cfg"; \
+formal-tla: ## Run TLA+ model checking (all local specs, requires Java 11+ and tla2tools.jar)
+	@for cfg in formal/tla/*.cfg; do \
+		spec="$${cfg##*/}"; \
+		spec="$${spec%.cfg}"; \
 		mc="formal/tla/MC_$${spec}.tla"; \
 		main="formal/tla/$${spec}.tla"; \
 		if [ -f "$$mc" ]; then \
 			echo "TLA+ $$spec (via MC_$${spec})..."; \
 			cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg MC_$${spec}.tla && cd ../..; \
-		elif [ -f "$$cfg" ] && [ -f "$$main" ]; then \
+		elif [ -f "$$main" ]; then \
 			echo "TLA+ $$spec (direct)..."; \
 			cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg $${spec}.tla && cd ../..; \
 		fi; \
@@ -213,7 +214,7 @@ formal-coq: ## Run Coq type checker (8 files, 45 theorems)
 	cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile && make -f CoqMakefile
 
 .PHONY: formal-kani
-formal-kani: ## Run Kani bounded model checking (90 harnesses)
+formal-kani: ## Run Kani bounded model checking (all local harnesses; large local artifact footprint)
 	cd formal/kani && cargo kani
 
 .PHONY: formal-trusted-assumptions

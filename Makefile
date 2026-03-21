@@ -215,7 +215,7 @@ formal-coq: ## Run Coq type checker (8 files, 45 theorems)
 
 .PHONY: formal-kani
 formal-kani: ## Run Kani bounded model checking (all local harnesses; large local artifact footprint)
-	cd formal/kani && cargo kani
+	cd formal/kani && CARGO_TARGET_DIR="$${CARGO_TARGET_DIR:-/tmp/vellaveto-formal-kani-target}" cargo kani
 
 .PHONY: formal-trusted-assumptions
 formal-trusted-assumptions: ## Verify the trusted-assumption inventory matches the allowlist
@@ -230,6 +230,14 @@ formal-verus: ## Run Verus parity checks and canonical verification
 formal-docker: ## Run formal verification in Docker (reproducible, all tools pinned)
 	docker build -t vellaveto-formal formal/
 	docker run --rm -v "$(CURDIR):/workspace" vellaveto-formal
+
+.PHONY: formal-clean-local
+formal-clean-local: ## Remove repo-local and default tmp-backed formal artifacts
+	rm -rf formal/kani/target
+	rm -rf formal/kani/states
+	rm -rf formal/tla/states
+	rm -rf /tmp/vellaveto-formal-kani-target
+	rm -rf /tmp/vellaveto-formal-verus-target
 
 .PHONY: clean
 clean: ## Clean build artifacts

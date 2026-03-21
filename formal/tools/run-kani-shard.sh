@@ -32,17 +32,42 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 KANI_DIR="$PROJECT_DIR/formal/kani"
-LIST_FILE="$KANI_DIR/kani-list.json"
+KANI_MANIFEST="$KANI_DIR/Cargo.toml"
+KANI_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/vellaveto-formal-kani-target}"
+LIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vellaveto-kani-list.XXXXXX")"
+LIST_FILE="$LIST_DIR/kani-list.json"
+GENERATED_LIST_FILE="$KANI_DIR/kani-list.json"
+LIST_BACKUP_FILE="$LIST_DIR/kani-list.original"
+RESTORE_LIST_FILE=0
 
 cleanup() {
-    rm -f "$LIST_FILE"
+    if [ "$RESTORE_LIST_FILE" -eq 1 ] && [ -f "$LIST_BACKUP_FILE" ]; then
+        mv "$LIST_BACKUP_FILE" "$GENERATED_LIST_FILE"
+    else
+        rm -f "$GENERATED_LIST_FILE"
+    fi
+    rm -rf "$LIST_DIR"
 }
 
 trap cleanup EXIT
 
+export CARGO_TARGET_DIR="$KANI_TARGET_DIR"
+
+if [ -f "$GENERATED_LIST_FILE" ]; then
+    cp "$GENERATED_LIST_FILE" "$LIST_BACKUP_FILE"
+    RESTORE_LIST_FILE=1
+fi
+
 cd "$KANI_DIR"
 
 cargo kani list --format json >/dev/null
+
+if [ ! -f "$GENERATED_LIST_FILE" ]; then
+    echo "No Kani list file generated at $GENERATED_LIST_FILE" >&2
+    exit 1
+fi
+
+cp "$GENERATED_LIST_FILE" "$LIST_FILE"
 
 mapfile -t ALL_HARNESSES < <(
     if command -v rg >/dev/null 2>&1; then
@@ -83,5 +108,5 @@ fi
 
 for harness in "${SELECTED_HARNESSES[@]}"; do
     echo "Verifying harness: $harness"
-    cargo kani "${KANI_ARGS[@]}" --harness "$harness"
+    cargo kani --manifest-path "$KANI_MANIFEST" "${KANI_ARGS[@]}" --harness "$harness"
 done

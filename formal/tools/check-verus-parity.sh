@@ -201,6 +201,20 @@ PROD_DLP="$PROJECT_DIR/vellaveto-mcp/src/inspection/verified_dlp_core.rs"
 VERUS_DLP="$PROJECT_DIR/formal/verus/verified_dlp_core.rs"
 PROD_PATH="$PROJECT_DIR/vellaveto-engine/src/path.rs"
 VERUS_PATH="$PROJECT_DIR/formal/verus/verified_path.rs"
+PROD_ACIS_TYPES="$PROJECT_DIR/vellaveto-types/src/acis.rs"
+PROD_ACIS_ENGINE="$PROJECT_DIR/vellaveto-engine/src/acis.rs"
+VERUS_ACIS_ACTION_SUMMARY="$PROJECT_DIR/formal/verus/verified_acis_action_summary.rs"
+PROD_PROVENANCE="$PROJECT_DIR/vellaveto-types/src/provenance.rs"
+VERUS_SOURCE_TAINT="$PROJECT_DIR/formal/verus/verified_source_taint.rs"
+PROD_CHANNEL_SEPARATION="$PROJECT_DIR/vellaveto-config/src/channel_separation.rs"
+VERUS_INTENT_SCOPE="$PROJECT_DIR/formal/verus/verified_intent_scope.rs"
+PROD_SEQUENCE="$PROJECT_DIR/vellaveto-engine/src/sequence.rs"
+PROD_SEQUENCE_RELAY="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/relay.rs"
+VERUS_SEQUENCE_ANALYSIS="$PROJECT_DIR/formal/verus/verified_sequence_analysis.rs"
+PROD_TRACED="$PROJECT_DIR/vellaveto-engine/src/traced.rs"
+PROD_REFINEMENT_WITNESS="$PROJECT_DIR/vellaveto-engine/tests/refinement_trace.rs"
+VERUS_REFINEMENT_COMPLETENESS="$PROJECT_DIR/formal/verus/verified_refinement_completeness.rs"
+VERUS_ENTROPY_PIPELINE="$PROJECT_DIR/formal/verus/verified_entropy_pipeline.rs"
 
 echo "--- Cargo Verus Entrypoint ---"
 check_file_pair \
@@ -1444,6 +1458,202 @@ check_symbol_parity \
     'normalize_decoded_path\(current\.as_ref\(\)\)' \
     "$VERUS_PATH" \
     'pub[[:space:]]+fn[[:space:]]+normalize_path_bytes'
+echo ""
+
+echo "--- Refinement Completeness Kernel ---"
+check_file_pair \
+    "verified_refinement_completeness.rs ↔ vellaveto-engine/tests/refinement_trace.rs" \
+    "$PROD_REFINEMENT_WITNESS" \
+    "$VERUS_REFINEMENT_COMPLETENESS"
+check_symbol_parity \
+    "traced evaluator exists and Verus models non-empty start" \
+    "$PROD_TRACED" \
+    'pub[[:space:]]+fn[[:space:]]+evaluate_action_traced' \
+    "$VERUS_REFINEMENT_COMPLETENESS" \
+    'pub[[:space:]]+fn[[:space:]]+evaluate_start_nonempty'
+check_symbol_parity \
+    "refinement witness covers MatchMiss and Verus models miss advancement" \
+    "$PROD_REFINEMENT_WITNESS" \
+    'MatchMiss' \
+    "$VERUS_REFINEMENT_COMPLETENESS" \
+    'pub[[:space:]]+fn[[:space:]]+evaluate_match_miss'
+check_symbol_parity \
+    "refinement witness covers MatchHit and Verus models hit transition" \
+    "$PROD_REFINEMENT_WITNESS" \
+    'MatchHit' \
+    "$VERUS_REFINEMENT_COMPLETENESS" \
+    'pub[[:space:]]+fn[[:space:]]+evaluate_match_hit'
+check_symbol_parity \
+    "refinement witness covers ApplyAllow and Verus models allow completion" \
+    "$PROD_REFINEMENT_WITNESS" \
+    'ApplyAllow' \
+    "$VERUS_REFINEMENT_COMPLETENESS" \
+    'spec_apply_allow_verdict'
+check_symbol_parity \
+    "refinement witness covers ApplyRequireApproval and Verus models approval completion" \
+    "$PROD_REFINEMENT_WITNESS" \
+    'ApplyRequireApproval' \
+    "$VERUS_REFINEMENT_COMPLETENESS" \
+    'spec_apply_require_approval_verdict'
+check_symbol_parity \
+    "refinement witness covers ApplyContinue and Verus models continue transition" \
+    "$PROD_REFINEMENT_WITNESS" \
+    'ApplyContinue' \
+    "$VERUS_REFINEMENT_COMPLETENESS" \
+    'spec_continue_to_next'
+echo ""
+
+echo "--- ACIS Action Summary Kernel ---"
+check_file_pair \
+    "verified_acis_action_summary.rs ↔ vellaveto-types/src/acis.rs" \
+    "$PROD_ACIS_TYPES" \
+    "$VERUS_ACIS_ACTION_SUMMARY"
+check_file_pair \
+    "verified_acis_action_summary.rs ↔ vellaveto-engine/src/acis.rs" \
+    "$PROD_ACIS_ENGINE" \
+    "$VERUS_ACIS_ACTION_SUMMARY"
+check_symbol_parity \
+    "AcisActionSummary exists in production and Verus model" \
+    "$PROD_ACIS_TYPES" \
+    'pub[[:space:]]+struct[[:space:]]+AcisActionSummary' \
+    "$VERUS_ACIS_ACTION_SUMMARY" \
+    'pub[[:space:]]+struct[[:space:]]+SpecActionSummary'
+check_symbol_parity \
+    "production ACIS fingerprint helper exists and Verus models fingerprinting" \
+    "$PROD_ACIS_ENGINE" \
+    'pub[[:space:]]+fn[[:space:]]+compute_action_fingerprint' \
+    "$VERUS_ACIS_ACTION_SUMMARY" \
+    'pub[[:space:]]+uninterp[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_action_fingerprint'
+check_symbol_parity \
+    "ACIS target-count bound exists in production and Verus model" \
+    "$PROD_ACIS_TYPES" \
+    'const[[:space:]]+MAX_TARGET_COUNT:[[:space:]]+u32[[:space:]]*=' \
+    "$VERUS_ACIS_ACTION_SUMMARY" \
+    'pub[[:space:]]+const[[:space:]]+MAX_TARGET_COUNT:[[:space:]]+u32[[:space:]]*='
+check_symbol_parity \
+    "DecisionKind default deny exists in production and Verus model" \
+    "$PROD_ACIS_TYPES" \
+    'impl[[:space:]]+Default[[:space:]]+for[[:space:]]+DecisionKind' \
+    "$VERUS_ACIS_ACTION_SUMMARY" \
+    'lemma_decision_kind_default_is_deny|SpecDecisionKind::Deny'
+echo ""
+
+echo "--- Source Taint Kernel ---"
+check_file_pair \
+    "verified_source_taint.rs ↔ vellaveto-types/src/provenance.rs" \
+    "$PROD_PROVENANCE" \
+    "$VERUS_SOURCE_TAINT"
+check_symbol_parity \
+    "minimum_trust_tier_for_sink exists in production and Verus taint model" \
+    "$PROD_PROVENANCE" \
+    'pub[[:space:]]+const[[:space:]]+fn[[:space:]]+minimum_trust_tier_for_sink' \
+    "$VERUS_SOURCE_TAINT" \
+    'pub[[:space:]]+fn[[:space:]]+min_trust_for_sink'
+check_symbol_parity \
+    "TrustTier rank exists in production and Verus taint constants" \
+    "$PROD_PROVENANCE" \
+    'pub[[:space:]]+const[[:space:]]+fn[[:space:]]+rank\(self\)[[:space:]]*->[[:space:]]+u8' \
+    "$VERUS_SOURCE_TAINT" \
+    'pub[[:space:]]+const[[:space:]]+VERIFIED:[[:space:]]+u8[[:space:]]*=[[:space:]]*6;'
+check_symbol_parity \
+    "provenance flow gate exists in production and Verus taint model" \
+    "$PROD_PROVENANCE" \
+    'pub[[:space:]]+const[[:space:]]+fn[[:space:]]+can_flow_to' \
+    "$VERUS_SOURCE_TAINT" \
+    'spec_sink_accessible'
+echo ""
+
+echo "--- Intent Scope Kernel ---"
+check_file_pair \
+    "verified_intent_scope.rs ↔ vellaveto-config/src/channel_separation.rs" \
+    "$PROD_CHANNEL_SEPARATION" \
+    "$VERUS_INTENT_SCOPE"
+check_symbol_parity \
+    "IntentScopeConfig exists in production and Verus scope model" \
+    "$PROD_CHANNEL_SEPARATION" \
+    'pub[[:space:]]+struct[[:space:]]+IntentScopeConfig' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+struct[[:space:]]+ScopeState'
+check_symbol_parity \
+    "intent scope trust-floor restriction exists in production and Verus model" \
+    "$PROD_CHANNEL_SEPARATION" \
+    'pub[[:space:]]+fn[[:space:]]+restrict_to_trust_floor' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_restrict_scope'
+check_symbol_parity \
+    "intent scope tool-budget narrowing exists in production and Verus model" \
+    "$PROD_CHANNEL_SEPARATION" \
+    'max_distinct_tools:[[:space:]]+self\.max_distinct_tools\.map\(\|n\|[[:space:]]*n\.min\(3\)\)' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+fn[[:space:]]+check_tool_budget'
+check_symbol_parity \
+    "intent scope expansion lock exists in production and Verus model" \
+    "$PROD_CHANNEL_SEPARATION" \
+    'allow_scope_expansion:[[:space:]]+false' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+fn[[:space:]]+attempt_scope_expansion'
+echo ""
+
+echo "--- Sequence Analysis Kernel ---"
+check_file_pair \
+    "verified_sequence_analysis.rs ↔ vellaveto-engine/src/sequence.rs" \
+    "$PROD_SEQUENCE" \
+    "$VERUS_SEQUENCE_ANALYSIS"
+check_symbol_parity \
+    "sequence warmup configuration exists in production and Verus model" \
+    "$PROD_SEQUENCE" \
+    'warmup_calls:[[:space:]]+u32' \
+    "$VERUS_SEQUENCE_ANALYSIS" \
+    'pub[[:space:]]+const[[:space:]]+WARMUP_CALLS:[[:space:]]+u32[[:space:]]*=[[:space:]]*3;'
+check_symbol_parity \
+    "sequence new-tool budget exists in production and Verus model" \
+    "$PROD_SEQUENCE" \
+    'max_new_tools_after_taint:[[:space:]]+u32' \
+    "$VERUS_SEQUENCE_ANALYSIS" \
+    'pub[[:space:]]+const[[:space:]]+MAX_NEW_TOOLS:[[:space:]]+u32[[:space:]]*=[[:space:]]*2;'
+check_symbol_parity \
+    "sequence tracker record path exists in production and Verus models a state step" \
+    "$PROD_SEQUENCE" \
+    'pub[[:space:]]+fn[[:space:]]+record_and_analyze' \
+    "$VERUS_SEQUENCE_ANALYSIS" \
+    'pub[[:space:]]+fn[[:space:]]+sequence_step'
+check_symbol_parity \
+    "production sequence warmup gate exists and Verus models warmup completion" \
+    "$PROD_SEQUENCE" \
+    'if[[:space:]]*\([[:space:]]*self\.call_log\.len\(\)[[:space:]]+as[[:space:]]+u32[[:space:]]*\)[[:space:]]*<[[:space:]]*self\.config\.warmup_calls' \
+    "$VERUS_SEQUENCE_ANALYSIS" \
+    'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_warmup_complete'
+check_symbol_parity \
+    "relay high-confidence sequence gate exists and Verus models the restriction threshold" \
+    "$PROD_SEQUENCE_RELAY" \
+    'state\.sequence\.max_confidence\(\)[[:space:]]*>?=[[:space:]]*70' \
+    "$VERUS_SEQUENCE_ANALYSIS" \
+    'pub[[:space:]]+const[[:space:]]+RESTRICTION_THRESHOLD:[[:space:]]+u8[[:space:]]*=[[:space:]]*70;'
+check_symbol_parity \
+    "relay tightens scope after sequence anomalies and Verus models restriction decisions" \
+    "$PROD_SEQUENCE_RELAY" \
+    'restrict_to_trust_floor\(TrustTier::Untrusted\)' \
+    "$VERUS_SEQUENCE_ANALYSIS" \
+    'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_should_restrict'
+echo ""
+
+echo "--- Entropy Pipeline Kernel ---"
+check_file_pair \
+    "verified_entropy_pipeline.rs ↔ vellaveto-engine/src/verified_entropy_gate.rs" \
+    "$PROD_ENTROPY" \
+    "$VERUS_ENTROPY_PIPELINE"
+check_symbol_parity \
+    "production entropy severity helper exists and Verus models pipeline severity" \
+    "$PROD_ENTROPY" \
+    'entropy_alert_severity' \
+    "$VERUS_ENTROPY_PIPELINE" \
+    'pub[[:space:]]+fn[[:space:]]+alert_severity'
+check_symbol_parity \
+    "production entropy alert gate exists and Verus models pipeline alerting" \
+    "$PROD_ENTROPY" \
+    'should_alert_on_high_entropy_count' \
+    "$VERUS_ENTROPY_PIPELINE" \
+    'pub[[:space:]]+fn[[:space:]]+should_alert'
 echo ""
 
 if [ "$DRIFT_FOUND" -ne 0 ]; then

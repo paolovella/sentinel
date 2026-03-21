@@ -181,6 +181,17 @@ bench-quick: ## Run quick benchmark sanity check
 .PHONY: formal
 formal: formal-trusted-assumptions formal-tla formal-alloy formal-lean formal-coq formal-kani formal-verus ## Run all formal verification tools
 
+.PHONY: formal-local
+formal-local: ## Run storage-light local formal coverage checks
+	bash formal/tools/check-formal-trusted-assumptions.sh
+	bash formal/tools/check-verus-parity.sh
+	RUN_KANI_PARITY_TESTS=0 KANI_PARITY_TARGET_DIR="$${KANI_PARITY_TARGET_DIR:-/tmp/vellaveto-formal-kani-parity-target}" bash formal/tools/check-kani-parity.sh
+	bash formal/tools/check-formal-e2e-coverage.sh
+
+.PHONY: formal-e2e-coverage
+formal-e2e-coverage: ## Verify local end-to-end formal coverage anchors
+	bash formal/tools/check-formal-e2e-coverage.sh
+
 .PHONY: verify-all
 verify-all: formal ## Run the full local formal verification mesh
 
@@ -237,6 +248,7 @@ formal-clean-local: ## Remove repo-local and default tmp-backed formal artifacts
 	rm -rf formal/kani/states
 	rm -rf formal/tla/states
 	rm -rf /tmp/vellaveto-formal-kani-target
+	rm -rf /tmp/vellaveto-formal-kani-parity-target
 	rm -rf /tmp/vellaveto-formal-verus-target
 
 .PHONY: clean

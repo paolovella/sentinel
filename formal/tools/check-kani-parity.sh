@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 KANI_DIR="$PROJECT_DIR/formal/kani/src"
 KANI_LIB="$KANI_DIR/lib.rs"
+KANI_PARITY_TARGET_DIR="${KANI_PARITY_TARGET_DIR:-${CARGO_TARGET_DIR:-/tmp/vellaveto-formal-kani-parity-target}}"
 DRIFT_FOUND=0
 
 echo "=== Kani Extracted Code Parity Check ==="
@@ -102,14 +103,14 @@ echo "--- Verdict Core (V1-V8) ---"
 PROD_CORE="$PROJECT_DIR/vellaveto-engine/src/verified_core.rs"
 KANI_CORE="$KANI_DIR/verified_core.rs"
 
-if [ -f "$PROD_CORE" ] && [ -f "$KANI_CORE" ]; then
+    if [ -f "$PROD_CORE" ] && [ -f "$KANI_CORE" ]; then
     for fn in "compute_single_verdict" "compute_verdict"; do
         check_symbol_parity "$fn exists in both files" "$PROD_CORE" "pub[[:space:]]+fn[[:space:]]+$fn" "$KANI_CORE" "pub[[:space:]]+fn[[:space:]]+$fn"
     done
 
     if [ "${RUN_KANI_PARITY_TESTS:-1}" = "1" ]; then
         echo "  Running filtered parity tests..."
-        if (cd "$PROJECT_DIR/formal/kani" && cargo test --lib -- parity 2>/dev/null | grep -q "test result: ok"); then
+        if (cd "$PROJECT_DIR/formal/kani" && CARGO_TARGET_DIR="$KANI_PARITY_TARGET_DIR" cargo test --lib -- parity 2>/dev/null | grep -q "test result: ok"); then
             pass "Kani parity tests pass"
         else
             fail "Kani parity tests FAILED"
@@ -180,6 +181,11 @@ PROD_DOMAIN="$PROJECT_DIR/vellaveto-engine/src/domain.rs"
 PROD_UNICODE="$PROJECT_DIR/vellaveto-types/src/unicode.rs"
 PROD_SANITIZER="$PROJECT_DIR/vellaveto-mcp-shield/src/sanitizer.rs"
 PROD_INJECTION="$PROJECT_DIR/vellaveto-mcp/src/inspection/injection.rs"
+PROD_ENTROPY_GATE="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
+PROD_COLLUSION_DETECTION="$PROJECT_DIR/vellaveto-engine/src/collusion.rs"
+PROD_CREDENTIAL_VAULT="$PROJECT_DIR/vellaveto-mcp-shield/src/credential_vault.rs"
+PROD_TLS="$PROJECT_DIR/vellaveto-tls/src/lib.rs"
+PROD_MERKLE="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
 
 check_symbol_parity "cacheability predicate" "$PROD_CACHE" "fn[[:space:]]+is_cacheable_context" "$KANI_DIR/cache.rs" "pub[[:space:]]+fn[[:space:]]+is_cacheable_context"
 check_symbol_parity "capability action coverage" "$PROD_CAPABILITY" "fn[[:space:]]+grant_covers_action" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+grant_covers_action"
@@ -214,6 +220,21 @@ check_symbol_parity "shield sanitizer reverse pass" "$PROD_SANITIZER" "pub[[:spa
 check_symbol_parity "temporal window extraction source" "$PROD_COLLUSION" "pub[[:space:]]+fn[[:space:]]+compute_entropy" "$KANI_DIR/temporal_window.rs" "pub[[:space:]]+fn[[:space:]]+expire_events"
 check_symbol_parity "circuit-breaker state machine extraction source" "$PROD_CASCADING" "pub[[:space:]]+fn[[:space:]]+record_pipeline_error" "$KANI_DIR/cascading_fsm.rs" "pub[[:space:]]+fn[[:space:]]+should_break"
 check_symbol_parity "injection decode pipeline" "$PROD_INJECTION" "pub[[:space:]]+fn[[:space:]]+inspect_for_injection" "$KANI_DIR/injection_pipeline.rs" "pub[[:space:]]+fn[[:space:]]+run_decode_pipeline"
+check_symbol_parity "entropy fixed-point wrapper" "$PROD_ENTROPY_GATE" "fn[[:space:]]+entropy_fixed_point" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_fixed_point"
+check_symbol_parity "entropy threshold floor helper" "$PROD_ENTROPY_GATE" "fn[[:space:]]+entropy_threshold_millibits" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_threshold_millibits"
+check_symbol_parity "entropy observation ceil helper" "$PROD_ENTROPY_GATE" "fn[[:space:]]+entropy_observation_millibits" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_observation_millibits"
+check_symbol_parity "collusion config validation" "$PROD_COLLUSION_DETECTION" "pub[[:space:]]+fn[[:space:]]+validate" "$KANI_DIR/collusion_detection.rs" "pub[[:space:]]+fn[[:space:]]+validate"
+check_symbol_parity "collusion tracked-agent capacity bound" "$PROD_COLLUSION_DETECTION" "const[[:space:]]+MAX_TRACKED_AGENTS:[[:space:]]+usize[[:space:]]*=[[:space:]]*10_000;" "$KANI_DIR/collusion_detection.rs" "pub[[:space:]]+const[[:space:]]+MAX_TRACKED_AGENTS:[[:space:]]+usize[[:space:]]*=[[:space:]]*10_000;"
+check_symbol_parity "collusion half-open denial window" "$PROD_COLLUSION_DETECTION" "ts >= window_start && ts < window_end" "$KANI_DIR/collusion_detection.rs" "ts >= window_start && ts < window_end"
+check_symbol_parity "sort bridge anchors engine policy sorting" "$PROD_ENGINE_LIB" "pub[[:space:]]+fn[[:space:]]+sort_policies" "$KANI_DIR/sort_bridge.rs" "sort_resolved_matches"
+check_symbol_parity "credential vault consumption path" "$PROD_CREDENTIAL_VAULT" "pub[[:space:]]+fn[[:space:]]+consume_credential" "$KANI_DIR/credential_vault.rs" "pub[[:space:]]+fn[[:space:]]+consume_credential"
+check_symbol_parity "credential vault consume-to-consumed transition" "$PROD_CREDENTIAL_VAULT" "pub[[:space:]]+fn[[:space:]]+mark_consumed" "$KANI_DIR/credential_vault.rs" "pub[[:space:]]+fn[[:space:]]+mark_consumed"
+check_symbol_parity "credential vault epoch expiry" "$PROD_CREDENTIAL_VAULT" "pub[[:space:]]+fn[[:space:]]+expire_old_epochs" "$KANI_DIR/credential_vault.rs" "pub[[:space:]]+fn[[:space:]]+expire_old_epochs"
+check_symbol_parity "TLS hex-digit parser" "$PROD_TLS" "fn[[:space:]]+hex_digit" "$KANI_DIR/tls_spiffe.rs" "pub[[:space:]]+fn[[:space:]]+hex_digit"
+check_symbol_parity "TLS SPIFFE percent decoder" "$PROD_TLS" "fn[[:space:]]+percent_decode_workload_path" "$KANI_DIR/tls_spiffe.rs" "pub[[:space:]]+fn[[:space:]]+percent_decode_workload_path"
+check_symbol_parity "TLS SPIFFE parser" "$PROD_TLS" "pub[[:space:]]+fn[[:space:]]+parse" "$KANI_DIR/tls_spiffe.rs" "pub[[:space:]]+fn[[:space:]]+parse"
+check_symbol_parity "Merkle leaf hashing" "$PROD_MERKLE" "pub[[:space:]]+fn[[:space:]]+hash_leaf" "$KANI_DIR/merkle_sanity.rs" "pub[[:space:]]+fn[[:space:]]+merkle_leaf_hash"
+check_symbol_parity "Merkle internal hashing" "$PROD_MERKLE" "pub[[:space:]]+fn[[:space:]]+hash_internal" "$KANI_DIR/merkle_sanity.rs" "pub[[:space:]]+fn[[:space:]]+merkle_internal_hash"
 
 echo ""
 

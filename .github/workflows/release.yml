@@ -90,6 +90,7 @@ jobs:
 
       - name: unwrap/expect scanner
         run: |
+          # shellcheck disable=SC2016
           find vellaveto-*/src/ -name '*.rs' \
             -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' \
             -print0 | xargs -0 awk '
@@ -553,11 +554,13 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "## Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Version **${{ inputs.version }}** passed all pre-flight checks and built successfully on 4 platforms." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "To publish for real:" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "gh workflow run release.yml -f version=${{ inputs.version }} -f dry_run=false" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Dry Run Complete"
+            echo ""
+            echo "Version **${{ inputs.version }}** passed all pre-flight checks and built successfully on 4 platforms."
+            echo ""
+            echo "To publish for real:"
+            echo '```'
+            echo "gh workflow run release.yml -f version=${{ inputs.version }} -f dry_run=false"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

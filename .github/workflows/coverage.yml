@@ -46,7 +46,7 @@ jobs:
           toolchain: nightly
           components: llvm-tools-preview
 
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           cache-on-failure: true
 
@@ -57,7 +57,7 @@ jobs:
         run: cargo +nightly llvm-cov --workspace --locked --lcov --output-path lcov.info
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
+        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5.5.3
         with:
           files: lcov.info
           fail_ci_if_error: false

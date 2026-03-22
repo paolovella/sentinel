@@ -44,12 +44,14 @@ verify: ## Run full verification suite and produce evidence bundle
 	@# Step 4: Formal verification (graceful skip when tools not installed)
 	@echo "── [4/6] Formal verification ───────────────────────────────"
 	@echo '{}' > $(EVIDENCE_DIR)/formal.json
-	@# TLA+ (9 specifications)
+	@# TLA+ (all local specifications)
 	@if command -v java >/dev/null 2>&1 && [ -f formal/tla/tla2tools.jar ]; then \
-		echo "Running TLA+ model checker (9 specs)..."; \
+		TLA_CFG_COUNT=$$(find formal/tla -maxdepth 1 -name '*.cfg' | wc -l | tr -d ' '); \
+		echo "Running TLA+ model checker ($$TLA_CFG_COUNT specs)..."; \
 		TLA_OK=true; \
-		for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain TrustContainment; do \
-			cfg="formal/tla/$${spec}.cfg"; \
+		for cfg in formal/tla/*.cfg; do \
+			spec="$${cfg##*/}"; \
+			spec="$${spec%.cfg}"; \
 			mc="formal/tla/MC_$${spec}.tla"; \
 			main="formal/tla/$${spec}.tla"; \
 			if [ -f "$$mc" ]; then \
@@ -104,12 +106,12 @@ verify: ## Run full verification suite and produce evidence bundle
 	bash formal/tools/check-formal-trusted-assumptions.sh
 	@# Kani (90 harnesses on actual Rust)
 	@if command -v cargo-kani >/dev/null 2>&1; then \
-		echo "Running Kani bounded model checking (90 harnesses)..."; \
+		echo "Running Kani bounded model checking (all local harnesses)..."; \
 		cd formal/kani && cargo kani 2>&1 | tail -10; \
 	else \
 		echo "SKIP: Kani (requires cargo-kani)"; \
 	fi
-	@# Verus (534 verified items on actual Rust)
+	@# Verus (all canonical kernels on actual Rust)
 	@if [ -n "$$VERUS_BIN" ] || command -v verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/verus ] || [ -x "$$HOME/verus/verus-bin/verus-x86-linux/verus" ] || [ -x "$$HOME/verus/source/target-verus/release/verus" ]; then \
 		echo "Running Verus deductive verification..."; \
 		bash formal/tools/check-verus-parity.sh; \

@@ -1,9 +1,10 @@
 name: Docker Build & Publish
 
 on:
+  # Tag trigger removed — release.yml orchestrator handles release Docker builds.
+  # Branch push kept for continuous main builds.
   push:
     branches: [main]
-    tags: ["v*"]
     paths:
       - "Dockerfile"
       - "Cargo.toml"

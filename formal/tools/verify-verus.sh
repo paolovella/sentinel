@@ -55,6 +55,13 @@ FILES=(
     "formal/verus/verified_dlp_core.rs"
     "formal/verus/verified_path.rs"
     "formal/verus/verified_refinement_safety.rs"
+    "formal/verus/verified_refinement_completeness.rs"
+    "formal/verus/verified_acis_envelope.rs"
+    "formal/verus/verified_acis_action_summary.rs"
+    "formal/verus/verified_source_taint.rs"
+    "formal/verus/verified_intent_scope.rs"
+    "formal/verus/verified_sequence_analysis.rs"
+    "formal/verus/verified_entropy_pipeline.rs"
 )
 
 MANIFEST="formal/verus/Cargo.toml"

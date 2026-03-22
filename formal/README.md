@@ -21,6 +21,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `SourceTaintContainment.tla` | TLA+ | ST1–ST4 | Source-class auto-tainting: completeness, monotonicity, inversion |
 | `IntentScopeContainment.tla` | TLA+ | IS1–IS4 | Intent scope: enforcement completeness, monotonic narrowing, atomic restriction |
 | `SequenceContainment.tla` | TLA+ | SQ1–SQ4 | Behavioral sequence: anomaly persistence, restriction monotonicity, warmup safety |
+| `NHICredentialRotation.tla` | TLA+ | NHI-ROT-1–5 | NHI ephemeral credential rotation lifecycle: no use-after-expiry, atomic rotation, fail-closed |
 | `CapabilityDelegation.als` | Alloy | S11–S16 | Capability token delegation with monotonic attenuation |
 | `AbacForbidOverride.als` | Alloy | S7–S10 | ABAC forbid-override combining algorithm |
 | `Determinism.lean` | Lean 4 | — | Policy evaluation determinism (same input → same verdict) |
@@ -64,11 +65,17 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_nhi_delegation.rs` | Verus | NHI-DEL-1–NHI-DEL-8 | NHI delegation terminal-state, participant, link-effective, depth, and revocation chain propagation guards on actual Rust |
 | `verus/verified_nhi_graph.rs` | Verus | NHI-GRAPH-1–NHI-GRAPH-4 | NHI live-successor traversal and cycle-free delegation insertion guards on actual Rust |
 | `verus/verified_refinement_safety.rs` | Verus | R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH | Safety-critical policy engine refinement obligations (fail-closed) |
+| `verus/verified_refinement_completeness.rs` | Verus | R-MCP-START-NONEMPTY, R-MCP-MATCH-MISS/HIT, R-MCP-APPLY-ALLOW/REQUIRE-APPROVAL, R-MCP-CONTINUE | Correctness refinement obligations — completes 9/9 simulation |
+| `verus/verified_acis_action_summary.rs` | Verus | ACIS-FP-1–3, ACIS-SUM-1–5, ACIS-ENV-1–3 | ACIS fingerprint, action summary, envelope bounds on actual Rust |
+| `verus/verified_source_taint.rs` | Verus | TAINT-1–5 | Phase 6.1D source-class trust floor containment on actual Rust |
+| `verus/verified_intent_scope.rs` | Verus | SCOPE-1–5 | Phase 6.2E intent scope monotonic narrowing on actual Rust |
+| `verus/verified_sequence_analysis.rs` | Verus | SEQ-1–6 | Phase 6.3E behavioral sequence anomaly monotonicity on actual Rust |
+| `verus/verified_entropy_pipeline.rs` | Verus | EPIPE-1–6 | Entropy alert pipeline composition (millibit → gate → severity) on actual Rust |
 | `verus/verified_entropy_gate.rs` | Verus | ENT-GATE-1–ENT-GATE-5 | Fixed-point entropy alert gate on actual Rust |
 | `verus/verified_cross_call_dlp.rs` | Verus | CC-DLP-1–CC-DLP-5 | Cross-call DLP tracker field-capacity/update gate on actual Rust |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9-V10 | Engine path normalization kernel idempotence + no-traversal on actual Rust |
-| `kani/src/proofs.rs` | Kani | K1–K85 | Bounded model checking of actual Rust (90 harnesses) |
+| `kani/src/proofs.rs` | Kani | K1–K132 | Bounded model checking of actual Rust (108 CBMC harnesses, 240 unit tests) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -85,12 +92,12 @@ Current formal suite across 6 tools:
 - `formal/verus/Cargo.toml` now provides the canonical version-pinned
   `cargo-verus` entrypoint, while `formal/tools/verify-verus.sh` keeps the
   direct per-file `verus` fallback for offline/local runs
-- **Verus:** 41 verified files / 534 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 10 verified (`verified_capability_coverage.rs`), 16 verified (`verified_capability_domain.rs`), 9 verified (`verified_capability_path.rs`), 8 verified (`verified_capability_selection.rs`), 12 verified (`verified_capability_context.rs`), 11 verified (`verified_context_delegation.rs`), 11 verified (`verified_capability_delegation_context.rs`), 12 verified (`verified_bridge_principal.rs`), 7 verified (`verified_delegation_projection.rs`), 9 verified (`verified_deputy_handoff.rs`), 9 verified (`verified_evaluation_context_projection.rs`), 9 verified (`verified_approval_scope.rs`), 7 verified (`verified_approval_consumption.rs`), 6 verified (`verified_presented_approval_id.rs`), 6 verified (`verified_server_approval_id.rs`), 10 verified (`verified_transport_context.rs`), 19 verified (`verified_capability_glob.rs`), 11 verified (`verified_capability_glob_subset.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_identity.rs`), 15 verified (`verified_capability_verification.rs`), 15 verified (`verified_deputy.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 19 verified (`verified_nhi_delegation.rs`), 9 verified (`verified_nhi_graph.rs`), 16 verified (`verified_dlp_core.rs`), 33 verified (`verified_path.rs`), 16 verified (`verified_refinement_safety.rs`), and 11 verified (`verified_acis_envelope.rs`)
-- **TLA+:** 57 safety invariants + 14 liveness/temporal properties (9 specs)
-- **Alloy:** 10 assertions (2 models)
+- **Verus:** 47 verified files / 668 verified items on actual Rust code (0 errors). Includes 7 new kernels: refinement completeness (9/9 simulation obligations), ACIS action summary, Phase 6 source taint, intent scope, and sequence analysis containment, entropy pipeline composition.
+- **TLA+:** 14 specs in CI. Includes NHI credential rotation, and SourceTaint/IntentScope/SequenceContainment now model-checked (previously existed but were not wired into CI).
+- **Alloy:** 10 assertions (2 models) — now verified in CI (previously local-only).
 - **Lean 4:** 32 theorems (5 files, no `sorry`)
 - **Coq:** 45 theorems (8 files, no `Admitted`)
-- **Kani:** 90 proof harnesses on actual Rust code (bounded) — K1-K85
+- **Kani:** 108 CBMC proof harnesses on actual Rust code (bounded) — K1-K132. 240 unit tests. New modules: entropy wrapper (K86-K90), injection pipeline 13-stage (K91-K97), collusion detection (K98-K102), sort bridge (K103-K107), credential vault (K108-K112), TLS SPIFFE (K113-K120), Merkle sanity (K121-K125 unit tests), additional CBMC proofs (K126-K132).
 
 ## Coverage Matrix
 
@@ -136,11 +143,11 @@ Current formal suite across 6 tools:
 | **Homoglyph idempotent** | — | — | — | — | — | K64 |
 | **Confusable → ASCII** | — | — | — | — | — | K65 |
 | **Lock poison safe** | — | — | — | — | — | K66, K67, K68 |
-| **CV1: No double-consumption** | CV1 | — | — | — | — | — |
-| **CV2: Active-only consume** | CV2 | — | — | — | — | — |
-| **CV3: Epoch monotonicity** | CV3 | — | — | — | — | — |
-| **CV4: Capacity bounded** | CV4 | — | — | — | — | — |
-| **CV5: Fail-closed exhaustion** | CV5 | — | — | — | — | — |
+| **CV1: No double-consumption** | CV1 | — | — | — | — | K108 |
+| **CV2: Active-only consume** | CV2 | — | — | — | — | K112 |
+| **CV3: Epoch monotonicity** | CV3 | — | — | — | — | K109 |
+| **CV4: Capacity bounded** | CV4 | — | — | — | — | K110 |
+| **CV5: Fail-closed exhaustion** | CV5 | — | — | — | — | K111, K131 |
 | **CV6: Binding uniqueness** | CV6 | — | — | — | — | — |
 | **CV7: Active implies bound** | CV7 | — | — | — | — | — |
 | **AC2: Chain linkage** | AC2 | — | — | — | AUD-CHAIN-4 | — |
@@ -1007,9 +1014,9 @@ forward simulation proof.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **534 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-COV-1–CAP-COV-5, CAP-DOM-1–CAP-DOM-6, CAP-PATH-1–CAP-PATH-5, CAP-SEL-1–CAP-SEL-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, CAP-DEP-CTX-1–CAP-DEP-CTX-3, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, EVAL-CTX-1–EVAL-CTX-4, APPR-SCOPE-1–APPR-SCOPE-4, approval consumption guards, presented approval-id guards, server approval-id guards, TCTX-1–TCTX-4, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, CAP-VER-1–CAP-VER-5, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH, ACIS-ENV-1–ACIS-ENV-7 + 4 executable guards)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **90 proof harnesses (K1-K85)** |
-| **TLA+ (model checking)** | **Exhaustive state exploration** | **9 specs, 57 safety + 14 liveness/temporal** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **668 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-COV-1–CAP-COV-5, CAP-DOM-1–CAP-DOM-6, CAP-PATH-1–CAP-PATH-5, CAP-SEL-1–CAP-SEL-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, CAP-DEP-CTX-1–CAP-DEP-CTX-3, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, EVAL-CTX-1–EVAL-CTX-4, APPR-SCOPE-1–APPR-SCOPE-4, approval consumption guards, presented approval-id guards, server approval-id guards, TCTX-1–TCTX-4, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, CAP-VER-1–CAP-VER-5, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH, ACIS-ENV-1–ACIS-ENV-7 + 4 executable guards)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **108 CBMC proof harnesses (K1-K132)** |
+| **TLA+ (model checking)** | **Exhaustive state exploration** | **14 specs, 67+ safety + 14 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 32 theorems** |
 | **Coq (deductive)** | **Proof assistant** | **8 files, 45 theorems** |

@@ -99,7 +99,7 @@ see [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md).
 | Evaluation determinism (K8) | proof_evaluation_deterministic | Verified |
 | Domain normalize idempotent (K9) | proof_domain_normalize_idempotent | Verified |
 
-**Total: 767+ verification instances across 7 tools (534 Verus + 82 Kani + 64 TLA+ + 45 Coq + 32 Lean + 10 Alloy).**
+**Total: 877+ verification instances across 6 tools (668 Verus + 108 Kani CBMC harnesses + 14 TLA+ specs + 45 Coq + 32 Lean + 10 Alloy).**
 
 ### Verus Deductive Verification (9 proofs, V1-V8, ALL inputs)
 

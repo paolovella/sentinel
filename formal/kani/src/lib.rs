@@ -107,6 +107,46 @@
 //! | K83 | Counterfactual gate requires security-relevant taint | Counterfactual containment |
 //! | K84 | Quarantined command-like privileged flows force counterfactual gate | Counterfactual containment |
 //! | K85 | Verified untrusted tool output stays below counterfactual gate | Counterfactual containment |
+//! | K86 | Entropy wrapper output always in [0, 8000] (no u16 overflow) | Entropy float-to-fixed |
+//! | K87 | Entropy NaN/Infinity map to 0 (fail-safe) | Entropy float-to-fixed |
+//! | K88 | Entropy negative values map to 0 (clamped) | Entropy float-to-fixed |
+//! | K89 | Entropy monotonicity: a <= b ⟹ f(a) <= f(b) | Entropy float-to-fixed |
+//! | K90 | Entropy ceil >= floor for same input | Entropy float-to-fixed |
+//! | K91 | Full injection pipeline has all 13 decode stages | Injection completeness |
+//! | K92 | Full injection pipeline ordering constraints hold | Injection completeness |
+//! | K93 | Leetspeak-encoded injection detected after decode | Injection composition |
+//! | K94 | HTML comment-wrapped injection detected after strip | Injection composition |
+//! | K95 | Double URL-encoded injection detected after 2 passes | Injection composition |
+//! | K96 | Compound ROT13+URL encoding detected after decode chain | Injection composition |
+//! | K97 | Full pipeline detects multi-layer URL+HTML encoding | Injection composition |
+//! | K98 | Collusion config NaN/Infinity rejection on all f64 fields | Collusion detection |
+//! | K99 | Collusion config out-of-range value rejection | Collusion detection |
+//! | K100 | Capacity exhaustion produces alert (never silent skip) | Collusion detection |
+//! | K101 | Error rate always in [0.0, 1.0] and fail-closed | Collusion detection |
+//! | K102 | Denial rate half-open interval: no double-counting | Collusion detection |
+//! | K103 | sort_resolved_matches output satisfies is_sorted (Verus bridge) | Sorting correctness |
+//! | K104 | Sort stable: deny-first at equal priority | Sorting correctness |
+//! | K105 | Sort idempotent: sort(sort(x)) == sort(x) | Sorting correctness |
+//! | K106 | Empty input trivially sorted | Sorting correctness |
+//! | K107 | Single element always sorted | Sorting correctness |
+//! | K108 | Consumed credential cannot be re-consumed (single-use) | Credential vault |
+//! | K109 | Epoch monotonicity: current_epoch never decreases | Credential vault |
+//! | K110 | Capacity bounded: vault never exceeds MAX_VAULT_ENTRIES | Credential vault |
+//! | K111 | Fail-closed on exhaustion: no Available → None (never silent) | Credential vault |
+//! | K112 | State transitions: only Available→Active→Consumed, Available→Expired | Credential vault |
+//! | K113 | hex_digit: 0-9,a-f,A-F → Some(0-15), else None | TLS SPIFFE |
+//! | K114 | hex_digit exhaustive: all 256 byte values correct | TLS SPIFFE |
+//! | K115 | SPIFFE parse: non-spiffe URI → None | TLS SPIFFE |
+//! | K116 | SPIFFE parse: empty trust domain → None | TLS SPIFFE |
+//! | K117 | SPIFFE parse: invalid domain chars → None | TLS SPIFFE |
+//! | K118 | SPIFFE parse: path traversal /../ → None | TLS SPIFFE |
+//! | K119 | SPIFFE parse: valid URI → Some with correct fields | TLS SPIFFE |
+//! | K120 | percent_decode: no % → Ok(None), invalid UTF-8 → Err | TLS SPIFFE |
+//! | K121 | SHA-256 always produces 32 bytes (bridges MERKLE-HASH-1) | Merkle sanity |
+//! | K122 | SHA-256 is deterministic: same input → same output | Merkle sanity |
+//! | K123 | RFC 6962 domain separation: leaf prefix ≠ internal prefix | Merkle sanity |
+//! | K124 | Hex encoding of 32-byte hash is always 64 chars | Merkle sanity |
+//! | K125 | Different inputs → different hashes (collision sanity) | Merkle sanity |
 //!
 //! # Source Correspondence
 //!
@@ -128,7 +168,13 @@
 //! - `sanitizer.rs`: Extracted from `vellaveto-mcp-shield/src/sanitizer.rs` (PII inversion)
 //! - `temporal_window.rs`: Extracted from `vellaveto-engine/src/collusion.rs` (sliding window)
 //! - `cascading_fsm.rs`: Extracted from `vellaveto-engine/src/cascading.rs` (circuit breaker FSM)
-//! - `injection_pipeline.rs`: Extracted from `vellaveto-mcp/src/inspection/injection.rs` (decode chain)
+//! - `injection_pipeline.rs`: Extracted from `vellaveto-mcp/src/inspection/injection.rs` (13-stage decode chain)
+//! - `entropy_wrapper.rs`: Extracted from `vellaveto-engine/src/entropy_gate.rs` (float-to-fixed wrapper)
+//! - `collusion_detection.rs`: Extracted from `vellaveto-engine/src/collusion.rs` (config validation, capacity, denial rate)
+//! - `sort_bridge.rs`: Kani→Verus bridge proving sort_resolved_matches satisfies Verus is_sorted precondition
+//! - `credential_vault.rs`: Extracted from `vellaveto-mcp-shield/src/credential_vault.rs` (state machine, single-use, epoch)
+//! - `tls_spiffe.rs`: Extracted from `vellaveto-tls/src/lib.rs` (SPIFFE parsing, hex_digit, percent_decode, PQ KEX)
+//! - `merkle_sanity.rs`: SHA-256 property sanity checks bridging Verus merkle_boundary_axioms
 //! - `output_contracts.rs`: Extracted from `vellaveto-types/src/provenance.rs` + `vellaveto-mcp/src/output_contracts.rs`
 //! - `counterfactual_containment.rs`: Extracted from `vellaveto-types/src/provenance.rs`
 
@@ -154,6 +200,12 @@ pub mod injection_pipeline;
 pub mod output_contracts;
 pub mod counterfactual_containment;
 pub mod trust_containment;
+pub mod entropy_wrapper;
+pub mod collusion_detection;
+pub mod sort_bridge;
+pub mod credential_vault;
+pub mod tls_spiffe;
+pub mod merkle_sanity;
 
 #[cfg(kani)]
 mod proofs;

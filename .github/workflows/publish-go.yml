@@ -7,8 +7,8 @@ name: Publish Go SDK
 # Tag format: sdk/go/v6.0.0 (matches go.mod module path)
 
 on:
-  push:
-    tags: ["sdk/go/v*"]
+  # No longer triggers on tags — release.yml orchestrator creates Go SDK tags
+  # and handles proxy indexing. Keep workflow_dispatch for manual re-indexing.
   workflow_dispatch:
 
 permissions:

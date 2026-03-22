@@ -45,25 +45,30 @@ RecordCall(isPrivileged, isNovel, isTainted) ==
        ELSE newToolsAfterTaint' = newToolsAfterTaint
     /\ callLog' = Append(callLog, <<isPrivileged, isNovel, isTainted>>)
     \* Run detectors (only after warmup)
-    /\ IF callCount + 1 >= WarmupCalls
+    /\ LET nextTaintActive == taintActive \/ isTainted
+           nextNewTools == IF taintActive /\ isNovel
+                           THEN newToolsAfterTaint + 1
+                           ELSE newToolsAfterTaint
+       IN
+       IF callCount + 1 >= WarmupCalls
        THEN
-         LET diversitySpike == newToolsAfterTaint' > MaxNewTools
-             privEsc == taintActive' /\ isPrivileged /\ ~isNovel
-             novelAfterTaint == taintActive' /\ isNovel /\ isPrivileged
+         LET diversitySpike == nextNewTools > MaxNewTools
+             privEsc == nextTaintActive /\ isPrivileged /\ ~isNovel
+             novelAfterTaint == nextTaintActive /\ isNovel /\ isPrivileged
              detected == diversitySpike \/ privEsc \/ novelAfterTaint
              confidence == IF novelAfterTaint THEN 85
                           ELSE IF privEsc THEN 90
                           ELSE IF diversitySpike THEN 60
                           ELSE 0
          IN
-         /\ anomalyDetected' = anomalyDetected \/ detected
-         /\ anomalyConfidence' =
-             IF confidence > anomalyConfidence
-             THEN confidence
-             ELSE anomalyConfidence
-         /\ IF detected /\ confidence >= 70
-            THEN scopeRestricted' = TRUE
-            ELSE scopeRestricted' = scopeRestricted
+         /\ LET isDetected == anomalyDetected \/ detected
+                newConfidence == IF confidence > anomalyConfidence
+                                 THEN confidence ELSE anomalyConfidence
+                isRestricted == scopeRestricted \/ (detected /\ confidence >= 70)
+            IN
+            /\ anomalyDetected' = isDetected
+            /\ anomalyConfidence' = newConfidence
+            /\ scopeRestricted' = isRestricted
        ELSE
          /\ UNCHANGED <<anomalyDetected, anomalyConfidence, scopeRestricted>>
 
@@ -99,5 +104,7 @@ SQ4_WarmupDoesNotSuppressTaint ==
         taintActive
 
 Spec == Init /\ [][Next]_vars
+
+StateConstraint == Len(callLog) <= 6
 
 ====

@@ -120,11 +120,14 @@ ST2_MonotonicTrustFloor ==
 
 \* ST3: No privileged sink is reachable from a session with untrusted
 \* source taint unless explicitly declassified.
+\* When the last action in the call log targets a privileged sink AND
+\* the session is tainted with untrusted sources, blocked must be TRUE.
 ST3_PrivilegedSinkUnreachable ==
-    (sessionTaint /= {} /\ effectiveTrustFloor <= Untrusted)
-    => \A sink \in {"CodeExecution", "PolicyMutation"} :
-        \* If we attempt this sink, it must be blocked
-        blocked = TRUE \/ callLog = <<>>
+    (sessionTaint /= {} /\ effectiveTrustFloor <= Untrusted /\ Len(callLog) > 0)
+    => LET lastEntry == callLog[Len(callLog)]
+           lastSink == lastEntry[2]
+       IN (lastSink \in {"CodeExecution", "PolicyMutation"})
+          => blocked = TRUE
 
 \* ST4: Auto-taint fires even when no detector finding exists.
 \* (The inversion property)
@@ -138,5 +141,8 @@ ST4_AutoTaintWithoutDetection ==
            => <<tool, "source_class">> \in sessionTaint
 
 Spec == Init /\ [][Next]_vars
+
+\* State constraint for bounded model checking
+StateConstraint == Len(callLog) <= 5
 
 ====

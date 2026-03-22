@@ -21,3 +21,4 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [dependencies]
 percent-encoding = "2.3"
+sha2 = "0.10"

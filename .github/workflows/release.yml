@@ -1,18 +1,118 @@
 name: Release
 
+# Tags are OUTPUT, not INPUT. This workflow is the single orchestrator.
+# Usage: gh workflow run release.yml -f version=6.0.10
+#
+# Flow: preflight → build → publish (npm/pypi/maven/docker) → tag + GitHub Release
+
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 6.0.10)"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run — build and test but skip publishing"
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
+  # ──────────────────────────────────────────────
+  # Phase 1: Pre-flight validation
+  # ──────────────────────────────────────────────
+  preflight:
+    name: Pre-flight Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
+        with:
+          cache-on-failure: true
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version format: $VERSION (expected: X.Y.Z)"
+            exit 1
+          fi
+
+      - name: Check tag does not already exist
+        run: |
+          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag v${{ inputs.version }} already exists. Use a new version."
+            exit 1
+          fi
+
+      - name: Check version alignment (all 33 files)
+        run: scripts/check-versions.sh "${{ inputs.version }}"
+
+      - name: Verify lockfile immutability
+        run: |
+          cargo metadata --locked --format-version=1 > /dev/null
+          git diff --exit-code -- Cargo.lock
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Compile workspace
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Clippy (warnings = errors)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        env:
+          RUSTFLAGS: -Dwarnings
+
+      - name: Run full test suite
+        run: cargo test --workspace --no-fail-fast --locked
+
+      - name: unwrap/expect scanner
+        run: |
+          find vellaveto-*/src/ -name '*.rs' \
+            -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' \
+            -print0 | xargs -0 awk '
+            FNR==1 { skip=0 }
+            /^#\[cfg\(test\)\]/ { skip=1 }
+            skip==0 && /^[[:space:]]*(\/\/!|\/\/\/)/ { next }
+            skip==0 && /\.unwrap\(\)/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
+            skip==0 && /\.expect\(/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
+            END { exit found ? 1 : 0 }'
+
+      - name: Verify CHANGELOG has version section
+        run: |
+          if ! grep -q "^\## \[${{ inputs.version }}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md missing [${{ inputs.version }}] section"
+            exit 1
+          fi
+
+  # ──────────────────────────────────────────────
+  # Phase 2: Build release binaries (4 platforms)
+  # ──────────────────────────────────────────────
   build:
     name: "Build (${{ matrix.target }})"
+    needs: preflight
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
@@ -35,12 +135,12 @@ jobs:
             os: macos-15
             archive: tar.gz
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
@@ -49,14 +149,13 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt-get update && sudo apt-get install -y musl-tools
-          # Ensure musl target stdlib is installed
           rustup target add x86_64-unknown-linux-musl
 
       - name: Install cross-compilation tools (Linux aarch64)
         if: matrix.cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           cache-on-failure: true
           key: ${{ matrix.target }}
@@ -93,7 +192,7 @@ jobs:
 
       - name: Create release archive
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ inputs.version }}"
           mkdir -p release
           for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
             cp "target/${{ matrix.target }}/release/$bin" "release/" 2>/dev/null || true
@@ -103,30 +202,293 @@ jobs:
           tar czf "vellaveto-${VERSION}-${{ matrix.target }}.${{ matrix.archive }}" -C release .
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: release-${{ matrix.target }}
           path: vellaveto-*-${{ matrix.target }}.*
           retention-days: 1
 
-  release:
-    name: Create Release
+  # ──────────────────────────────────────────────
+  # Phase 3: Publish to registries (parallel, idempotent)
+  # ──────────────────────────────────────────────
+  publish-npm:
+    name: Publish npm packages
+    needs: preflight
+    if: inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: npm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish @vellaveto-sdk/typescript (idempotent)
+        working-directory: sdk/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          EXISTING=$(npm view @vellaveto-sdk/typescript@${{ inputs.version }} version 2>/dev/null || echo "")
+          if [ "$EXISTING" = "${{ inputs.version }}" ]; then
+            echo "::notice::@vellaveto-sdk/typescript@${{ inputs.version }} already published — skipping"
+          else
+            npm publish --provenance --access public
+          fi
+
+      - name: Publish create-vellaveto (idempotent)
+        working-directory: packages/create-vellaveto
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          EXISTING=$(npm view create-vellaveto@${{ inputs.version }} version 2>/dev/null || echo "")
+          if [ "$EXISTING" = "${{ inputs.version }}" ]; then
+            echo "::notice::create-vellaveto@${{ inputs.version }} already published — skipping"
+          else
+            npm publish --provenance --access public
+          fi
+
+  publish-pypi:
+    name: Publish Python SDK
+    needs: preflight
+    if: inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vellaveto-sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.12"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          pip install requests 2>/dev/null
+          STATUS=$(python3 -c "
+          import requests, sys
+          r = requests.get('https://pypi.org/pypi/vellaveto-sdk/${{ inputs.version }}/json')
+          print('exists' if r.status_code == 200 else 'new')
+          ")
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish
+        if: steps.check.outputs.status == 'new'
+        run: |
+          pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
+          cd sdk/python && python -m build
+
+      - name: Upload to PyPI
+        if: steps.check.outputs.status == 'new'
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        with:
+          packages-dir: sdk/python/dist/
+
+      - name: Skip (already published)
+        if: steps.check.outputs.status == 'exists'
+        run: echo "::notice::vellaveto-sdk ${{ inputs.version }} already on PyPI — skipping"
+
+  publish-maven:
+    name: Publish Java SDK
+    needs: preflight
+    if: inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    environment:
+      name: maven-central
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        with:
+          distribution: temurin
+          java-version: "17"
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Check if version already published
+        id: check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://repo1.maven.org/maven2/io/github/vellaveto/vellaveto-java-sdk/${{ inputs.version }}/vellaveto-java-sdk-${{ inputs.version }}.pom")
+          if [ "$STATUS" = "200" ]; then
+            echo "status=exists" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=new" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to Maven Central
+        if: steps.check.outputs.status == 'new'
+        working-directory: sdk/java
+        run: mvn deploy -B -Prelease -DskipTests
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+
+      - name: Skip (already published)
+        if: steps.check.outputs.status == 'exists'
+        run: echo "::notice::vellaveto-java-sdk ${{ inputs.version }} already on Maven Central — skipping"
+
+  publish-docker:
+    name: Publish Docker image
+    needs: preflight
+    if: inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up QEMU (multi-platform)
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
+
+      - name: Log in to GHCR
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98
+        with:
+          sarif_file: trivy-results.sarif
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────
+  # Phase 4: Provenance and SBOM
+  # ──────────────────────────────────────────────
+  provenance-sbom:
+    name: Provenance and SBOM
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
+        with:
+          cache-on-failure: true
+
+      - name: Build release artifacts
+        run: cargo build --release --workspace --locked
+
+      - name: Generate SBOM (CycloneDX JSON)
+        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-release-assets: false
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: vellaveto-sbom
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+      - name: Attest release binaries provenance
+        if: ${{ github.event.repository.private == false || vars.ENABLE_ATTESTATIONS == 'true' }}
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
+        with:
+          subject-path: |
+            target/release/vellaveto
+            target/release/vellaveto-proxy
+            target/release/vellaveto-http-proxy
+            target/release/vellaveto-shield
+
+  # ──────────────────────────────────────────────
+  # Phase 5: Tag + GitHub Release (LAST — only after everything succeeds)
+  # ──────────────────────────────────────────────
+  tag-and-release:
+    name: Create Tag & GitHub Release
+    needs: [build, publish-npm, publish-pypi, publish-maven, publish-docker, provenance-sbom]
+    if: inputs.dry_run == false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
       packages: write
-      attestations: write
-      id-token: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          persist-credentials: false
           fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
           pattern: release-*
           merge-multiple: true
@@ -134,27 +496,44 @@ jobs:
       - name: Generate checksums
         run: sha256sum vellaveto-*.tar.gz > checksums-sha256.txt
 
-      - name: Generate SBOM
-        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0
+      - name: Download SBOM
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
         with:
-          path: .
-          format: cyclonedx-json
-          output-file: sbom.cdx.json
-          upload-release-assets: false
+          name: vellaveto-sbom
+
+      - name: Create annotated tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Create Go SDK tag
+        run: |
+          git tag -a "sdk/go/v${{ inputs.version }}" -m "sdk/go/v${{ inputs.version }}"
+          git push origin "sdk/go/v${{ inputs.version }}"
+        continue-on-error: true
+
+      - name: Request Go proxy indexing
+        run: |
+          MODULE="github.com/vellaveto/vellaveto/sdk/go"
+          VERSION="v${{ inputs.version }}"
+          curl -sf "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info" || true
+          curl -sf "https://sum.golang.org/lookup/${MODULE}@${VERSION}" || true
+        continue-on-error: true
 
       - name: Extract changelog for this version
-        id: changelog
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # Extract section between this version header and the next
+          VERSION="${{ inputs.version }}"
           awk "/^## \[${VERSION}\]/{found=1;next} /^## \[/{if(found)exit} found{print}" CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
-            echo "Release ${VERSION}" > release-notes.md
+            echo "Release v${VERSION}" > release-notes.md
           fi
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b
         with:
+          tag_name: v${{ inputs.version }}
           body_path: release-notes.md
           files: |
             vellaveto-*.tar.gz
@@ -162,3 +541,23 @@ jobs:
             sbom.cdx.json
           fail_on_unmatched_files: false
           generate_release_notes: false
+
+  # ──────────────────────────────────────────────
+  # Dry-run summary
+  # ──────────────────────────────────────────────
+  dry-run-summary:
+    name: Dry Run Summary
+    needs: [preflight, build]
+    if: inputs.dry_run == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version **${{ inputs.version }}** passed all pre-flight checks and built successfully on 4 platforms." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "To publish for real:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "gh workflow run release.yml -f version=${{ inputs.version }} -f dry_run=false" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

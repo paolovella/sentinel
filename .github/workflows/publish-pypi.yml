@@ -1,8 +1,8 @@
 name: Publish Python SDK
 
 on:
-  push:
-    tags: ["v*"]
+  # No longer triggers on tags — release.yml orchestrator handles publishing.
+  # Keep workflow_dispatch for manual re-runs if needed.
   workflow_dispatch:
 
 permissions:

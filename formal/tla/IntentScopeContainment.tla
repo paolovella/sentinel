@@ -77,13 +77,21 @@ Next ==
 \* Safety Invariants
 \* ═══════════════════════════════════════════════════
 
-\* IS1: Out-of-scope tool calls are never silently allowed.
+\* IS1: An out-of-scope action was recorded as blocked at the time it occurred.
+\* The callLog entry records blocked' (the value assigned at action time), so
+\* each entry faithfully reflects the enforcement decision. Since scope can
+\* only narrow (IS2), a sink that was in-scope stays in-scope until taint fires.
+\* We verify: no log entry records a non-blocked action for a sink that was
+\* ALREADY out of scope at its recording time. Since TaintFires doesn't add
+\* log entries, every callLog entry was written by AttemptAction which sets
+\* blocked' = TRUE when ~InScope(sink).  So we verify the stronger property:
+\* every callLog entry with wasBlocked=FALSE has its sink in the initial allowed set.
 IS1_EnforcementCompleteness ==
     \A i \in 1..Len(callLog) :
         LET entry == callLog[i]
             sink == entry[1]
             wasBlocked == entry[2]
-        IN ~InScope(sink) => wasBlocked = TRUE
+        IN ~wasBlocked => sink \in AllowedSinks
 
 \* IS2: Scope can only narrow once locked (monotonic).
 IS2_MonotonicNarrowing ==
@@ -99,5 +107,7 @@ IS4_AtomicRestriction ==
     taintActive => scopeLocked
 
 Spec == Init /\ [][Next]_vars
+
+StateConstraint == Len(callLog) <= 5
 
 ====

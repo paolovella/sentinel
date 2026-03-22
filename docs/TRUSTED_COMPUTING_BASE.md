@@ -2,7 +2,7 @@
 
 > **Version:** 3.0.0
 > **Date:** 2026-03-06
-> **Status:** Formal foundation current (767+ verification instances across Verus, Kani, TLA+, Coq, Lean 4, and Alloy)
+> **Status:** Formal foundation current (877+ verification instances across Verus, Kani, TLA+, Coq, Lean 4, and Alloy)
 > **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the proof-program detail and [../ROADMAP.md](../ROADMAP.md) for 2026 execution sequencing
 
 This document defines what Vellaveto formally verifies, what it trusts, and
@@ -450,7 +450,7 @@ Kani operates on extracted Rust code verified to match production code via
 - `formal/kani/src/constraint.rs` ↔ `vellaveto-engine/src/constraint_eval.rs`
 - `formal/kani/src/task.rs` ↔ `vellaveto-mcp/src/task_state.rs`
 
-**Total: 767+ verification instances across 7 tools (534 Verus + 82 Kani + 64 TLA+ + 45 Coq + 32 Lean + 10 Alloy).**
+**Total: 877+ verification instances across 6 tools (668 Verus + 108 Kani + 14 TLA+ specs + 45 Coq + 32 Lean + 10 Alloy).**
 
 ---
 
@@ -595,10 +595,10 @@ PR-level gating on security-critical paths will be added for:
 | Alloy assertions | 10 |
 | Lean 4 theorems | 32 |
 | Coq theorems | 45 |
-| Verus verified items (ALL inputs, deductive) | 534 |
-| Kani proof harnesses (bounded) | 82 |
-| **Total verification instances** | **767+** |
-| Rust unit/integration tests | 10,990+ |
+| Verus verified items (ALL inputs, deductive) | 668 |
+| Kani proof harnesses (bounded) | 108 |
+| **Total verification instances** | **877+** |
+| Rust unit/integration tests | 11,490+ |
 | Fuzz targets | 24 |
 | Property-based tests (proptest) | ~50 |
 | Audit rounds | 254 |
@@ -607,9 +607,9 @@ PR-level gating on security-critical paths will be added for:
 
 ## 8. Roadmap
 
-Phases 0–72 are complete. The TCB includes 534 Verus-verified items on actual
-Rust code (deductive, ALL inputs via Z3 SMT), 82 Kani bounded model checking
-harnesses, and comprehensive coverage of all security-critical pure functions.
+Phases 0–72 are complete. The TCB includes 668 Verus-verified items on actual
+Rust code (deductive, ALL inputs via Z3 SMT), 108 Kani CBMC proof harnesses,
+and comprehensive coverage of all security-critical pure functions.
 
 | Phase | Status | What Changed | Properties Added |
 |-------|--------|-------------|-----------------|

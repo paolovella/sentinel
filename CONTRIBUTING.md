@@ -79,13 +79,24 @@ All three must pass before submitting changes.
 
 For maintainers cutting a new release:
 
-1. **Version bump** — Update all `Cargo.toml` versions (workspace + 12 crates)
-2. **Helm chart** — Update `helm/vellaveto/Chart.yaml` version + appVersion
-3. **Python SDK** — Update `sdk/python/pyproject.toml` version
-4. **CHANGELOG** — Move `[Unreleased]` items to new version section
-5. **Commit** — `chore: release vX.Y.Z`
-6. **Tag** — `git tag vX.Y.Z && git push --tags`
-7. **Verify** — CI builds release binaries, Docker image, GitHub Release automatically
+1. **Update CHANGELOG** — Add `[X.Y.Z] - YYYY-MM-DD` section
+2. **Run release script** — `scripts/release.sh X.Y.Z` (bumps all 33 version files, validates, commits)
+3. **Review** — `git log --oneline -1 && git diff HEAD~1`
+4. **Push** — `git push origin main`
+5. **Trigger** — `gh workflow run release.yml -f version=X.Y.Z`
+   - Optional dry run first: `gh workflow run release.yml -f version=X.Y.Z -f dry_run=true`
+6. **Monitor** — `gh run list --workflow=release.yml`
+
+The release workflow handles everything: preflight validation, 4-platform builds,
+publishing to npm/PyPI/Maven Central/Docker, provenance/SBOM, and only creates
+the git tag + GitHub Release after all publishing succeeds.
+
+**Rules:**
+- Never `git tag` manually — tags are created by the release workflow
+- Never force-push tags — if a release is broken, bump to the next patch version
+- Never re-run a failed publish by deleting/recreating tags — use `workflow_dispatch`
+
+Shortcut: `scripts/release.sh X.Y.Z --trigger` does steps 2-5 in one command.
 
 ## Code Review Standards
 

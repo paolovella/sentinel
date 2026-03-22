@@ -5,6 +5,133 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Release infrastructure redesign (Mar 2026):**
+  Complete rewrite of the release pipeline to prevent tag churn, duplicate
+  publishes, and the workflow storm that caused the v6.0.9 GitHub account
+  suspension.
+  - `release.yml`: Rewritten as `workflow_dispatch` orchestrator — tags are
+    output (created last), not input. Flow: preflight → build → publish → tag.
+  - `scripts/release.sh`: Bumps all 33 version files, validates, commits.
+    Supports `--trigger` (push + start workflow) and `--dry-run`.
+  - `scripts/check-versions.sh`: Pre-flight validator scanning all 33
+    version-bearing files (Cargo.toml ×19, package.json ×6, pyproject.toml,
+    pom.xml, Chart.yaml, openapi.yaml, tauri.conf.json).
+  - Idempotent publishing: npm/PyPI/Maven check if version exists before
+    publishing — duplicate attempts succeed instead of crashing with 403.
+  - Tag triggers removed from all 6 publish workflows (npm, PyPI, Maven,
+    Docker, Go, provenance). Only the orchestrator creates tags.
+  - Concurrency control: `cancel-in-progress: false` prevents mid-flight
+    cancellation.
+  - `CONTRIBUTING.md`: Release checklist updated to reference new process.
+
+- **Formal verification: 7 new Verus proof kernels, 668 total verified items (Mar 2026):**
+  - `verified_refinement_completeness.rs` (21 verified): Completes 9/9
+    simulation obligations bridging TLA+ MCPPolicyEngine to Rust. Proves
+    R-MCP-START-NONEMPTY, MATCH-MISS, MATCH-HIT, APPLY-ALLOW,
+    APPLY-REQUIRE-APPROVAL, CONTINUE + first-match-wins composition.
+  - `verified_acis_action_summary.rs` (27 verified): ACIS fingerprint
+    determinism, action summary field bounds (tool/function ≤256, targets
+    ≤100K), dangerous char rejection, DecisionKind default is Deny.
+  - `verified_source_taint.rs` (21 verified): Phase 6.1D source-class
+    trust floor monotonic degradation, sink gate fail-closed, privileged
+    sinks blocked at untrusted floor, quarantined blocks all.
+  - `verified_intent_scope.rs` (15 verified): Phase 6.2E intent scope
+    restriction-is-subset (bit-vector proof), monotonic narrowing, taint
+    locks scope, tool budget bounded, lock irreversible.
+  - `verified_sequence_analysis.rs` (22 verified): Phase 6.3E anomaly
+    detection monotonicity, confidence max-tracking, restriction requires
+    anomaly, warmup independent of taint, high-confidence triggers
+    restriction, composite state transition with all invariants.
+  - `verified_entropy_pipeline.rs` (22 verified): End-to-end entropy
+    alert pipeline composition — millibit bounds, below-threshold no alert,
+    at-threshold detected, severity monotonic, zero-observations rejected.
+  - `verified_acis_envelope.rs` added to CI verify script (was missing).
+
+- **Formal verification: 8 new Kani modules, 108 CBMC proof harnesses, 240 unit tests (Mar 2026):**
+  - `entropy_wrapper.rs` (K86-K90): Float-to-fixed wrapper — output bounded
+    [0,8000], NaN/Infinity→0, negative→0, monotonicity, ceil≥floor.
+  - `injection_pipeline.rs` expanded to 13-stage decode pipeline (K91-K97):
+    Added DoubleUrlDecode, LeetspakeDecode, HtmlCommentStrip, PhoneticDecode,
+    EmojiDecode, RegionalIndicatorDecode. Compound decode composition tests
+    for leetspeak, HTML comments, double URL, ROT13+URL, multi-layer.
+  - `collusion_detection.rs` (K98-K102): Config NaN/Infinity rejection,
+    out-of-range validation, capacity exhaustion fail-closed, error rate
+    [0,1], denial rate half-open interval.
+  - `sort_bridge.rs` (K103-K107): Critical Kani→Verus bridge — proves
+    `sort_resolved_matches` output satisfies `is_sorted` precondition for
+    all 3-policy combinations. Sort idempotent, empty/single trivially sorted.
+  - `credential_vault.rs` (K108-K112): Consumed credential single-use,
+    epoch monotonicity, capacity bounded, fail-closed on exhaustion, valid
+    state transitions (Available→Active→Consumed, Available→Expired).
+  - `tls_spiffe.rs` (K113-K120): hex_digit exhaustive (all 256 bytes),
+    SPIFFE parse rejection (non-URI, empty domain, invalid chars, path
+    traversal), percent-decode UTF-8 integrity, PQ KEX identification.
+  - `merkle_sanity.rs` (K121-K125 unit tests): SHA-256 output 32 bytes,
+    deterministic, RFC 6962 domain separation, hex encoding 64 chars,
+    collision sanity. (Unit tests only — sha2 crate uses inline asm
+    incompatible with CBMC.)
+  - Additional CBMC proofs in `proofs.rs` (K126-K132): Capacity exhaustion
+    fail-closed, error rate bounded symbolic, error rate zero total, ROT13
+    self-inverse, expired credential not consumable, empty vault fail-closed,
+    denial rate boundary excluded. Plus K118 path traversal byte-level
+    (2^48 symbolic paths through CBMC).
+
+- **Formal verification: 4 new TLA+ specs model-checked, 14 total in CI (Mar 2026):**
+  - `NHICredentialRotation.tla`: NHI ephemeral credential rotation lifecycle
+    — no use-after-expiry, at-most-two-active during rotation, normal has
+    one active, rotation failure cleanup, consistent active during rotation.
+    11,677 states, 5 safety invariants verified.
+  - `SourceTaintContainment.tla`: Wired into CI with MC_ module and .cfg.
+    ST1 (untrusted sources taint), ST3 (privileged sinks unreachable),
+    ST4 (auto-taint without detection). 36M states, 0 errors.
+  - `IntentScopeContainment.tla`: Wired into CI. IS1 (enforcement
+    completeness — fixed invariant to check recording-time scope), IS2
+    (monotonic narrowing), IS3 (restriction subset), IS4 (atomic
+    restriction). 19M states, 0 errors.
+  - `SequenceContainment.tla`: Wired into CI. SQ2 (restriction monotonicity
+    — fixed primed variable evaluation), SQ3 (anomaly implies restriction),
+    SQ4 (warmup does not suppress taint). 2.4M states, 0 errors.
+  - Alloy Analyzer job added to formal-verification.yml CI (2 models,
+    10 assertions — previously local-only).
+
+- **Incident statement (`docs/INCIDENT_STATEMENT_20260318.md`):**
+  Detailed timeline, root cause analysis, and remediation evidence for the
+  v6.0.9 GitHub account suspension incident.
+
+### Changed
+
+- All 6 publish workflows (`publish-npm/pypi/maven/go.yml`,
+  `docker-publish.yml`, `provenance-sbom.yml`) no longer trigger on
+  `push: tags: ["v*"]`. Tag-triggered release storms eliminated.
+- `formal-verification.yml` CI: Added Alloy job, 5 new TLA+ specs in
+  matrix (14 total), updated Verus/Kani/Lean/Coq job labels to current counts.
+- `formal/tools/verify-verus.sh`: Added 7 new Verus kernels to verification
+  list (47 files total).
+- Documentation counts updated across CLAUDE.md, formal/README.md,
+  docs/FORMAL_SCOPE.md, docs/ASSURANCE_CASE.md, docs/TRUSTED_COMPUTING_BASE.md,
+  docs/SHOW_HN.md, docs/SECURITY_REVIEW.md, docs/FORMAL_VERIFICATION_PLAN.md.
+
+### Fixed
+
+- 3 TLA+ invariants corrected after TLC found genuine counterexamples:
+  - `SourceTaintContainment.tla` ST3: Fixed to check sink at action time,
+    not current state (scope can narrow after historical entries).
+  - `IntentScopeContainment.tla` IS1: Fixed to verify recording-time scope
+    (non-blocked action must have sink in initial allowed set).
+  - `SequenceContainment.tla` SQ2: Fixed primed variable evaluation in
+    LET blocks (extracted nextTaintActive/nextNewTools as local values).
+- 2 Verus proof errors fixed:
+  - `verified_refinement_completeness.rs`: Changed `nat` to `u64` for
+    exec-compatible struct fields, added overflow preconditions.
+  - `verified_intent_scope.rs`: Added `by(bit_vector)` proof hint for
+    bitmask subset property.
+- `NHICredentialRotation.tla`: Fixed TypeOK (expiry can exceed MaxTime
+  by TTL), fixed IssueInitialCredential to clean up stale rotation targets.
+
 ## [6.0.9] - 2026-03-18
 
 ### Added

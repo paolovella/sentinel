@@ -23,4 +23,4 @@ vellaveto-config = "6"
 
 MPL-2.0 — see [LICENSE-MPL-2.0](../LICENSE-MPL-2.0) in the repository root.
 
-Part of the [Vellaveto](https://github.com/vellaveto/vellaveto) project.
+Part of the [Vellaveto](https://github.com/paolovella/vellaveto) project.

@@ -151,7 +151,7 @@ update_field() {
   fi
 }
 
-REPO="https://github.com/vellaveto/vellaveto"
+REPO="https://github.com/paolovella/vellaveto"
 
 # ─── Verify login before starting ────────────────────────────────
 echo ""

@@ -1,6 +1,6 @@
 # Vellaveto Python SDK
 
-Python SDK for the [Vellaveto agent interaction firewall](https://github.com/vellaveto/vellaveto).
+Python SDK for the [Vellaveto agent interaction firewall](https://github.com/paolovella/vellaveto).
 
 ## Installation
 

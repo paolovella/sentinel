@@ -6,10 +6,10 @@
 #   vellaveto-proxy --protect vault -- ./mcp-server      # 11 policies: deny-by-default, reads allowed, writes need approval
 #
 # This file is baked into the Docker image for zero-config usage:
-#   docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
+#   docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
 #
 # Override by mounting your own config:
-#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/vellaveto/vellaveto:latest
+#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
 
 # --- Priority 300: Block credential and secret file access ---
 [[policies]]

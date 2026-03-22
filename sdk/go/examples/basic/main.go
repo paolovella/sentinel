@@ -21,7 +21,7 @@ import (
 	"os"
 	"time"
 
-	vellaveto "github.com/vellaveto/vellaveto/sdk/go"
+	vellaveto "github.com/paolovella/vellaveto/sdk/go"
 )
 
 func main() {

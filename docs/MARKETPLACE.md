@@ -173,7 +173,7 @@ az containerapp create \
   --name vellaveto-server \
   --resource-group vellaveto-rg \
   --environment vellaveto-env \
-  --image ghcr.io/vellaveto/vellaveto:6.0.0 \
+  --image ghcr.io/paolovella/vellaveto:6.0.0 \
   --target-port 3000 \
   --ingress external \
   --min-replicas 2 \
@@ -249,7 +249,7 @@ offer:
 ```bash
 # Deploy to Cloud Run (Milan region)
 gcloud run deploy vellaveto-server \
-  --image ghcr.io/vellaveto/vellaveto:6.0.0 \
+  --image ghcr.io/paolovella/vellaveto:6.0.0 \
   --platform managed \
   --region europe-west8 \
   --port 3000 \

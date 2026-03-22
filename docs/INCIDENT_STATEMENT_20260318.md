@@ -94,4 +94,4 @@ The burst of Actions runs was not intentional abuse. It was a human operator mak
 ---
 
 *Document prepared: March 19, 2026*
-*Project: Vellaveto — https://github.com/vellaveto/vellaveto*
+*Project: Vellaveto — https://github.com/paolovella/vellaveto*

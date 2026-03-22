@@ -22,19 +22,19 @@ you agree to the terms in [LICENSING.md](LICENSING.md) and [CLA.md](CLA.md).
 
 New to the project? Here are some ways to get involved:
 
-- **Good first issues** — Look for the [`good first issue`](https://github.com/vellaveto/vellaveto/labels/good%20first%20issue) label. These are self-contained tasks that don't require deep knowledge of the codebase.
+- **Good first issues** — Look for the [`good first issue`](https://github.com/paolovella/vellaveto/labels/good%20first%20issue) label. These are self-contained tasks that don't require deep knowledge of the codebase.
 - **Documentation** — Improve examples, fix typos, clarify explanations. Every docs PR is welcome.
 - **SDK examples** — Add usage examples for Python, TypeScript, Go, or Java SDKs with popular frameworks.
 - **Policy presets** — Create new policy preset templates for specific use cases (see `examples/presets/`).
 - **Security research** — Run adversarial tests against the engine and report findings. See [SECURITY.md](SECURITY.md) for responsible disclosure.
 - **Formal verification** — Extend TLA+, Lean 4, or Coq proofs for additional properties (see `formal/`).
 
-If you're unsure where to start, open a [Discussion](https://github.com/vellaveto/vellaveto/discussions) and ask.
+If you're unsure where to start, open a [Discussion](https://github.com/paolovella/vellaveto/discussions) and ask.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/vellaveto/vellaveto.git
+git clone https://github.com/paolovella/vellaveto.git
 cd vellaveto
 cargo check --workspace
 cargo test --workspace

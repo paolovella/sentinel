@@ -118,7 +118,7 @@ const MAX_AUDIT_RETENTION_DAYS_UPPER: u64 = 3650;
 pub struct VellavetoClusterSpec {
     /// Number of Vellaveto server replicas (1-10).
     pub replicas: i32,
-    /// Container image (e.g. "ghcr.io/vellaveto/vellaveto:4.0.0").
+    /// Container image (e.g. "ghcr.io/paolovella/vellaveto:4.0.0").
     pub image: String,
     /// Application version tag override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -976,7 +976,7 @@ mod tests {
     fn test_cluster_spec_validate_valid() {
         let spec = VellavetoClusterSpec {
             replicas: 3,
-            image: "ghcr.io/vellaveto/vellaveto:4.0.0".into(),
+            image: "ghcr.io/paolovella/vellaveto:4.0.0".into(),
             version: Some("4.0.0".into()),
             config: None,
             resources: None,

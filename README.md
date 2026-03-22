@@ -3,9 +3,9 @@
   <img src="docs/readme-header.png" alt="VellaVeto — Agent Interaction Firewall" width="720">
   <br><br>
   <p>
-    <a href="https://github.com/vellaveto/vellaveto/releases"><img src="https://img.shields.io/github/v/release/vellaveto/vellaveto?display_name=release" alt="Latest release"></a>
-    <a href="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-    <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/badge/stars-⭐_star_if_useful-yellow.svg?style=flat&logo=github" alt="GitHub Stars"></a>
+    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/github/v/release/paolovella/vellaveto?display_name=release" alt="Latest release"></a>
+    <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+    <a href="https://github.com/paolovella/vellaveto/stargazers"><img src="https://img.shields.io/badge/stars-⭐_star_if_useful-yellow.svg?style=flat&logo=github" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/MSRV-1.88.0-orange.svg?logo=rust" alt="MSRV 1.88.0"></a>
     <img src="https://img.shields.io/badge/tests-multi--crate-brightgreen.svg" alt="Tests across Rust, SDKs, and integration suites">
@@ -14,8 +14,8 @@
     <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-multi--tool-blueviolet.svg" alt="Multi-tool formal verification"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
-    <a href="https://github.com/vellaveto/vellaveto/actions/workflows/provenance-sbom.yml"><img src="https://img.shields.io/badge/SLSA-Level_3-green.svg" alt="SLSA Level 3"></a>
-    <a href="https://github.com/vellaveto/vellaveto/actions/workflows/codeql.yml"><img src="https://github.com/vellaveto/vellaveto/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
+    <a href="https://github.com/paolovella/vellaveto/actions/workflows/provenance-sbom.yml"><img src="https://img.shields.io/badge/SLSA-Level_3-green.svg" alt="SLSA Level 3"></a>
+    <a href="https://github.com/paolovella/vellaveto/actions/workflows/codeql.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
   </p>
   <p>
     <a href="#the-problem">The Problem</a> &middot;
@@ -119,7 +119,7 @@ Pick a protection level and go — no config file needed:
 ```bash
 # Install (pick one):
 cargo install vellaveto-proxy                 # From source (~2 min)
-# or download pre-built binary from https://github.com/vellaveto/vellaveto/releases
+# or download pre-built binary from https://github.com/paolovella/vellaveto/releases
 
 # Shield — credentials, SANDWORM defense, exfil blocking, injection/DLP
 vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
@@ -166,10 +166,10 @@ VELLAVETO_API_KEY=$(openssl rand -hex 32) vellaveto-http-proxy \
 ### Docker
 
 ```bash
-docker pull ghcr.io/vellaveto/vellaveto:latest
+docker pull ghcr.io/paolovella/vellaveto:latest
 docker run -p 3000:3000 \
   -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
-  ghcr.io/vellaveto/vellaveto:latest
+  ghcr.io/paolovella/vellaveto:latest
 ```
 
 ### Use with Claude Desktop
@@ -537,7 +537,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development rules and commit format.
 Validate your policy config in GitHub Actions:
 
 ```yaml
-- uses: vellaveto/vellaveto/.github/actions/policy-check@main
+- uses: paolovella/vellaveto/.github/actions/policy-check@main
   with:
     config: vellaveto.toml
     strict: true

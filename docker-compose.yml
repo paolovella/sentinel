@@ -19,7 +19,7 @@
 services:
   vellaveto:
     build: .
-    image: ghcr.io/vellaveto/vellaveto:${VELLAVETO_VERSION:-latest}
+    image: ghcr.io/paolovella/vellaveto:${VELLAVETO_VERSION:-latest}
     ports:
       - "3000:3000"
     environment:
@@ -56,7 +56,7 @@ services:
 
   vellaveto-proxy:
     build: .
-    image: ghcr.io/vellaveto/vellaveto:${VELLAVETO_VERSION:-latest}
+    image: ghcr.io/paolovella/vellaveto:${VELLAVETO_VERSION:-latest}
     entrypoint: ["vellaveto-http-proxy"]
     command: ["--config", "/etc/vellaveto/config.toml", "--listen", "0.0.0.0:3001"]
     ports:

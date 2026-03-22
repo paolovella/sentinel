@@ -24,4 +24,4 @@ vellaveto --config policy.toml
 
 BUSL-1.1 — free for non-production use and production deployments with <=3 nodes and <=25 endpoints. See [LICENSING.md](../LICENSING.md).
 
-Part of the [Vellaveto](https://github.com/vellaveto/vellaveto) project.
+Part of the [Vellaveto](https://github.com/paolovella/vellaveto) project.

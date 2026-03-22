@@ -53,7 +53,7 @@ jobs:
       - name: Request proxy indexing
         run: |
           VERSION="${GITHUB_REF_NAME#sdk/go/}"
-          MODULE="github.com/vellaveto/vellaveto/sdk/go"
+          MODULE="github.com/paolovella/vellaveto/sdk/go"
           echo "Requesting indexing for ${MODULE}@${VERSION}"
           curl -sf "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info" || echo "Proxy will index on first fetch"
           curl -sf "https://sum.golang.org/lookup/${MODULE}@${VERSION}" || echo "Sum DB will index on first fetch"

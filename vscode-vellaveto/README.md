@@ -1,6 +1,6 @@
 # Vellaveto Policy — VS Code Extension
 
-VS Code extension for authoring and testing [Vellaveto](https://github.com/vellaveto/vellaveto) policy files.
+VS Code extension for authoring and testing [Vellaveto](https://github.com/paolovella/vellaveto) policy files.
 
 ## Features
 

@@ -23,4 +23,4 @@ vellaveto-http-proxy = "6"
 
 BUSL-1.1 — see [LICENSE-BSL-1.1](../LICENSE-BSL-1.1) and [LICENSING.md](../LICENSING.md) in the repository root.
 
-Part of the [Vellaveto](https://github.com/vellaveto/vellaveto) project.
+Part of the [Vellaveto](https://github.com/paolovella/vellaveto) project.

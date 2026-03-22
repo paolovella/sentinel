@@ -21,12 +21,12 @@
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vellaveto/vellaveto.git",
+    "url": "https://github.com/paolovella/vellaveto.git",
     "directory": "packages/create-vellaveto"
   },
   "homepage": "https://vellaveto.online",
   "bugs": {
-    "url": "https://github.com/vellaveto/vellaveto/issues"
+    "url": "https://github.com/paolovella/vellaveto/issues"
   },
   "keywords": [
     "vellaveto",

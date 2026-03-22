@@ -6,7 +6,7 @@ replicaCount: 1
 
 # Container image configuration
 image:
-  repository: ghcr.io/vellaveto/vellaveto
+  repository: ghcr.io/paolovella/vellaveto
   pullPolicy: IfNotPresent
   # Overrides the image tag (default: Chart appVersion)
   tag: ""

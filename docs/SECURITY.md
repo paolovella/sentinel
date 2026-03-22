@@ -846,9 +846,9 @@ Always verify binaries before deployment:
 
 ```bash
 # Download binary and signature
-wget https://github.com/vellaveto/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64
-wget https://github.com/vellaveto/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sha256
-wget https://github.com/vellaveto/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sig
+wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64
+wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sha256
+wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sig
 
 # Verify checksum
 sha256sum -c vellaveto-linux-amd64.sha256
@@ -861,10 +861,10 @@ For container images:
 
 ```bash
 # Use image digest, not tag
-docker pull ghcr.io/vellaveto/vellaveto@sha256:abc123...
+docker pull ghcr.io/paolovella/vellaveto@sha256:abc123...
 
 # Verify with cosign (if signed)
-cosign verify ghcr.io/vellaveto/vellaveto:latest
+cosign verify ghcr.io/paolovella/vellaveto:latest
 ```
 
 ### MCP Server Pinning

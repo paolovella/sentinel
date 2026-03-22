@@ -27,7 +27,7 @@ runs:
           VERSION=$(curl -s https://api.github.com/repos/vellaveto/vellaveto/releases/latest | grep tag_name | cut -d '"' -f 4)
         fi
         ARCHIVE="vellaveto-${VERSION}-x86_64-linux-musl.tar.gz"
-        URL="https://github.com/vellaveto/vellaveto/releases/download/${VERSION}/${ARCHIVE}"
+        URL="https://github.com/paolovella/vellaveto/releases/download/${VERSION}/${ARCHIVE}"
         echo "Downloading Vellaveto ${VERSION}..."
         curl -sL "${URL}" -o vellaveto.tar.gz
         tar xzf vellaveto.tar.gz

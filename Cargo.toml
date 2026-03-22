@@ -26,7 +26,7 @@ members = [
 
 [workspace.package]
 license = "BUSL-1.1"
-repository = "https://github.com/vellaveto/vellaveto"
+repository = "https://github.com/paolovella/vellaveto"
 homepage = "https://vellaveto.online"
 rust-version = "1.88.0"
 keywords = ["mcp", "security", "firewall", "ai-agent", "policy"]

@@ -1,3 +1,3 @@
-module github.com/vellaveto/vellaveto/sdk/go
+module github.com/paolovella/vellaveto/sdk/go
 
 go 1.21

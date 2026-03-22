@@ -11,12 +11,12 @@
 
     <name>Vellaveto Java SDK</name>
     <description>Java client for the Vellaveto Agent Interaction Firewall</description>
-    <url>https://github.com/vellaveto/vellaveto</url>
+    <url>https://github.com/paolovella/vellaveto</url>
 
     <licenses>
         <license>
             <name>See LICENSING.md (multi-license model)</name>
-            <url>https://github.com/vellaveto/vellaveto/blob/main/LICENSING.md</url>
+            <url>https://github.com/paolovella/vellaveto/blob/main/LICENSING.md</url>
         </license>
     </licenses>
 
@@ -30,9 +30,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/vellaveto/vellaveto.git</connection>
+        <connection>scm:git:git://github.com/paolovella/vellaveto.git</connection>
         <developerConnection>scm:git:ssh://github.com:vellaveto/vellaveto.git</developerConnection>
-        <url>https://github.com/vellaveto/vellaveto/tree/main</url>
+        <url>https://github.com/paolovella/vellaveto/tree/main</url>
     </scm>
 
     <distributionManagement>

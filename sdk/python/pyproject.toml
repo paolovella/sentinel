@@ -78,10 +78,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/vellaveto/vellaveto"
-Documentation = "https://github.com/vellaveto/vellaveto#python-sdk"
-Repository = "https://github.com/vellaveto/vellaveto"
-Issues = "https://github.com/vellaveto/vellaveto/issues"
+Homepage = "https://github.com/paolovella/vellaveto"
+Documentation = "https://github.com/paolovella/vellaveto#python-sdk"
+Repository = "https://github.com/paolovella/vellaveto"
+Issues = "https://github.com/paolovella/vellaveto/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vellaveto"]

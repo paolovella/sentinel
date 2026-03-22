@@ -1,5 +1,5 @@
 # AI Training Policy for Vellaveto
-# https://github.com/vellaveto/vellaveto
+# https://github.com/paolovella/vellaveto
 #
 # In accordance with EU Directive 2019/790 (CDSM) Article 4 and
 # EU AI Act (2024/1689) Article 53, the copyright holder expressly

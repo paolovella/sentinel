@@ -1,6 +1,6 @@
 # Vellaveto Java SDK
 
-Java client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agent interaction firewall API.
+Java client for the [Vellaveto](https://github.com/paolovella/vellaveto) agent interaction firewall API.
 
 **Requires Java 11+.**
 

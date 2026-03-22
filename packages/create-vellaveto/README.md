@@ -1,6 +1,6 @@
 # create-vellaveto
 
-Interactive setup wizard for [Vellaveto](https://github.com/vellaveto/vellaveto) — the agent interaction firewall for AI tool calls.
+Interactive setup wizard for [Vellaveto](https://github.com/paolovella/vellaveto) — the agent interaction firewall for AI tool calls.
 
 ## Quick Alternative
 

@@ -15,7 +15,7 @@
 Please report vulnerabilities via one of the following channels:
 
 - **Email:** [security@vellaveto.online](mailto:security@vellaveto.online) with subject line `[SECURITY] <brief description>`
-- **GitHub Security Advisory:** [Report a vulnerability](https://github.com/vellaveto/vellaveto/security/advisories/new) (preferred)
+- **GitHub Security Advisory:** [Report a vulnerability](https://github.com/paolovella/vellaveto/security/advisories/new) (preferred)
 
 ### What to Include
 
@@ -38,8 +38,8 @@ We follow [coordinated vulnerability disclosure](https://vuls.cert.org/confluenc
 
 The following are in scope:
 
-- All code in the [vellaveto/vellaveto](https://github.com/vellaveto/vellaveto) repository
-- Published Docker images (`ghcr.io/vellaveto/vellaveto`)
+- All code in the [vellaveto/vellaveto](https://github.com/paolovella/vellaveto) repository
+- Published Docker images (`ghcr.io/paolovella/vellaveto`)
 - Published SDKs (Python, TypeScript, Go)
 
 The following are **out of scope:**
@@ -50,7 +50,7 @@ The following are **out of scope:**
 
 ## Security Advisories
 
-Published advisories will be listed at [github.com/vellaveto/vellaveto/security/advisories](https://github.com/vellaveto/vellaveto/security/advisories).
+Published advisories will be listed at [github.com/paolovella/vellaveto/security/advisories](https://github.com/paolovella/vellaveto/security/advisories).
 
 ## Security Hardening
 

@@ -9,7 +9,7 @@ Step-by-step guides for integrating Vellaveto with popular AI agent frameworks.
 vellaveto serve --config examples/presets/dev-laptop.toml --port 3000
 
 # Or with Docker
-docker run -p 3000:3000 ghcr.io/vellaveto/vellaveto:latest
+docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
 
 # Or for stdio proxy mode (no HTTP server needed)
 vellaveto-proxy --protect shield -- ./your-mcp-server

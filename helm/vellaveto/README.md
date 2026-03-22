@@ -1,6 +1,6 @@
 # Vellaveto Helm Chart
 
-Helm chart for deploying [Vellaveto](https://github.com/vellaveto/vellaveto) on Kubernetes.
+Helm chart for deploying [Vellaveto](https://github.com/paolovella/vellaveto) on Kubernetes.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ helm install vellaveto helm/vellaveto/ -f my-values.yaml
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `replicaCount` | `1` | Number of replicas |
-| `image.repository` | `ghcr.io/vellaveto/vellaveto` | Container image |
+| `image.repository` | `ghcr.io/paolovella/vellaveto` | Container image |
 | `image.tag` | `6.0.0` | Image tag |
 | `service.type` | `ClusterIP` | Service type |
 | `service.port` | `3000` | Service port |

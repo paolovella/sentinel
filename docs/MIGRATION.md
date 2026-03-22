@@ -132,14 +132,14 @@ docker stop vellaveto
 docker cp vellaveto:/etc/vellaveto/config.toml ./config-backup.toml
 
 # 3. Pull new image
-docker pull ghcr.io/vellaveto/vellaveto:2.0.0
+docker pull ghcr.io/paolovella/vellaveto:2.0.0
 
 # 4. Start with new image
 docker run -d --name vellaveto-v2 \
   -p 3000:3000 \
   -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
   -v /path/to/audit:/var/log/vellaveto \
-  ghcr.io/vellaveto/vellaveto:2.0.0
+  ghcr.io/paolovella/vellaveto:2.0.0
 
 # 5. Verify health
 curl http://localhost:3000/health
@@ -192,7 +192,7 @@ sudo systemctl stop vellaveto
 sudo cp /usr/local/bin/vellaveto /usr/local/bin/vellaveto.v1.backup
 
 # 3. Download new binary
-curl -L https://github.com/vellaveto/vellaveto/releases/download/v2.0.0/vellaveto-linux-amd64 \
+curl -L https://github.com/paolovella/vellaveto/releases/download/v2.0.0/vellaveto-linux-amd64 \
   -o /tmp/vellaveto
 
 # 4. Verify checksum
@@ -418,7 +418,7 @@ docker stop vellaveto
 docker run -d --name vellaveto \
   -p 3000:3000 \
   -v /path/to/config-backup.toml:/etc/vellaveto/config.toml:ro \
-  ghcr.io/vellaveto/vellaveto:1.0.0
+  ghcr.io/paolovella/vellaveto:1.0.0
 ```
 
 ### Kubernetes Rollback
@@ -484,7 +484,7 @@ curl http://localhost:3000/metrics \
 If you encounter issues during migration:
 
 1. Check the [troubleshooting guide](./OPERATIONS.md#troubleshooting)
-2. Search [GitHub Issues](https://github.com/vellaveto/vellaveto/issues)
+2. Search [GitHub Issues](https://github.com/paolovella/vellaveto/issues)
 3. Open a new issue with:
    - Source version
    - Target version

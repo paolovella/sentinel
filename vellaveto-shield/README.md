@@ -23,4 +23,4 @@ vellaveto-shield --passphrase-env SHIELD_KEY -- ./your-mcp-server
 
 MPL-2.0 (crate source). The compiled binary links `vellaveto-mcp` (BUSL-1.1), but the BSL Additional Use Grant permits Consumer Shield deployments on end-user devices without a commercial license.
 
-Part of the [Vellaveto](https://github.com/vellaveto/vellaveto) project.
+Part of the [Vellaveto](https://github.com/paolovella/vellaveto) project.

@@ -30,7 +30,7 @@ export function installCommand(language: SdkLanguage): string {
     case "typescript":
       return "npm install @vellaveto-sdk/typescript";
     case "go":
-      return "go get github.com/vellaveto/vellaveto/sdk/go";
+      return "go get github.com/paolovella/vellaveto/sdk/go";
     case "java":
       return "<!-- Add to pom.xml -->\n<dependency>\n  <groupId>com.vellaveto</groupId>\n  <artifactId>vellaveto-java-sdk</artifactId>\n  <version>6.0.0</version>\n</dependency>";
     case "skip":
@@ -93,7 +93,7 @@ import (
 	"fmt"
 	"log"
 
-	vellaveto "github.com/vellaveto/vellaveto/sdk/go"
+	vellaveto "github.com/paolovella/vellaveto/sdk/go"
 )
 
 func main() {

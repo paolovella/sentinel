@@ -285,7 +285,7 @@ pub async fn signup(
         .unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let next_steps = vec![
-        "1. Install an SDK: pip install vellaveto / npm install @vellaveto/sdk / go get github.com/vellaveto/sdk".to_string(),
+        "1. Install an SDK: pip install vellaveto / npm install @vellaveto/sdk / go get github.com/paolovella/sdk".to_string(),
         format!(
             "2. Configure: VELLAVETO_URL={} VELLAVETO_API_KEY=<your-key> VELLAVETO_TENANT_ID={}",
             server_url, tenant_id

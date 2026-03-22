@@ -1,6 +1,6 @@
 # Terraform Provider for Vellaveto
 
-Terraform provider for managing [Vellaveto](https://github.com/vellaveto/vellaveto) policies and configuration as code.
+Terraform provider for managing [Vellaveto](https://github.com/paolovella/vellaveto) policies and configuration as code.
 
 ## Installation
 

@@ -26,4 +26,4 @@ use vellaveto_canary::{create_canary, verify_canary};
 
 Apache-2.0 — see [LICENSE-APACHE-2.0](../LICENSE-APACHE-2.0) in the repository root.
 
-Part of the [Vellaveto](https://github.com/vellaveto/vellaveto) project.
+Part of the [Vellaveto](https://github.com/paolovella/vellaveto) project.

@@ -30,7 +30,7 @@ import (
 	"strings"
 	"time"
 
-	vellaveto "github.com/vellaveto/vellaveto/sdk/go"
+	vellaveto "github.com/paolovella/vellaveto/sdk/go"
 )
 
 // vellavetoMiddleware wraps an http.Handler and evaluates Vellaveto policies

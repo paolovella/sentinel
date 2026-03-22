@@ -30,10 +30,10 @@ info:
   version: 6.0.9
   license:
     name: "See LICENSING.md (multi-license model)"
-    url: https://github.com/vellaveto/vellaveto/blob/main/LICENSING.md
+    url: https://github.com/paolovella/vellaveto/blob/main/LICENSING.md
   contact:
     name: Vellaveto
-    url: https://github.com/vellaveto/vellaveto
+    url: https://github.com/paolovella/vellaveto
 
 servers:
   - url: http://localhost:3000

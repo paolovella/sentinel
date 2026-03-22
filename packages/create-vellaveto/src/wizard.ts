@@ -21,7 +21,7 @@ import { auditStep } from "./steps/audit.js";
 import { complianceStep } from "./steps/compliance.js";
 import { sdkStep } from "./steps/sdk.js";
 
-const REPO_URL = "https://github.com/vellaveto/vellaveto.git";
+const REPO_URL = "https://github.com/paolovella/vellaveto.git";
 
 function createDefaultState(): WizardState {
   return {
@@ -232,7 +232,7 @@ function nextSteps(state: WizardState, absDir: string): string {
       );
       lines.push(`  kubectl apply -f ${absDir}/vellaveto-configmap.yaml`);
       lines.push(
-        `  helm install vellaveto oci://ghcr.io/vellaveto/vellaveto/chart \\`,
+        `  helm install vellaveto oci://ghcr.io/paolovella/vellaveto/chart \\`,
       );
       lines.push(
         `    -f ${absDir}/vellaveto-values.yaml`,
@@ -253,7 +253,7 @@ function nextSteps(state: WizardState, absDir: string): string {
   }
 
   lines.push("");
-  lines.push(pc.dim("Documentation: https://github.com/vellaveto/vellaveto"));
+  lines.push(pc.dim("Documentation: https://github.com/paolovella/vellaveto"));
 
   return lines.join("\n");
 }

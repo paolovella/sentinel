@@ -1,13 +1,13 @@
 # Vellaveto Go SDK
 
-Go client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agent interaction firewall API.
+Go client for the [Vellaveto](https://github.com/paolovella/vellaveto) agent interaction firewall API.
 
 **Zero dependencies** — uses only the Go standard library.
 
 ## Installation
 
 ```bash
-go get github.com/vellaveto/vellaveto/sdk/go
+go get github.com/paolovella/vellaveto/sdk/go
 ```
 
 ## Quick Start
@@ -20,7 +20,7 @@ import (
     "fmt"
     "log"
 
-    vellaveto "github.com/vellaveto/vellaveto/sdk/go"
+    vellaveto "github.com/paolovella/vellaveto/sdk/go"
 )
 
 func main() {

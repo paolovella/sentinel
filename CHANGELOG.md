@@ -3467,11 +3467,11 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
-[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.1...HEAD
-[6.0.1]: https://github.com/vellaveto/vellaveto/compare/v6.0.0...v6.0.1
-[6.0.0]: https://github.com/vellaveto/vellaveto/compare/v3.0.0...v6.0.0
-[3.0.0]: https://github.com/vellaveto/vellaveto/compare/v2.2.1...v3.0.0
-[2.2.1]: https://github.com/vellaveto/vellaveto/compare/v2.0.0...v2.2.1
-[2.0.0]: https://github.com/vellaveto/vellaveto/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/vellaveto/vellaveto/compare/v0.1.0...v1.0.0
-[0.1.0]: https://github.com/vellaveto/vellaveto/releases/tag/v0.1.0
+[Unreleased]: https://github.com/paolovella/vellaveto/compare/v6.0.1...HEAD
+[6.0.1]: https://github.com/paolovella/vellaveto/compare/v6.0.0...v6.0.1
+[6.0.0]: https://github.com/paolovella/vellaveto/compare/v3.0.0...v6.0.0
+[3.0.0]: https://github.com/paolovella/vellaveto/compare/v2.2.1...v3.0.0
+[2.2.1]: https://github.com/paolovella/vellaveto/compare/v2.0.0...v2.2.1
+[2.0.0]: https://github.com/paolovella/vellaveto/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/paolovella/vellaveto/compare/v0.1.0...v1.0.0
+[0.1.0]: https://github.com/paolovella/vellaveto/releases/tag/v0.1.0

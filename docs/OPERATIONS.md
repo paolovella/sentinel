@@ -645,7 +645,7 @@ echo "Backup completed: $BACKUP_DIR"
 /usr/local/bin/vellaveto-backup.sh
 
 # 2. Download new version
-wget https://github.com/vellaveto/vellaveto/releases/download/v1.1.0/vellaveto-linux-amd64
+wget https://github.com/paolovella/vellaveto/releases/download/v1.1.0/vellaveto-linux-amd64
 
 # 3. Verify checksum
 sha256sum -c vellaveto-linux-amd64.sha256

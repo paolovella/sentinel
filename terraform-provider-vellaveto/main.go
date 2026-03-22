@@ -10,7 +10,7 @@ import (
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/vellaveto/vellaveto/terraform-provider-vellaveto/internal/provider"
+	"github.com/paolovella/vellaveto/terraform-provider-vellaveto/internal/provider"
 )
 
 var version = "dev"

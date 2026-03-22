@@ -25,7 +25,7 @@ This guide helps System Integrators deploy Vellaveto for enterprise pilots. Vell
 
 ```bash
 # 1. Pull the image
-docker pull ghcr.io/vellaveto/vellaveto:latest
+docker pull ghcr.io/paolovella/vellaveto:latest
 
 # 2. Create a minimal config
 cat > vellaveto.toml <<'EOF'
@@ -53,7 +53,7 @@ docker run -d \
   --name vellaveto \
   -p 3000:3000 \
   -v $(pwd)/vellaveto.toml:/etc/vellaveto/vellaveto.toml \
-  ghcr.io/vellaveto/vellaveto:latest
+  ghcr.io/paolovella/vellaveto:latest
 
 # 4. Verify
 curl http://localhost:3000/health
@@ -179,7 +179,7 @@ implementation 'com.vellaveto:vellaveto-sdk:6.0.0'
 npm install @vellaveto-sdk/typescript
 
 # Go
-go get github.com/vellaveto/vellaveto/sdk/go
+go get github.com/paolovella/vellaveto/sdk/go
 ```
 
 ### Terraform

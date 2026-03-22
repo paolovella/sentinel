@@ -516,7 +516,7 @@ jobs:
 
       - name: Request Go proxy indexing
         run: |
-          MODULE="github.com/vellaveto/vellaveto/sdk/go"
+          MODULE="github.com/paolovella/vellaveto/sdk/go"
           VERSION="v${{ inputs.version }}"
           curl -sf "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info" || true
           curl -sf "https://sum.golang.org/lookup/${MODULE}@${VERSION}" || true

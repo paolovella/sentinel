@@ -69,7 +69,7 @@ impl ZkBatchProver {
         }
 
         let circuit = AuditChainCircuit::<Fr>::template(max_batch_size);
-        let mut rng = ark_std::rand::rng();
+        let mut rng = rand_core_06::OsRng;
 
         let (pk, vk) = Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng)
             .map_err(|e| ZkError::Key(format!("Groth16 setup failed: {}", e)))?;
@@ -198,7 +198,7 @@ impl ZkBatchProver {
         .map_err(|e| ZkError::Proof(format!("Circuit construction failed: {}", e)))?;
 
         // Generate proof
-        let mut rng = ark_std::rand::rng();
+        let mut rng = rand_core_06::OsRng;
         let proof = Groth16::<Bn254>::prove(&self.proving_key, circuit, &mut rng)
             .map_err(|e| ZkError::Proof(format!("Groth16 proving failed: {}", e)))?;
 

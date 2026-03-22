@@ -697,7 +697,7 @@ use base64::Engine;
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
-    use rand::rngs::OsRng;
+    use rand_core_06::OsRng;
 
     fn test_keypair() -> (SigningKey, VerifyingKey) {
         let signing_key = SigningKey::generate(&mut OsRng);

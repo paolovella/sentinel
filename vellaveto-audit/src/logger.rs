@@ -14,7 +14,7 @@ use crate::redaction::{
 use crate::types::{AuditEntry, AuditError, RedactionLevel};
 use chrono::Utc;
 use ed25519_dalek::SigningKey;
-use rand::rngs::OsRng;
+use rand_core_06::OsRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;

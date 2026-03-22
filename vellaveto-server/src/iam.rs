@@ -22,9 +22,8 @@ use jsonwebtoken::{
     jwk::{JwkSet, KeyAlgorithm},
     Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
-use password_hash::{PasswordHash, PasswordVerifier};
+use argon2::{PasswordHash, PasswordVerifier};
 use percent_encoding::percent_decode_str;
-use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::{header as reqwest_header, Client};
 use ring::{digest, signature};
@@ -2095,7 +2094,7 @@ struct TokenResponse {
 
 fn generate_code_verifier() -> String {
     let mut buf = [0u8; 32];
-    OsRng.fill_bytes(&mut buf);
+    rand::rng().fill_bytes(&mut buf);
     URL_SAFE_NO_PAD.encode(buf)
 }
 
@@ -3133,9 +3132,9 @@ mod tests {
     // ═══════════════════════════════════════════════════════════════
 
     fn make_argon2_hash(secret: &str) -> String {
-        use argon2::Argon2;
-        use password_hash::rand_core::OsRng;
-        use password_hash::{PasswordHasher, SaltString};
+        use argon2::password_hash::rand_core::OsRng;
+        use argon2::password_hash::SaltString;
+        use argon2::{Argon2, PasswordHasher};
         let salt = SaltString::generate(&mut OsRng);
         Argon2::default()
             .hash_password(secret.as_bytes(), &salt)

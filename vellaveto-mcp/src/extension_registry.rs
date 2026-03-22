@@ -655,7 +655,7 @@ mod tests {
     #[test]
     fn test_signature_required_invalid_signature() {
         use ed25519_dalek::SigningKey;
-        use rand::rngs::OsRng;
+        use rand_core_06::OsRng;
 
         let signing_key = SigningKey::generate(&mut OsRng);
         let pub_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
@@ -679,7 +679,7 @@ mod tests {
     #[test]
     fn test_signature_required_valid_signature() {
         use ed25519_dalek::{Signer, SigningKey};
-        use rand::rngs::OsRng;
+        use rand_core_06::OsRng;
 
         let signing_key = SigningKey::generate(&mut OsRng);
         let pub_key_hex = hex::encode(signing_key.verifying_key().as_bytes());

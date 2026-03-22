@@ -23,7 +23,6 @@
 // - Org name max 200 chars, reject control/format characters
 
 use axum::{extract::State, http::StatusCode, Json};
-use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
@@ -333,7 +332,7 @@ fn generate_tenant_id(org_name: &str) -> String {
     // Previously 6-char (24-bit) which gave ~50% collision at ~4096 signups
     // with the same slug. 64-bit gives collision resistance past 2^32 signups.
     let mut suffix = [0u8; 8];
-    OsRng.fill_bytes(&mut suffix);
+    rand::rng().fill_bytes(&mut suffix);
     let hex_suffix = hex::encode(suffix);
 
     format!("{truncated}-{hex_suffix}")
@@ -342,7 +341,7 @@ fn generate_tenant_id(org_name: &str) -> String {
 /// Generate a cryptographically random API key.
 fn generate_api_key() -> String {
     let mut bytes = [0u8; API_KEY_RANDOM_LEN];
-    OsRng.fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     format!("{}{}", API_KEY_PREFIX, hex::encode(bytes))
 }
 

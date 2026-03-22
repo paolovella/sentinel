@@ -55,6 +55,7 @@ ed25519-dalek = { workspace = true }
 subtle = "2"
 chacha20poly1305 = "0.10"
 rand = { workspace = true }
+rand_core_06 = { workspace = true }
 getrandom = "0.4"
 semver = "1.0"
 

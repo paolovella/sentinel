@@ -951,7 +951,7 @@ fn dpop_htu_match(htu: &str, request_uri: &str) -> bool {
 /// Generate a cryptographically random nonce string.
 fn generate_nonce() -> String {
     let mut bytes = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
+    rand::RngCore::fill_bytes(&mut rand::rng(), &mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

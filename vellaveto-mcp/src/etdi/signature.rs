@@ -287,7 +287,7 @@ impl ToolSigner {
 
     /// Generate a new random signing key with an optional signer identity (e.g., SPIFFE ID).
     pub fn generate_with_identity(signer_identity: Option<String>) -> Result<Self, EtdiError> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand_core_06::OsRng;
         let signing_key = SigningKey::generate(&mut rng);
         Ok(Self::new(signing_key, signer_identity))
     }
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn test_spiffe_trust() {
         let signer = ToolSigner::new(
-            SigningKey::generate(&mut rand::thread_rng()),
+            SigningKey::generate(&mut rand_core_06::OsRng),
             Some("spiffe://example.org/tool-provider".to_string()),
         );
         let schema = json!({"type": "object"});

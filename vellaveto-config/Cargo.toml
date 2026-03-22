@@ -26,3 +26,4 @@ url = { workspace = true }    # Phase 15: URL validation for observability endpo
 
 [dev-dependencies]
 tempfile = "3.27"
+rand_core_06 = { workspace = true }

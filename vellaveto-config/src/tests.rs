@@ -635,7 +635,7 @@ fn test_manifest_tool_without_schema() {
 
 #[test]
 fn test_manifest_sign_and_verify_roundtrip() {
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
     let vk_hex = hex::encode(signing_key.verifying_key().as_bytes());
 
     let response = make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
@@ -650,8 +650,8 @@ fn test_manifest_sign_and_verify_roundtrip() {
 
 #[test]
 fn test_manifest_verify_with_wrong_key_fails() {
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
-    let other_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
+    let other_key = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
     let other_vk_hex = hex::encode(other_key.verifying_key().as_bytes());
 
     let response = make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
@@ -663,7 +663,7 @@ fn test_manifest_verify_with_wrong_key_fails() {
 
 #[test]
 fn test_manifest_tampered_manifest_fails() {
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
     let vk_hex = hex::encode(signing_key.verifying_key().as_bytes());
 
     let response = make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
@@ -684,7 +684,7 @@ fn test_manifest_tampered_manifest_fails() {
 
 #[test]
 fn test_manifest_unsigned_when_required_fails() {
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
     let vk_hex = hex::encode(signing_key.verifying_key().as_bytes());
 
     let config = ManifestConfig {
@@ -778,7 +778,7 @@ fn test_manifest_load_save_roundtrip() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("manifest.json");
 
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
     let response = make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
     let mut manifest = ToolManifest::from_tools_list(&response).unwrap();
     manifest.sign(&signing_key);
@@ -807,8 +807,8 @@ fn test_manifest_backward_compat_v1() {
 
 #[test]
 fn test_manifest_verify_signature_any() {
-    let key1 = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
-    let key2 = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+    let key1 = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
+    let key2 = ed25519_dalek::SigningKey::generate(&mut rand_core_06::OsRng);
     let vk1 = hex::encode(key1.verifying_key().as_bytes());
     let vk2 = hex::encode(key2.verifying_key().as_bytes());
 

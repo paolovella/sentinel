@@ -24,6 +24,7 @@ hex = { workspace = true }
 tracing = { workspace = true }
 ed25519-dalek = { workspace = true }
 rand = { workspace = true }
+rand_core_06 = { workspace = true }
 serde_json_canonicalizer = "0.3"
 regex = { workspace = true }
 unicode-normalization = { workspace = true }

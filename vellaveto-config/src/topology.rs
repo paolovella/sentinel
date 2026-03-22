@@ -29,7 +29,7 @@ pub const MAX_CONSECUTIVE_FAILURES: u32 = 100;
 ///
 /// When enabled, the server periodically probes connected MCP servers
 /// to build a live topology graph (servers → tools → resources).
-/// The graph is used by [`TopologyGuard`](vellaveto_discovery::guard::TopologyGuard)
+/// The graph is used by `TopologyGuard` (from `vellaveto-discovery`)
 /// to pre-filter tool calls before policy evaluation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]

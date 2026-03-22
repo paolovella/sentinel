@@ -21,7 +21,7 @@
 //! Reference: MCP 2025-11-25 Security Best Practices
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use rand::rngs::OsRng;
+use rand_core_06::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -171,7 +171,7 @@ impl SignedAgentMessage {
         }
 
         let mut nonce = [0u8; 32];
-        getrandom::getrandom(&mut nonce).map_err(|_| MessageError::RandomGeneratorFailed)?;
+        getrandom::fill(&mut nonce).map_err(|_| MessageError::RandomGeneratorFailed)?;
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -827,7 +827,7 @@ mod tests {
     fn test_verify_calls_validate() {
         // Verify that verify() rejects a message with dangerous chars in sender
         // BEFORE attempting signature verification.
-        let key = SigningKey::generate(&mut rand::rngs::OsRng);
+        let key = SigningKey::generate(&mut rand_core_06::OsRng);
         let pubkey = key.verifying_key();
         let msg = SignedAgentMessage {
             sender: "agent\x00evil".to_string(),
@@ -836,7 +836,7 @@ mod tests {
             signature: [0u8; 64],
             nonce: {
                 let mut n = [0u8; 32];
-                getrandom::getrandom(&mut n).unwrap();
+                getrandom::fill(&mut n).unwrap();
                 n
             },
             timestamp: std::time::SystemTime::now()

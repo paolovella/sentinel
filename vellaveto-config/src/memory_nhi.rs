@@ -728,7 +728,7 @@ pub struct VerificationConfig {
     #[serde(default)]
     pub did_plc_enabled: bool,
 
-    /// PLC directory URL for DID resolution. Default: "https://plc.directory".
+    /// PLC directory URL for DID resolution. Default: `<https://plc.directory>`.
     #[serde(default = "default_plc_directory_url")]
     pub plc_directory_url: String,
 

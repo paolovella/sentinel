@@ -584,7 +584,7 @@ impl SecureTaskManager {
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
-        getrandom::getrandom(&mut nonce_bytes)
+        getrandom::fill(&mut nonce_bytes)
             .map_err(|e| TaskSecurityError::EncryptionFailed(e.to_string()))?;
         let nonce = Nonce::from_slice(&nonce_bytes);
 
@@ -634,7 +634,7 @@ impl SecureTaskManager {
         mac.update(b"|resume|");
         // Add random component for uniqueness
         let mut random = [0u8; 16];
-        getrandom::getrandom(&mut random)
+        getrandom::fill(&mut random)
             .map_err(|e| TaskSecurityError::EncryptionFailed(format!("RNG failed: {e}")))?;
         mac.update(&random);
         Ok(hex::encode(mac.finalize().into_bytes()))
@@ -775,8 +775,8 @@ mod tests {
     fn make_keys() -> ([u8; 32], [u8; 32]) {
         let mut enc_key = [0u8; 32];
         let mut hmac_key = [0u8; 32];
-        getrandom::getrandom(&mut enc_key).unwrap();
-        getrandom::getrandom(&mut hmac_key).unwrap();
+        getrandom::fill(&mut enc_key).unwrap();
+        getrandom::fill(&mut hmac_key).unwrap();
         (enc_key, hmac_key)
     }
 
@@ -916,7 +916,7 @@ mod tests {
     #[tokio::test]
     async fn test_checkpoint_creation_and_verification() {
         let (enc_key, hmac_key) = make_keys();
-        let signing_key = SigningKey::generate(&mut rand::thread_rng());
+        let signing_key = SigningKey::generate(&mut rand_core_06::OsRng);
 
         let manager = SecureTaskManager::new(enc_key, hmac_key)
             .unwrap()
@@ -937,7 +937,7 @@ mod tests {
     #[tokio::test]
     async fn test_tampered_checkpoint_fails_verification() {
         let (enc_key, hmac_key) = make_keys();
-        let signing_key = SigningKey::generate(&mut rand::thread_rng());
+        let signing_key = SigningKey::generate(&mut rand_core_06::OsRng);
 
         let manager = SecureTaskManager::new(enc_key, hmac_key)
             .unwrap()

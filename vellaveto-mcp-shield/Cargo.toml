@@ -34,4 +34,4 @@ ed25519-dalek = { workspace = true }
 zk-audit = ["vellaveto-audit/zk-audit"]
 
 [dev-dependencies]
-tempfile = "3.26"
+tempfile = "3.27"

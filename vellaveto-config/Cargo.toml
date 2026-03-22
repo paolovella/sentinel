@@ -25,4 +25,4 @@ regex = { workspace = true }  # FIND-002: Validate DLP patterns at config load t
 url = { workspace = true }    # Phase 15: URL validation for observability endpoints
 
 [dev-dependencies]
-tempfile = "3.26"
+tempfile = "3.27"

@@ -38,5 +38,5 @@ unicode-normalization = { workspace = true, optional = true }
 deadpool-redis = { version = "0.23", features = ["script", "connection-manager"], optional = true }
 
 [dev-dependencies]
-tempfile = "3.26"
+tempfile = "3.27"
 toml = { workspace = true }

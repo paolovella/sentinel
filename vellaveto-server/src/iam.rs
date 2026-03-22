@@ -7,6 +7,7 @@
 // Change Date: Three years from the date of publication of this version.
 // Change License: MPL-2.0
 
+use argon2::{PasswordHash, PasswordVerifier};
 use axum::{
     extract::{Form, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -22,7 +23,6 @@ use jsonwebtoken::{
     jwk::{JwkSet, KeyAlgorithm},
     Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
-use argon2::{PasswordHash, PasswordVerifier};
 use percent_encoding::percent_decode_str;
 use rand::RngCore;
 use reqwest::{header as reqwest_header, Client};

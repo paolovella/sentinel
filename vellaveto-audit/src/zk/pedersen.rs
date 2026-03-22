@@ -62,7 +62,7 @@ impl PedersenCommitter {
     /// ## Blinding Factor (GAP-F04)
     ///
     /// The blinding factor `r` is generated using `Scalar::random()` backed by
-    /// the OS CSPRNG (`rand::thread_rng()`). It provides information-theoretic
+    /// the OS CSPRNG (`rand::rng()`). It provides information-theoretic
     /// hiding: without `r`, an observer cannot determine the committed value `m`
     /// even with unlimited computational power, because every commitment point
     /// maps to every possible message under some blinding factor.
@@ -76,7 +76,7 @@ impl PedersenCommitter {
         let entry_scalar = Scalar::from_bytes_mod_order(*entry_hash);
 
         // Generate random blinding factor
-        let blinding = Scalar::random(&mut rand::thread_rng());
+        let blinding = Scalar::random(&mut rand::rng());
 
         // C = entry_hash * G + blinding * H
         let commitment = entry_scalar * RISTRETTO_BASEPOINT_POINT + blinding * self.h;

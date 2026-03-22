@@ -365,12 +365,12 @@ impl CredentialVault {
 
     /// Generate a local blind credential for self-replenishment.
     ///
-    /// Fills 32-byte credential and 64-byte signature from `rand::thread_rng()`.
+    /// Fills 32-byte credential and 64-byte signature from `rand::rng()`.
     /// These are locally generated (not from a blind signature issuer), so
     /// `provider_key_id` is set to `"self-generated"`.
     pub fn generate_local_credential(epoch: u64) -> BlindCredential {
         use rand::RngCore;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let mut credential = vec![0u8; 32];
         rng.fill_bytes(&mut credential);

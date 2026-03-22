@@ -67,7 +67,7 @@ impl EncryptedAuditStore {
             Self::read_salt(&path)?
         } else {
             let mut salt = [0u8; SALT_LEN];
-            rand::thread_rng().fill_bytes(&mut salt);
+            rand::rng().fill_bytes(&mut salt);
             // Write header: version + salt
             let mut header = vec![FORMAT_VERSION];
             header.extend_from_slice(&salt);
@@ -120,7 +120,7 @@ impl EncryptedAuditStore {
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, ShieldError> {
         let cipher = XChaCha20Poly1305::new((&self.key).into());
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = XNonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher

@@ -77,7 +77,7 @@ impl QuerySanitizer {
             // a sequential counter so placeholders cannot be guessed and
             // probed as a desanitization oracle.
             let placeholder = loop {
-                let token: u64 = rand::thread_rng().gen();
+                let token: u64 = rand::rng().random();
                 let candidate = format!("[PII_{}_{:016X}]", m.category.to_uppercase(), token);
                 if !mappings.contains_key(&candidate) {
                     break candidate;

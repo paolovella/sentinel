@@ -69,7 +69,7 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 rand_core_06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
 hex = "0.4"
-rand = "0.9"
+rand = "0.10"
 regex = "1"
 unicode-normalization = "0.1"
 percent-encoding = "2.3"

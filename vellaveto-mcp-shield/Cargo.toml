@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-mcp-shield"
-version = "6.1.0"
+version = "6.1.1"
 description = "Consumer shield: bidirectional PII sanitization, session isolation, encrypted local audit"
 edition = "2021"
 license = "MPL-2.0"

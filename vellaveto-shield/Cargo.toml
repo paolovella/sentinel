@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-shield"
-version = "6.1.0"
+version = "6.1.1"
 description = "Consumer AI shield: bidirectional PII sanitization with encrypted local audit"
 edition = "2021"
 license = "MPL-2.0"

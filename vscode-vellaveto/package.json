@@ -2,7 +2,7 @@
   "name": "vellaveto-policy",
   "displayName": "Vellaveto Policy",
   "description": "Policy validation, completions, and simulator for the Vellaveto agent interaction firewall",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "publisher": "vellaveto",
   "icon": "icon.png",
   "license": "SEE LICENSE IN LICENSE",

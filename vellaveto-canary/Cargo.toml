@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-canary"
-version = "6.1.0"
+version = "6.1.1"
 description = "Warrant canary creation and cryptographic verification"
 edition = "2021"
 license = "Apache-2.0"

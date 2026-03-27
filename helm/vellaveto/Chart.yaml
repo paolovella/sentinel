@@ -2,8 +2,8 @@ apiVersion: v2
 name: vellaveto
 description: Agent Interaction Firewall — runtime boundary enforcement for AI agent tool calls
 type: application
-version: 6.1.0
-appVersion: "6.1.0"
+version: 6.1.1
+appVersion: "6.1.1"
 
 keywords:
   - mcp

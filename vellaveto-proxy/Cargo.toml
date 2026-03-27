@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-proxy"
-version = "6.1.0"
+version = "6.1.1"
 description = "MCP stdio proxy with built-in security presets — zero config needed"
 edition = "2021"
 license = "MPL-2.0"

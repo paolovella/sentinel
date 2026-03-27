@@ -1,7 +1,7 @@
 {
   "name": "vellaveto-site",
   "type": "module",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "astro dev",

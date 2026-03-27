@@ -220,15 +220,21 @@ InvariantD5_TerminalIsolation ==
 (**************************************************************************)
 (* DL1: Delegation chains eventually terminate.                           *)
 (*                                                                        *)
-(* Under weak fairness, if a token with depth > 0 exists, eventually      *)
-(* either it gets delegated (reducing depth) or no further delegation     *)
-(* happens (system quiesces). The depth is bounded and strictly           *)
-(* decreasing, so infinite delegation from a single chain is impossible.  *)
+(* Under weak fairness, if a delegatable token exists and the system has  *)
+(* capacity for new tokens, eventually either a chain reaches depth=0     *)
+(* (terminal) or the system exhausts its token capacity.                  *)
 (*                                                                        *)
-(* Formulated: if tokens exist, eventually some token has depth=0.        *)
-(* Depth is bounded and strictly decreasing, so chains are finite.        *)
+(* The guard (nextId <= MaxTokens) is necessary because this is a         *)
+(* bounded model: tokens are never removed, so slots can fill with        *)
+(* non-terminal tokens before any chain completes.  In an unbounded       *)
+(* system the second disjunct is unreachable and the property reduces     *)
+(* to pure chain termination.                                             *)
+(*                                                                        *)
+(* Combined with D1 (monotonic depth) and D2 (depth bounded), this       *)
+(* proves all delegation chains are finite.                               *)
 (**************************************************************************)
 LivenessDL1_ChainTermination ==
-    tokens # {} ~> (\E t \in tokens : t.depth = 0)
+    (\E t \in tokens : t.depth > 0 /\ nextId <= MaxTokens) ~>
+    ((\E t \in tokens : t.depth = 0) \/ nextId > MaxTokens)
 
 =========================================================================

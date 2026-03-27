@@ -298,7 +298,7 @@ jobs:
       - name: Build and publish
         if: steps.check.outputs.status == 'new'
         run: |
-          pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
+          python -m pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
           cd sdk/python && python -m build
 
       - name: Upload to PyPI

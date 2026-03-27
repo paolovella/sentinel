@@ -285,11 +285,13 @@ jobs:
       - name: Check if version already published
         id: check
         run: |
-          pip install requests 2>/dev/null
           STATUS=$(python3 -c "
-          import requests, sys
-          r = requests.get('https://pypi.org/pypi/vellaveto-sdk/${{ inputs.version }}/json')
-          print('exists' if r.status_code == 200 else 'new')
+          import urllib.request, urllib.error, sys
+          try:
+              urllib.request.urlopen('https://pypi.org/pypi/vellaveto-sdk/${{ inputs.version }}/json')
+              print('exists')
+          except urllib.error.HTTPError:
+              print('new')
           ")
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 

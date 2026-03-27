@@ -95,8 +95,8 @@ jobs:
       - name: Download TLA+ tools
         run: |
           set -euo pipefail
-          TLA_VERSION="v1.8.0"
-          TLA_SHA256="a89d5ef05d1abddab6acfda1dbace14e2e45e7960527ac186dd19c170a955080"
+          TLA_VERSION="v1.7.4"
+          TLA_SHA256="936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
           mkdir -p formal/tla
           curl -fsSL --retry 3 --retry-delay 2 -o formal/tla/tla2tools.jar \
             "https://github.com/tlaplus/tlaplus/releases/download/${TLA_VERSION}/tla2tools.jar"

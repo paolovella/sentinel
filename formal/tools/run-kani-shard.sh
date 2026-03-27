@@ -106,7 +106,27 @@ if [ -n "${KANI_SOLVER:-}" ]; then
     KANI_ARGS+=(--solver "$KANI_SOLVER")
 fi
 
+# Per-harness timeout (default 10 minutes). Override with KANI_HARNESS_TIMEOUT.
+HARNESS_TIMEOUT="${KANI_HARNESS_TIMEOUT:-600}"
+
+FAILED_HARNESSES=()
 for harness in "${SELECTED_HARNESSES[@]}"; do
-    echo "Verifying harness: $harness"
-    cargo kani --manifest-path "$KANI_MANIFEST" "${KANI_ARGS[@]}" --harness "$harness"
+    echo "Verifying harness: $harness (timeout: ${HARNESS_TIMEOUT}s)"
+    if ! timeout "${HARNESS_TIMEOUT}" \
+        cargo kani --manifest-path "$KANI_MANIFEST" "${KANI_ARGS[@]}" --harness "$harness"; then
+        exit_code=$?
+        if [ "$exit_code" -eq 124 ]; then
+            echo "TIMEOUT: harness $harness exceeded ${HARNESS_TIMEOUT}s limit" >&2
+        else
+            echo "FAIL: harness $harness exited with code $exit_code" >&2
+        fi
+        FAILED_HARNESSES+=("$harness")
+    fi
 done
+
+if [ "${#FAILED_HARNESSES[@]}" -gt 0 ]; then
+    echo ""
+    echo "=== FAILED HARNESSES (${#FAILED_HARNESSES[@]}) ==="
+    printf '  %s\n' "${FAILED_HARNESSES[@]}"
+    exit 1
+fi

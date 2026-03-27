@@ -112,9 +112,13 @@ HARNESS_TIMEOUT="${KANI_HARNESS_TIMEOUT:-600}"
 FAILED_HARNESSES=()
 for harness in "${SELECTED_HARNESSES[@]}"; do
     echo "Verifying harness: $harness (timeout: ${HARNESS_TIMEOUT}s)"
-    if ! timeout "${HARNESS_TIMEOUT}" \
-        cargo kani --manifest-path "$KANI_MANIFEST" "${KANI_ARGS[@]}" --harness "$harness"; then
-        exit_code=$?
+    # Run with timeout; capture exit code before the `if` negates it.
+    set +e
+    timeout "${HARNESS_TIMEOUT}" \
+        cargo kani --manifest-path "$KANI_MANIFEST" "${KANI_ARGS[@]}" --harness "$harness"
+    exit_code=$?
+    set -e
+    if [ "$exit_code" -ne 0 ]; then
         if [ "$exit_code" -eq 124 ]; then
             echo "TIMEOUT: harness $harness exceeded ${HARNESS_TIMEOUT}s limit" >&2
         else

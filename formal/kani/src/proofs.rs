@@ -885,6 +885,8 @@ fn proof_extract_tail_multibyte_boundary() {
 
     // "A😀B" = [0x41, 0xF0, 0x9F, 0x98, 0x80, 0x42] — 6 bytes
     let value: [u8; 6] = [0x41, 0xF0, 0x9F, 0x98, 0x80, 0x42];
+    // Known UTF-8 char boundaries in this string: 0 (A), 1 (😀, 4-byte), 5 (B), 6 (end)
+    const VALID_STARTS: [usize; 4] = [0, 1, 5, 6];
 
     let max_size: usize = kani::any();
     kani::assume(max_size >= 1 && max_size <= 6);
@@ -903,12 +905,15 @@ fn proof_extract_tail_multibyte_boundary() {
         );
     }
 
-    // The extracted tail must be valid UTF-8
-    let tail = &value[start..end];
-    assert!(
-        std::str::from_utf8(tail).is_ok(),
-        "K23 violated: extracted tail is not valid UTF-8"
-    );
+    // The extracted tail must start at a known UTF-8 character boundary.
+    // Since the input is a fixed valid UTF-8 string, starting at a char
+    // boundary guarantees the tail is valid UTF-8.
+    // (Avoids std::str::from_utf8 which explodes CBMC's state space.)
+    let valid = VALID_STARTS[0] == start
+        || VALID_STARTS[1] == start
+        || VALID_STARTS[2] == start
+        || VALID_STARTS[3] == start;
+    assert!(valid, "K23 violated: start not at a known char boundary");
 }
 
 // =========================================================================

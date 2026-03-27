@@ -341,7 +341,7 @@ jobs:
         id: check
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://repo1.maven.org/maven2/io/github/vellaveto/vellaveto-java-sdk/${{ inputs.version }}/vellaveto-java-sdk-${{ inputs.version }}.pom")
+            "https://repo1.maven.org/maven2/io/github/paolovella/vellaveto-java-sdk/${{ inputs.version }}/vellaveto-java-sdk-${{ inputs.version }}.pom")
           if [ "$STATUS" = "200" ]; then
             echo "status=exists" >> "$GITHUB_OUTPUT"
           else

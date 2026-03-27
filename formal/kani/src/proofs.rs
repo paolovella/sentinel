@@ -880,6 +880,7 @@ fn proof_overlap_region_size_saturating() {
 // and never splits them.
 
 #[kani::proof]
+#[kani::unwind(8)]
 fn proof_extract_tail_multibyte_boundary() {
     use crate::dlp_core;
 

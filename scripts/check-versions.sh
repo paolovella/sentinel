@@ -17,7 +17,7 @@ cd "$REPO_ROOT"
 if [ $# -ge 1 ]; then
   EXPECTED="$1"
 else
-  EXPECTED="$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+  EXPECTED="$(grep '^version = ' vellaveto-types/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
 fi
 
 if [ -z "$EXPECTED" ]; then

@@ -65,8 +65,8 @@ echo "=== Bumping all versions to $VERSION ==="
 echo ""
 
 # --- Rust crates (Cargo.toml) ---
-# Get current version from root Cargo.toml
-OLD_VERSION="$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+# Get current version from first crate (workspace Cargo.toml has no version field)
+OLD_VERSION="$(grep '^version = ' vellaveto-types/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
 echo "Current version: $OLD_VERSION"
 echo "Target version:  $VERSION"
 echo ""

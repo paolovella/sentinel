@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-tls"
-version = "6.0.9"
+version = "6.1.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true

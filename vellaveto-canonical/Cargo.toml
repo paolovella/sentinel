@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-canonical"
-version = "6.0.9"
+version = "6.1.0"
 description = "Canonical security policy presets for common scenarios"
 edition = "2021"
 license = "MPL-2.0"

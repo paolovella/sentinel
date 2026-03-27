@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-engine"
-version = "6.0.9"
+version = "6.1.0"
 description = "Policy evaluation engine with glob, regex, and domain matching"
 edition = "2021"
 license = "MPL-2.0"

@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-integration"
-version = "6.0.9"
+version = "6.1.0"
 description = "Integration test suite for Vellaveto components"
 edition = "2021"
 license.workspace = true

@@ -303,6 +303,36 @@ impl McpGrpcService {
             }
         };
 
+        // SECURITY (R258-TRANSPORT-2): Defense-in-depth duplicate key check on gRPC.
+        // While proto→JSON conversion uses BTreeMap (no dupes), this guards against
+        // future conversion changes and maintains parity with HTTP/WS transports.
+        {
+            let serialized = serde_json::to_string(&json_req).unwrap_or_default();
+            if let Some(dup_key) = vellaveto_mcp::framing::find_duplicate_json_key(&serialized) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "SECURITY: Rejected gRPC message with duplicate key: \"{}\"",
+                    dup_key
+                );
+                return make_proto_error_response(proto_req, -32600, "Duplicate JSON key detected");
+            }
+        }
+
+        // SECURITY (R258-TRANSPORT-1): JSON-RPC key case-folding smuggling defense.
+        // Parity with stdio/HTTP/WS transports (CVE-2026-27896).
+        if let Some(key) = vellaveto_mcp::framing::check_json_rpc_key_case_folding(&json_req) {
+            tracing::warn!(
+                session_id = %session_id,
+                "SECURITY: Rejected gRPC message with case-folding smuggle key: \"{}\"",
+                key
+            );
+            return make_proto_error_response(
+                proto_req,
+                -32600,
+                "JSON-RPC key case-folding smuggle detected",
+            );
+        }
+
         // SECURITY (FIND-R54-004): Reject gRPC messages with control/Unicode format
         // characters. Parity with HTTP body check and WS frame check (FIND-R53-WS-004).
         if json_contains_dangerous_chars(&json_req, 0) {

@@ -777,6 +777,26 @@ async fn relay_client_to_upstream(
                     }
                 };
 
+                // SECURITY (R258-TRANSPORT-1): JSON-RPC key case-folding smuggling defense.
+                // Parity with stdio transport (framing.rs). Rejects top-level keys that
+                // case-fold to JSON-RPC 2.0 keys but are not exact-case (CVE-2026-27896).
+                if let Some(key) = vellaveto_mcp::framing::check_json_rpc_key_case_folding(&parsed)
+                {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "SECURITY: Rejected WS message with case-folding smuggle key: \"{}\"",
+                        key
+                    );
+                    let mut sink = client_sink.lock().await;
+                    let _ = sink
+                        .send(Message::Close(Some(CloseFrame {
+                            code: CLOSE_POLICY_VIOLATION,
+                            reason: "JSON-RPC key case-folding smuggle detected".into(),
+                        })))
+                        .await;
+                    break;
+                }
+
                 // SECURITY (FIND-R46-WS-001): Injection scanning on client→upstream text frames.
                 // The HTTP proxy scans request bodies for injection; the WebSocket proxy must
                 // do the same to maintain security parity. Fail-closed: if injection is detected

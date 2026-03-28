@@ -266,6 +266,28 @@ pub async fn handle_mcp_post(
         }
     };
 
+    // SECURITY (R258-TRANSPORT-1): JSON-RPC key case-folding smuggling defense.
+    // Parity with stdio transport (framing.rs). Rejects top-level keys that
+    // case-fold to JSON-RPC 2.0 keys but are not exact-case (CVE-2026-27896).
+    if let Some(key) = vellaveto_mcp::framing::check_json_rpc_key_case_folding(&msg) {
+        tracing::warn!(
+            "SECURITY: Rejected JSON-RPC message with case-folding smuggle key: \"{}\"",
+            key
+        );
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request: JSON-RPC key case-folding smuggle detected"
+                },
+                "id": null
+            })),
+        )
+            .into_response();
+    }
+
     // Session management
     let session_id = state.sessions.get_or_create(client_session_id);
 

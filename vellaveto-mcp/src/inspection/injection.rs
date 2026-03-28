@@ -753,8 +753,8 @@ impl InjectionScanner {
 
     /// Scan a JSON-RPC response for injection using this scanner's custom patterns.
     ///
-    /// Scans `result.content[].text`, `result.structuredContent`, and
-    /// `error.message`/`error.data` fields.
+    /// Scans `result.content[].text`, `result.contents[]` (MCP resources/read),
+    /// `result.structuredContent`, and `error.message`/`error.data` fields.
     pub fn scan_response(&self, response: &serde_json::Value) -> Vec<&str> {
         let mut all_matches = Vec::new();
 
@@ -775,24 +775,103 @@ impl InjectionScanner {
                 }
                 if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                     all_matches.extend(self.inspect(text));
+                    // SECURITY (R258-INJ-2): Per-extend cap check.
+                    if all_matches.len() >= MAX_SCAN_MATCHES {
+                        break;
+                    }
                 }
                 // SECURITY (R32-MCP-3): Also scan resource.text and annotations,
                 // matching the coverage of the free function scan_response_for_injection.
                 if let Some(resource) = item.get("resource") {
                     if let Some(text) = resource.get("text").and_then(|t| t.as_str()) {
                         all_matches.extend(self.inspect(text));
+                        // SECURITY (R258-INJ-2): Per-extend cap check.
+                        if all_matches.len() >= MAX_SCAN_MATCHES {
+                            break;
+                        }
                     }
                     // SECURITY (R36-MCP-3): Scan resource.blob — base64-encoded binary
                     // content that may contain injection payloads. Decode before scanning.
                     if let Some(blob) = resource.get("blob").and_then(|b| b.as_str()) {
                         if let Some(decoded) = try_base64_decode(blob) {
                             all_matches.extend(self.inspect(&decoded));
+                            // SECURITY (R258-INJ-2): Per-extend cap check.
+                            if all_matches.len() >= MAX_SCAN_MATCHES {
+                                break;
+                            }
                         }
                     }
                 }
                 if let Some(annotations) = item.get("annotations") {
                     let raw = annotations.to_string();
                     all_matches.extend(self.inspect(&raw));
+                    // SECURITY (R258-INJ-2): Per-extend cap check.
+                    if all_matches.len() >= MAX_SCAN_MATCHES {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // SECURITY (R258-INJ-1): Scan result.contents[] — MCP resources/read plural format.
+        // The MCP spec uses "contents" (not "content") for resource read results.
+        // Without this, resource read responses bypass injection scanning entirely.
+        // Matches the coverage of extract_response_text() in scanner_base.rs.
+        if all_matches.len() < MAX_SCAN_MATCHES {
+            if let Some(contents) = response
+                .get("result")
+                .and_then(|r| r.get("contents"))
+                .and_then(|c| c.as_array())
+            {
+                for item in contents {
+                    if all_matches.len() >= MAX_SCAN_MATCHES {
+                        tracing::warn!(
+                            "Injection scan_response matches capped at {}",
+                            MAX_SCAN_MATCHES
+                        );
+                        break;
+                    }
+                    // contents[].text
+                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                        all_matches.extend(self.inspect(text));
+                        if all_matches.len() >= MAX_SCAN_MATCHES {
+                            break;
+                        }
+                    }
+                    // contents[].blob (base64)
+                    if let Some(blob) = item.get("blob").and_then(|b| b.as_str()) {
+                        if let Some(decoded) = try_base64_decode(blob) {
+                            all_matches.extend(self.inspect(&decoded));
+                            if all_matches.len() >= MAX_SCAN_MATCHES {
+                                break;
+                            }
+                        }
+                    }
+                    // contents[].resource.text and contents[].resource.blob
+                    if let Some(resource) = item.get("resource") {
+                        if let Some(text) = resource.get("text").and_then(|t| t.as_str()) {
+                            all_matches.extend(self.inspect(text));
+                            if all_matches.len() >= MAX_SCAN_MATCHES {
+                                break;
+                            }
+                        }
+                        if let Some(blob) = resource.get("blob").and_then(|b| b.as_str()) {
+                            if let Some(decoded) = try_base64_decode(blob) {
+                                all_matches.extend(self.inspect(&decoded));
+                                if all_matches.len() >= MAX_SCAN_MATCHES {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // contents[].annotations
+                    if let Some(annotations) = item.get("annotations") {
+                        let raw = annotations.to_string();
+                        all_matches.extend(self.inspect(&raw));
+                        if all_matches.len() >= MAX_SCAN_MATCHES {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -813,10 +892,20 @@ impl InjectionScanner {
             .and_then(|i| i.as_str())
         {
             all_matches.extend(self.inspect(instructions));
+            // SECURITY (R258-INJ-2): Per-extend cap check.
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                all_matches.truncate(MAX_SCAN_MATCHES);
+                return all_matches;
+            }
         }
         if let Some(meta) = response.get("result").and_then(|r| r.get("_meta")) {
             let raw = meta.to_string();
             all_matches.extend(self.inspect(&raw));
+            // SECURITY (R258-INJ-2): Per-extend cap check.
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                all_matches.truncate(MAX_SCAN_MATCHES);
+                return all_matches;
+            }
         }
 
         // Also scan structuredContent (MCP 2025-06-18+)
@@ -826,6 +915,11 @@ impl InjectionScanner {
         {
             let raw = structured.to_string();
             all_matches.extend(self.inspect(&raw));
+            // SECURITY (R258-INJ-2): Per-extend cap check.
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                all_matches.truncate(MAX_SCAN_MATCHES);
+                return all_matches;
+            }
         }
 
         // Scan error fields — injection can be embedded in error messages
@@ -839,6 +933,11 @@ impl InjectionScanner {
             }
             if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
                 all_matches.extend(self.inspect(message));
+                // SECURITY (R258-INJ-2): Per-extend cap check.
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    all_matches.truncate(MAX_SCAN_MATCHES);
+                    return all_matches;
+                }
             }
             if let Some(data) = error.get("data") {
                 if let Some(data_str) = data.as_str() {

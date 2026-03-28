@@ -66,32 +66,9 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
         let value: Value = serde_json::from_str(trimmed).map_err(FramingError::Json)?;
 
         // SECURITY (TI-2026-001 / CVE-2026-27896): JSON-RPC key case-folding smuggling.
-        // Go's encoding/json folds Unicode chars (U+017F, U+212A) and performs
-        // case-insensitive key matching. If the proxy checks "method" but a
-        // downstream Go server also matches "Method" or "methOd", an attacker
-        // can smuggle method/params past the proxy. Reject any top-level key
-        // that case-folds to a JSON-RPC 2.0 key but is not exact-case.
-        if let Some(obj) = value.as_object() {
-            for key in obj.keys() {
-                // SECURITY (R231/TI-2026-002): Go's encoding/json folds not
-                // only ASCII case but also Unicode confusables U+017F (ſ→s)
-                // and U+212A (K→k). Normalize both before matching.
-                let normalized: String = key
-                    .chars()
-                    .map(|c| match c {
-                        '\u{017F}' => 's', // Latin small letter long s
-                        '\u{212A}' => 'k', // Kelvin sign
-                        other => other.to_ascii_lowercase(),
-                    })
-                    .collect();
-                let is_jsonrpc_key = matches!(
-                    normalized.as_str(),
-                    "jsonrpc" | "method" | "params" | "id" | "result" | "error"
-                );
-                if is_jsonrpc_key && key.as_str() != normalized.as_str() {
-                    return Err(FramingError::CaseFoldingSmuggle(key.clone()));
-                }
-            }
+        // Delegates to the extracted public function for transport-parity reuse.
+        if let Some(key) = check_json_rpc_key_case_folding(&value) {
+            return Err(FramingError::CaseFoldingSmuggle(key));
         }
 
         // MCP 2025-06-18 removed JSON-RPC batching. Reject arrays at the
@@ -193,6 +170,45 @@ pub async fn write_message<W: tokio::io::AsyncWrite + Unpin>(
     writer.write_all(&buf).await.map_err(FramingError::Io)?;
     writer.flush().await.map_err(FramingError::Io)?;
     Ok(())
+}
+
+/// Check a parsed JSON-RPC value for key case-folding smuggling.
+///
+/// Go's `encoding/json` performs case-insensitive key matching and folds
+/// Unicode confusables U+017F (ſ→s) and U+212A (K→k). An attacker can
+/// send `{"Method":"evil"}` or `{"methOd":"evil"}` to smuggle fields past
+/// a proxy that checks exact-case `"method"`. This function rejects any
+/// top-level key that case-folds to a JSON-RPC 2.0 key but is not exact-case.
+///
+/// Returns `Some(offending_key)` if a case-folding attack is detected, `None` if clean.
+///
+/// # Security
+///
+/// SECURITY (R258-TRANSPORT-1): Extracted from `read_message()` for reuse
+/// across HTTP, WebSocket, and gRPC transports.
+pub fn check_json_rpc_key_case_folding(value: &Value) -> Option<String> {
+    let obj = value.as_object()?;
+    for key in obj.keys() {
+        // SECURITY (R231/TI-2026-002): Go's encoding/json folds not
+        // only ASCII case but also Unicode confusables U+017F (ſ→s)
+        // and U+212A (K→k). Normalize both before matching.
+        let normalized: String = key
+            .chars()
+            .map(|c| match c {
+                '\u{017F}' => 's', // Latin small letter long s
+                '\u{212A}' => 'k', // Kelvin sign
+                other => other.to_ascii_lowercase(),
+            })
+            .collect();
+        let is_jsonrpc_key = matches!(
+            normalized.as_str(),
+            "jsonrpc" | "method" | "params" | "id" | "result" | "error"
+        );
+        if is_jsonrpc_key && key.as_str() != normalized.as_str() {
+            return Some(key.clone());
+        }
+    }
+    None
 }
 
 /// Scan raw JSON for duplicate keys at any object nesting level.

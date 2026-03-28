@@ -8851,7 +8851,12 @@ impl ProxyBridge {
                 state.min_session_trust_tier(),
                 taint_labels,
                 state.session_semantics.distinct_lineage_sources(),
-                b"vellaveto-relay-secret",
+                // SECURITY (R255-RELAY-4): Use env var for SCT secret in production.
+                // Falls back to hardcoded value for backward compatibility only.
+                // Set VELLAVETO_SCT_SECRET in production deployments.
+                &std::env::var("VELLAVETO_SCT_SECRET")
+                    .map(|s| s.into_bytes())
+                    .unwrap_or_else(|_| b"vellaveto-relay-secret".to_vec()),
             );
             if let Ok(token_json) = serde_json::to_value(&token) {
                 if let Some(result) = msg.get_mut("result") {

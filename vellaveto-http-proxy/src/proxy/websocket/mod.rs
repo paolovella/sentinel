@@ -534,9 +534,13 @@ async fn handle_ws_connection(
                 // SECURITY (R251-WS-1): SeqCst for cross-thread session timeout enforcement.
                 let last_ms = last_activity.load(Ordering::SeqCst);
                 // SECURITY (FIND-R190-002): Use saturating_sub to prevent underflow.
-                let elapsed_since_activity =
-                    (connection_epoch.elapsed().as_millis() as u64).saturating_sub(last_ms);
-                if elapsed_since_activity >= idle_timeout.as_millis() as u64 {
+                // SECURITY (R255-PROXY-8): Use try_from to avoid truncation on 128-bit as_millis().
+                let elapsed_since_activity = u64::try_from(connection_epoch.elapsed().as_millis())
+                    .unwrap_or(u64::MAX)
+                    .saturating_sub(last_ms);
+                if elapsed_since_activity
+                    >= u64::try_from(idle_timeout.as_millis()).unwrap_or(u64::MAX)
+                {
                     tracing::info!(
                         session_id = %session_id,
                         idle_secs = elapsed_since_activity / 1000,
@@ -623,7 +627,7 @@ async fn relay_client_to_upstream(
         // SECURITY (FIND-R182-001): Update last-activity for true idle detection.
         // SECURITY (R251-WS-1): SeqCst ensures visibility to timeout checker thread.
         last_activity.store(
-            connection_epoch.elapsed().as_millis() as u64,
+            u64::try_from(connection_epoch.elapsed().as_millis()).unwrap_or(u64::MAX),
             Ordering::SeqCst,
         );
 
@@ -4900,7 +4904,7 @@ async fn relay_upstream_to_client(
         // SECURITY (FIND-R182-001): Update last-activity for true idle detection.
         // SECURITY (R251-WS-1): SeqCst ensures visibility to timeout checker thread.
         last_activity.store(
-            connection_epoch.elapsed().as_millis() as u64,
+            u64::try_from(connection_epoch.elapsed().as_millis()).unwrap_or(u64::MAX),
             Ordering::SeqCst,
         );
 

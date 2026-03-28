@@ -14,7 +14,9 @@
 use serde::{Deserialize, Serialize};
 
 /// Supply-chain attestation for an MCP server or tool.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SupplyChainAttestation {
     /// Attestation type.
     pub attestation_type: AttestationType,
@@ -35,6 +37,161 @@ pub struct SupplyChainAttestation {
     pub artifact_digest: Option<String>,
 }
 
+/// Maximum string field length for supply-chain types.
+const MAX_SC_FIELD_LEN: usize = 1024;
+/// Maximum vulnerabilities per SBOM entry.
+const MAX_SBOM_VULNERABILITIES: usize = 1000;
+/// Maximum trust factors per decision.
+const MAX_TRUST_FACTORS: usize = 100;
+
+impl SupplyChainAttestation {
+    /// SECURITY (R255-TYP-4): Validate field bounds and content.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.issuer.is_empty() || self.issuer.len() > MAX_SC_FIELD_LEN {
+            return Err(format!(
+                "attestation.issuer length {} out of range 1-{MAX_SC_FIELD_LEN}",
+                self.issuer.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.issuer) {
+            return Err("attestation.issuer contains dangerous characters".to_string());
+        }
+        if self.subject.is_empty() || self.subject.len() > MAX_SC_FIELD_LEN {
+            return Err(format!(
+                "attestation.subject length {} out of range 1-{MAX_SC_FIELD_LEN}",
+                self.subject.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.subject) {
+            return Err("attestation.subject contains dangerous characters".to_string());
+        }
+        if let Some(ref ts) = self.issued_at {
+            if ts.len() > MAX_SC_FIELD_LEN || crate::has_dangerous_chars(ts) {
+                return Err("attestation.issued_at is invalid".to_string());
+            }
+        }
+        if let Some(ref ts) = self.expires_at {
+            if ts.len() > MAX_SC_FIELD_LEN || crate::has_dangerous_chars(ts) {
+                return Err("attestation.expires_at is invalid".to_string());
+            }
+        }
+        if let Some(ref d) = self.artifact_digest {
+            if d.len() > MAX_SC_FIELD_LEN || crate::has_dangerous_chars(d) {
+                return Err("attestation.artifact_digest is invalid".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SbomEntry {
+    /// SECURITY (R255-TYP-4): Validate field bounds and content.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() || self.name.len() > MAX_SC_FIELD_LEN {
+            return Err(format!(
+                "sbom_entry.name length {} out of range 1-{MAX_SC_FIELD_LEN}",
+                self.name.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.name) {
+            return Err("sbom_entry.name contains dangerous characters".to_string());
+        }
+        if self.version.is_empty() || self.version.len() > MAX_SC_FIELD_LEN {
+            return Err(format!(
+                "sbom_entry.version length {} out of range 1-{MAX_SC_FIELD_LEN}",
+                self.version.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.version) {
+            return Err("sbom_entry.version contains dangerous characters".to_string());
+        }
+        if let Some(ref l) = self.license {
+            if l.len() > MAX_SC_FIELD_LEN || crate::has_dangerous_chars(l) {
+                return Err("sbom_entry.license is invalid".to_string());
+            }
+        }
+        if self.vulnerabilities.len() > MAX_SBOM_VULNERABILITIES {
+            return Err(format!(
+                "sbom_entry.vulnerabilities count {} exceeds max {MAX_SBOM_VULNERABILITIES}",
+                self.vulnerabilities.len()
+            ));
+        }
+        for v in &self.vulnerabilities {
+            if v.len() > MAX_SC_FIELD_LEN || crate::has_dangerous_chars(v) {
+                return Err("sbom_entry.vulnerabilities contains invalid entry".to_string());
+            }
+        }
+        if let Some(ref s) = self.source {
+            if s.len() > MAX_SC_FIELD_LEN || crate::has_dangerous_chars(s) {
+                return Err("sbom_entry.source is invalid".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SupplyChainTrustDecision {
+    /// SECURITY (R255-TYP-4): Validate field bounds and content.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.subject.is_empty() || self.subject.len() > MAX_SC_FIELD_LEN {
+            return Err(format!(
+                "trust_decision.subject length {} out of range 1-{MAX_SC_FIELD_LEN}",
+                self.subject.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.subject) {
+            return Err("trust_decision.subject contains dangerous characters".to_string());
+        }
+        if self.factors.len() > MAX_TRUST_FACTORS {
+            return Err(format!(
+                "trust_decision.factors count {} exceeds max {MAX_TRUST_FACTORS}",
+                self.factors.len()
+            ));
+        }
+        for f in &self.factors {
+            f.validate()?;
+        }
+        if self.score > 100 {
+            return Err(format!(
+                "trust_decision.score {} exceeds max 100",
+                self.score
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl TrustFactor {
+    /// SECURITY (R255-TYP-4): Validate field bounds and content.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() || self.name.len() > MAX_SC_FIELD_LEN {
+            return Err(format!(
+                "trust_factor.name length {} out of range 1-{MAX_SC_FIELD_LEN}",
+                self.name.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.name) {
+            return Err("trust_factor.name contains dangerous characters".to_string());
+        }
+        if self.description.len() > MAX_SC_FIELD_LEN {
+            return Err(format!(
+                "trust_factor.description length {} exceeds max {MAX_SC_FIELD_LEN}",
+                self.description.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.description) {
+            return Err("trust_factor.description contains dangerous characters".to_string());
+        }
+        if self.weight > 100 {
+            return Err(format!(
+                "trust_factor.weight {} exceeds max 100",
+                self.weight
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Types of supply-chain attestations.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AttestationType {
@@ -53,7 +210,9 @@ pub enum AttestationType {
 }
 
 /// SBOM entry for a dependency.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SbomEntry {
     /// Package name.
     pub name: String,
@@ -71,7 +230,9 @@ pub struct SbomEntry {
 }
 
 /// Supply-chain trust decision for a server or tool.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SupplyChainTrustDecision {
     /// Subject being evaluated.
     pub subject: String,
@@ -97,7 +258,9 @@ pub enum TrustDecision {
 }
 
 /// A factor in a trust decision.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct TrustFactor {
     /// Factor name.
     pub name: String,

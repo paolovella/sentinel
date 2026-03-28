@@ -150,6 +150,13 @@ impl DelegationTracker {
         if self.chains.len() >= MAX_TRACKED_CHAINS && !self.chains.contains_key(session_id) {
             return;
         }
+        // SECURITY (R255-ENG-5): Independent depth bound in record_delegation.
+        // Even if a caller bypasses check_delegation, the chain cannot exceed max_depth.
+        if let Some(chain) = self.chains.get(session_id) {
+            if chain.len() >= self.max_depth {
+                return;
+            }
+        }
         self.chains
             .entry(session_id.to_string())
             .or_default()

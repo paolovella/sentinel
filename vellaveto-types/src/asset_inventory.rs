@@ -13,7 +13,9 @@
 use serde::{Deserialize, Serialize};
 
 /// A cataloged AI asset (MCP server or tool) with security metadata.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct AiAsset {
     /// Unique asset identifier.
     pub id: String,
@@ -74,7 +76,9 @@ pub enum AssetTrustLevel {
 }
 
 /// Security metadata for an asset.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AssetSecurityMetadata {
     /// Whether the asset has a signed tool definition (ETDI).
     #[serde(default)]
@@ -97,7 +101,9 @@ pub struct AssetSecurityMetadata {
 }
 
 /// A complete AI asset inventory snapshot.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AiAssetInventory {
     /// All cataloged assets.
     pub assets: Vec<AiAsset>,

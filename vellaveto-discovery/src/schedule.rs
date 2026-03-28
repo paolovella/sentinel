@@ -178,8 +178,10 @@ impl RecrawlScheduler {
     ///
     /// If `on_unknown_tool` is enabled, this queues a re-crawl (debounced).
     pub fn notify_unknown_tool(&self, tool: &str, suggestion: Option<String>) {
+        // SECURITY (R255-ENG-4b): Sanitize tool name before embedding in audit event.
+        let sanitized_tool = vellaveto_types::sanitize_for_log(tool, 256);
         self.emit_audit(TopologyAuditEvent::TopologyViolation {
-            tool: tool.to_string(),
+            tool: sanitized_tool,
             verdict: "Unknown".to_string(),
             suggestion,
         });

@@ -1125,7 +1125,9 @@ impl fmt::Display for NamespaceAccessType {
 ///
 /// Exposed via the `/api/health` and governance endpoints.
 /// All counters use `u64` and are incremented with `saturating_add`.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MemorySecurityStats {
     /// Total [`MemoryEntry`] records currently tracked across all namespaces.
     pub total_entries: u64,

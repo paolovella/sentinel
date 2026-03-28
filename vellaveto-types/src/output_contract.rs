@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use crate::ContextChannel;
 
 /// A declared output contract for a tool.
+// SECURITY (R255-TYP-3): deny_unknown_fields on deserialized struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct OutputContract {
     /// Tool name or glob pattern.
     pub tool_pattern: String,
@@ -25,6 +27,33 @@ pub struct OutputContract {
     pub expected_channels: Vec<ContextChannel>,
     /// Action on violation.
     pub on_violation: ContractViolationAction,
+}
+
+/// Maximum number of expected channels in an output contract.
+const MAX_EXPECTED_CHANNELS: usize = 32;
+/// Maximum length of a tool pattern string.
+const MAX_TOOL_PATTERN_LEN: usize = 512;
+
+impl OutputContract {
+    /// SECURITY (R255-TYP-4): Validate field bounds and content.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool_pattern.is_empty() || self.tool_pattern.len() > MAX_TOOL_PATTERN_LEN {
+            return Err(format!(
+                "output_contract.tool_pattern length {} out of range 1-{MAX_TOOL_PATTERN_LEN}",
+                self.tool_pattern.len()
+            ));
+        }
+        if crate::has_dangerous_chars(&self.tool_pattern) {
+            return Err("output_contract.tool_pattern contains dangerous characters".to_string());
+        }
+        if self.expected_channels.len() > MAX_EXPECTED_CHANNELS {
+            return Err(format!(
+                "output_contract.expected_channels count {} exceeds max {MAX_EXPECTED_CHANNELS}",
+                self.expected_channels.len()
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// What to do when an output contract is violated.

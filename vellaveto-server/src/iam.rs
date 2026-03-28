@@ -1090,7 +1090,10 @@ impl IamState {
         if client_id.len() > MAX_M2M_CLIENT_ID_REQUEST_LEN || has_dangerous_chars(client_id) {
             return Err(IamError::M2mInvalidCredentials);
         }
-        if client_secret.len() > MAX_M2M_CLIENT_SECRET_REQUEST_LEN {
+        // SECURITY (R255-IAM-8): Validate client_secret for dangerous characters.
+        if client_secret.len() > MAX_M2M_CLIENT_SECRET_REQUEST_LEN
+            || has_dangerous_chars(client_secret)
+        {
             return Err(IamError::M2mInvalidCredentials);
         }
         if scopes.len() > MAX_M2M_REQUESTED_SCOPES {

@@ -95,7 +95,7 @@ Current formal suite across 6 tools:
 - **Verus:** 47 verified files / 668 verified items on actual Rust code (0 errors). Includes 7 new kernels: refinement completeness (9/9 simulation obligations), ACIS action summary, Phase 6 source taint, intent scope, and sequence analysis containment, entropy pipeline composition.
 - **TLA+:** 14 specs in CI. Includes NHI credential rotation, and SourceTaint/IntentScope/SequenceContainment now model-checked (previously existed but were not wired into CI).
 - **Alloy:** 10 assertions (2 models) — now verified in CI (previously local-only).
-- **Lean 4:** 32 theorems (5 files, no `sorry`)
+- **Lean 4:** 37 theorems (5 files, no `sorry`)
 - **Coq:** 45 theorems (8 files, no `Admitted`)
 - **Kani:** 108 CBMC proof harnesses on actual Rust code (bounded) — K1-K132. 240 unit tests. New modules: entropy wrapper (K86-K90), injection pipeline 13-stage (K91-K97), collusion detection (K98-K102), sort bridge (K103-K107), credential vault (K108-K112), TLS SPIFFE (K113-K120), Merkle sanity (K121-K125 unit tests), additional CBMC proofs (K126-K132).
 
@@ -1018,7 +1018,7 @@ forward simulation proof.
 | **Kani (bounded)** | **CBMC on actual Rust** | **108 CBMC proof harnesses (K1-K132)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **14 specs, 67+ safety + 14 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
-| **Lean 4 (deductive)** | **Proof assistant** | **5 files, 32 theorems** |
+| **Lean 4 (deductive)** | **Proof assistant** | **5 files, 37 theorems** |
 | **Coq (deductive)** | **Proof assistant** | **8 files, 45 theorems** |
 
 The three-layer verification architecture:

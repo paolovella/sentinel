@@ -56,9 +56,12 @@ export function GraphsPage() {
           ) : svgQ.isLoading ? (
             <div className="empty-state">Loading graph...</div>
           ) : svgQ.data ? (
-            <div
+            // SECURITY (R257-CONSOLE-1): Render SVG as <img> data URI to prevent
+            // stored XSS — <img> SVG rendering never executes scripts.
+            <img
               className="svg-container"
-              dangerouslySetInnerHTML={{ __html: svgQ.data }}
+              src={`data:image/svg+xml;base64,${btoa(svgQ.data)}`}
+              alt="Execution graph"
             />
           ) : (
             <div className="empty-state">Failed to load graph</div>

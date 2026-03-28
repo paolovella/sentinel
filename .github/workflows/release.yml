@@ -155,7 +155,9 @@ jobs:
 
       - name: Install cross-compilation tools (Linux aarch64)
         if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        # SECURITY (R257-CI-1): Pin cross to a specific version from crates.io
+        # to prevent supply-chain attacks via unpinned git installs.
+        run: cargo install cross --version 0.2.5 --locked
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
         with:

@@ -70,14 +70,31 @@ const META_FIELDS_TO_STRIP: &[&str] = &[
     "acis_envelope",
 ];
 
-/// SECURITY (R256-MCP-4): Strip security-sensitive fields from `_meta` objects
-/// in an A2A response. Walks `result._meta`, `result.message._meta`, and
-/// `result.message.parts[]._meta`.
+/// SECURITY (R256-MCP-4, R257-MCP-1): Strip security-sensitive fields from `_meta` objects
+/// in an A2A response. Walks `result._meta`, `result.message._meta`,
+/// `result.message.parts[]._meta`, `result.artifacts[]._meta`,
+/// `result.artifacts[].parts[]._meta`, `result.history[]._meta`,
+/// `result.history[].parts[]._meta`, and `result.status._meta`.
 fn strip_a2a_response_meta(response: &mut Value) {
     fn strip_meta_fields(meta: &mut Value) {
         if let Some(obj) = meta.as_object_mut() {
             for field in META_FIELDS_TO_STRIP {
                 obj.remove(*field);
+            }
+        }
+    }
+
+    /// SECURITY (R257-MCP-1): Strip `_meta` from a message-like object and its
+    /// `parts[]` array, bounded by `MAX_HISTORY_ENTRIES`.
+    fn strip_message_and_parts(msg: &mut Value) {
+        if let Some(meta) = msg.get_mut("_meta") {
+            strip_meta_fields(meta);
+        }
+        if let Some(parts) = msg.get_mut("parts").and_then(|p| p.as_array_mut()) {
+            for part in parts.iter_mut().take(MAX_HISTORY_ENTRIES) {
+                if let Some(meta) = part.get_mut("_meta") {
+                    strip_meta_fields(meta);
+                }
             }
         }
     }
@@ -88,19 +105,29 @@ fn strip_a2a_response_meta(response: &mut Value) {
             strip_meta_fields(meta);
         }
 
-        // result.message._meta
+        // result.message._meta + result.message.parts[]._meta
         if let Some(message) = result.get_mut("message") {
-            if let Some(meta) = message.get_mut("_meta") {
-                strip_meta_fields(meta);
-            }
+            strip_message_and_parts(message);
+        }
 
-            // result.message.parts[]._meta
-            if let Some(parts) = message.get_mut("parts").and_then(|p| p.as_array_mut()) {
-                for part in parts.iter_mut().take(MAX_HISTORY_ENTRIES) {
-                    if let Some(meta) = part.get_mut("_meta") {
-                        strip_meta_fields(meta);
-                    }
-                }
+        // SECURITY (R257-MCP-1): result.artifacts[]._meta + result.artifacts[].parts[]._meta
+        if let Some(artifacts) = result.get_mut("artifacts").and_then(|a| a.as_array_mut()) {
+            for artifact in artifacts.iter_mut().take(MAX_HISTORY_ENTRIES) {
+                strip_message_and_parts(artifact);
+            }
+        }
+
+        // SECURITY (R257-MCP-1): result.history[]._meta + result.history[].parts[]._meta
+        if let Some(history) = result.get_mut("history").and_then(|h| h.as_array_mut()) {
+            for entry in history.iter_mut().take(MAX_HISTORY_ENTRIES) {
+                strip_message_and_parts(entry);
+            }
+        }
+
+        // SECURITY (R257-MCP-1): result.status._meta
+        if let Some(status) = result.get_mut("status") {
+            if let Some(meta) = status.get_mut("_meta") {
+                strip_meta_fields(meta);
             }
         }
     }
@@ -111,14 +138,18 @@ fn strip_a2a_response_meta(response: &mut Value) {
 /// `strip_a2a_response_meta` for bounded iteration over message parts.
 const MAX_HISTORY_ENTRIES: usize = 1000;
 
-/// SECURITY (R256-MCP-3): Per-upstream circuit breaker for A2A proxy.
+/// SECURITY (R256-MCP-3, R257-MCP-3): Per-upstream circuit breaker for A2A proxy.
 ///
 /// Tracks consecutive failures per upstream identifier. After `threshold`
 /// consecutive failures, the circuit opens for `reset_after_secs` seconds,
 /// during which all requests to that upstream are immediately rejected.
+///
+/// After the timeout elapses the breaker enters a *half-open* state: exactly
+/// one probe request is allowed through. If that probe succeeds the breaker
+/// fully closes; if it fails the breaker re-opens with a fresh timeout.
 struct A2aCircuitBreaker {
-    /// upstream identifier -> (consecutive_failure_count, last_failure_time)
-    failures: HashMap<String, (u32, std::time::Instant)>,
+    /// upstream identifier -> (consecutive_failure_count, last_failure_time, half_open_allowed)
+    failures: HashMap<String, (u32, std::time::Instant, bool)>,
     /// Number of consecutive failures before opening the circuit.
     threshold: u32,
     /// Seconds the circuit stays open before allowing a retry.
@@ -136,28 +167,45 @@ impl A2aCircuitBreaker {
 
     /// Check if the circuit is open for the given upstream.
     /// Returns `true` if the circuit is open (requests should be rejected).
-    fn is_open(&self, upstream: &str) -> bool {
-        if let Some((count, last_failure)) = self.failures.get(upstream) {
+    ///
+    /// SECURITY (R257-MCP-3): When the timeout has elapsed and a half-open
+    /// probe has not yet been sent, one request is allowed through (half-open
+    /// state). Subsequent requests while the probe is in-flight are blocked.
+    fn is_open(&mut self, upstream: &str) -> bool {
+        if let Some((count, last_failure, half_open_allowed)) = self.failures.get_mut(upstream) {
             if *count >= self.threshold {
-                // Check if the reset window has elapsed
                 let elapsed = last_failure.elapsed().as_secs();
                 if elapsed < self.reset_after_secs {
                     return true;
                 }
-                // Reset window elapsed — allow retry (half-open)
+                // Timeout elapsed — enter half-open state
+                if *half_open_allowed {
+                    // Allow exactly one probe request
+                    *half_open_allowed = false;
+                    return false;
+                }
+                // Probe already dispatched, still waiting — remain open
+                return true;
             }
         }
         false
     }
 
     /// Record a failure for the given upstream.
+    ///
+    /// SECURITY (R257-MCP-3): If the breaker was half-open (probe in flight),
+    /// the probe failed — re-open with a fresh timeout and allow a new probe
+    /// after the next timeout window.
     fn record_failure(&mut self, upstream: &str) {
-        let entry = self
-            .failures
-            .entry(upstream.to_string())
-            .or_insert((0, std::time::Instant::now()));
+        let entry = self.failures.entry(upstream.to_string()).or_insert((
+            0,
+            std::time::Instant::now(),
+            true,
+        ));
         entry.0 = entry.0.saturating_add(1);
         entry.1 = std::time::Instant::now();
+        // Reset half-open flag so a new probe is allowed after the next timeout
+        entry.2 = true;
     }
 
     /// Record a success for the given upstream, resetting the failure count.
@@ -730,7 +778,8 @@ impl A2aProxyService {
         if !self.config.enable_circuit_breaker {
             return Ok(());
         }
-        let cb = match self.circuit_breaker.lock() {
+        // SECURITY (R257-MCP-3): `mut` required for half-open state mutation in `is_open()`.
+        let mut cb = match self.circuit_breaker.lock() {
             Ok(guard) => guard,
             Err(_poisoned) => {
                 // SECURITY: Fail-closed on lock poisoning
@@ -2666,5 +2715,215 @@ mod tests {
             id.is_none(),
             "R256-MCP-3: Agent ID with control chars should be rejected"
         );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R257-MCP-1: strip_a2a_response_meta — artifacts, history, status
+    // ════════════════════════════════════════════════════════
+
+    /// R257-MCP-1: Meta stripping covers result.artifacts[]._meta and parts.
+    #[test]
+    fn test_r257_strip_meta_artifacts() {
+        let mut response = json!({
+            "result": {
+                "artifacts": [
+                    {
+                        "_meta": { "security_context": "leak", "safe_field": "keep" },
+                        "parts": [
+                            { "_meta": { "taint_labels": ["x"], "ok": 1 } },
+                            { "_meta": { "agent_identity": "y" } }
+                        ]
+                    }
+                ]
+            }
+        });
+        strip_a2a_response_meta(&mut response);
+        let artifact = &response["result"]["artifacts"][0];
+        let meta = artifact["_meta"].as_object().unwrap();
+        assert!(
+            !meta.contains_key("security_context"),
+            "R257-MCP-1: artifact._meta.security_context should be stripped"
+        );
+        assert!(
+            meta.contains_key("safe_field"),
+            "R257-MCP-1: non-sensitive fields should be kept"
+        );
+        let part0 = artifact["parts"][0]["_meta"].as_object().unwrap();
+        assert!(
+            !part0.contains_key("taint_labels"),
+            "R257-MCP-1: artifact.parts[]._meta should be stripped"
+        );
+        assert!(
+            part0.contains_key("ok"),
+            "R257-MCP-1: non-sensitive part fields should be kept"
+        );
+        let part1 = artifact["parts"][1]["_meta"].as_object().unwrap();
+        assert!(!part1.contains_key("agent_identity"));
+    }
+
+    /// R257-MCP-1: Meta stripping covers result.history[]._meta and parts.
+    #[test]
+    fn test_r257_strip_meta_history() {
+        let mut response = json!({
+            "result": {
+                "history": [
+                    {
+                        "_meta": { "session_scope": "s1" },
+                        "parts": [
+                            { "_meta": { "containment_context": {} } }
+                        ]
+                    },
+                    {
+                        "_meta": { "evaluation_context": {} }
+                    }
+                ]
+            }
+        });
+        strip_a2a_response_meta(&mut response);
+        let h0 = &response["result"]["history"][0];
+        assert!(
+            h0["_meta"].as_object().unwrap().is_empty(),
+            "R257-MCP-1: history[]._meta should be stripped"
+        );
+        let p0 = &h0["parts"][0]["_meta"].as_object().unwrap();
+        assert!(
+            !p0.contains_key("containment_context"),
+            "R257-MCP-1: history[].parts[]._meta should be stripped"
+        );
+        let h1 = &response["result"]["history"][1];
+        assert!(
+            h1["_meta"].as_object().unwrap().is_empty(),
+            "R257-MCP-1: history[]._meta should be stripped"
+        );
+    }
+
+    /// R257-MCP-1: Meta stripping covers result.status._meta.
+    #[test]
+    fn test_r257_strip_meta_status() {
+        let mut response = json!({
+            "result": {
+                "status": {
+                    "state": "completed",
+                    "_meta": {
+                        "acis_envelope": {},
+                        "lineage_refs": [],
+                        "custom_field": "keep"
+                    }
+                }
+            }
+        });
+        strip_a2a_response_meta(&mut response);
+        let meta = response["result"]["status"]["_meta"].as_object().unwrap();
+        assert!(
+            !meta.contains_key("acis_envelope"),
+            "R257-MCP-1: status._meta.acis_envelope should be stripped"
+        );
+        assert!(
+            !meta.contains_key("lineage_refs"),
+            "R257-MCP-1: status._meta.lineage_refs should be stripped"
+        );
+        assert!(
+            meta.contains_key("custom_field"),
+            "R257-MCP-1: non-sensitive status._meta fields should be kept"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R257-MCP-3: Circuit breaker half-open state
+    // ════════════════════════════════════════════════════════
+
+    /// R257-MCP-3: Circuit breaker allows exactly one half-open probe.
+    #[test]
+    fn test_r257_circuit_breaker_half_open_allows_one_probe() {
+        let mut cb = A2aCircuitBreaker {
+            failures: HashMap::new(),
+            threshold: 2,
+            reset_after_secs: 3600, // large timeout — circuit stays open
+        };
+        // Open the circuit
+        cb.record_failure("up");
+        cb.record_failure("up");
+        assert!(
+            cb.is_open("up"),
+            "R257-MCP-3: circuit should be open within timeout window"
+        );
+
+        // Simulate timeout expiry by backdating the failure timestamp
+        if let Some(entry) = cb.failures.get_mut("up") {
+            entry.1 = std::time::Instant::now() - std::time::Duration::from_secs(3601);
+        }
+
+        // After timeout, first call should be allowed (half-open probe)
+        assert!(
+            !cb.is_open("up"),
+            "R257-MCP-3: first call after timeout should be allowed (half-open)"
+        );
+
+        // Second call while probe in flight should be blocked
+        assert!(
+            cb.is_open("up"),
+            "R257-MCP-3: second call while probe in flight should be blocked"
+        );
+    }
+
+    /// R257-MCP-3: Half-open probe failure re-opens the breaker.
+    #[test]
+    fn test_r257_circuit_breaker_half_open_failure_reopens() {
+        let mut cb = A2aCircuitBreaker {
+            failures: HashMap::new(),
+            threshold: 2,
+            reset_after_secs: 3600,
+        };
+        cb.record_failure("up");
+        cb.record_failure("up");
+        // Backdate to expire timeout
+        if let Some(entry) = cb.failures.get_mut("up") {
+            entry.1 = std::time::Instant::now() - std::time::Duration::from_secs(3601);
+        }
+        // Consume the half-open probe
+        assert!(!cb.is_open("up"), "half-open probe allowed");
+        // Probe failed — record failure to re-open with fresh timestamp
+        cb.record_failure("up");
+        // Should be open again (fresh timestamp, within timeout)
+        assert!(
+            cb.is_open("up"),
+            "R257-MCP-3: should be open after probe failure"
+        );
+        // Backdate again to simulate next timeout
+        if let Some(entry) = cb.failures.get_mut("up") {
+            entry.1 = std::time::Instant::now() - std::time::Duration::from_secs(3601);
+        }
+        // New half-open probe should be allowed
+        assert!(
+            !cb.is_open("up"),
+            "R257-MCP-3: new half-open probe after re-open"
+        );
+        assert!(cb.is_open("up"), "R257-MCP-3: second call still blocked");
+    }
+
+    /// R257-MCP-3: Half-open probe success fully closes the breaker.
+    #[test]
+    fn test_r257_circuit_breaker_half_open_success_closes() {
+        let mut cb = A2aCircuitBreaker {
+            failures: HashMap::new(),
+            threshold: 2,
+            reset_after_secs: 3600,
+        };
+        cb.record_failure("up");
+        cb.record_failure("up");
+        // Backdate to expire timeout
+        if let Some(entry) = cb.failures.get_mut("up") {
+            entry.1 = std::time::Instant::now() - std::time::Duration::from_secs(3601);
+        }
+        // Consume the half-open probe
+        assert!(!cb.is_open("up"));
+        // Probe succeeded
+        cb.record_success("up");
+        // Breaker should be fully closed now
+        assert!(
+            !cb.is_open("up"),
+            "R257-MCP-3: breaker should be closed after successful probe"
+        );
+        assert!(!cb.is_open("up"), "R257-MCP-3: should remain closed");
     }
 }

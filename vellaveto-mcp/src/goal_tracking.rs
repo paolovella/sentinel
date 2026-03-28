@@ -715,14 +715,10 @@ fn word_bigram_similarity(text1: &str, text2: &str) -> f32 {
     let words1: Vec<&str> = text1.split_whitespace().collect();
     let words2: Vec<&str> = text2.split_whitespace().collect();
 
-    let bigrams1: std::collections::HashSet<(&str, &str)> = words1
-        .windows(2)
-        .map(|w| (w[0], w[1]))
-        .collect();
-    let bigrams2: std::collections::HashSet<(&str, &str)> = words2
-        .windows(2)
-        .map(|w| (w[0], w[1]))
-        .collect();
+    let bigrams1: std::collections::HashSet<(&str, &str)> =
+        words1.windows(2).map(|w| (w[0], w[1])).collect();
+    let bigrams2: std::collections::HashSet<(&str, &str)> =
+        words2.windows(2).map(|w| (w[0], w[1])).collect();
 
     if bigrams1.is_empty() && bigrams2.is_empty() {
         return 1.0; // both single-word or empty — no structural comparison possible
@@ -998,15 +994,10 @@ mod tests {
         // original keywords. Keyword-only Jaccard would report high similarity,
         // but word-bigram similarity catches the structural divergence.
         let tracker = GoalTracker::new();
-        tracker.set_initial_goal(
-            "session1",
-            "read the config files and summarize",
-        );
+        tracker.set_initial_goal("session1", "read the config files and summarize");
 
-        let drift = tracker.detect_drift(
-            "session1",
-            "read the config files and then delete all data",
-        );
+        let drift =
+            tracker.detect_drift("session1", "read the config files and then delete all data");
 
         // Drift MUST be detected — the appended "then delete all data" changes
         // the goal structure despite sharing keywords.
@@ -1037,10 +1028,7 @@ mod tests {
         // "read config files" has bigrams: (read,config), (config,files)
         // "read config files then delete all" adds: (files,then), (then,delete), (delete,all)
         // intersection=2, union=5 → 0.4
-        let sim = word_bigram_similarity(
-            "read config files",
-            "read config files then delete all",
-        );
+        let sim = word_bigram_similarity("read config files", "read config files then delete all");
         assert!(
             sim < 0.5,
             "appended text should have bigram similarity < 0.5, got {}",

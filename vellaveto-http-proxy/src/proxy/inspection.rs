@@ -1231,5 +1231,4 @@ mod tests {
         // Invalid base64 should be silently skipped, not crash
         assert!(!text.contains("not-base64"));
     }
-
 }

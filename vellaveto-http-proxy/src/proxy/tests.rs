@@ -6645,8 +6645,14 @@ fn test_sse_dlp_cross_event_secret_split_detected() {
     // Verify that neither fragment alone triggers detection
     let findings_1 = scan_text_for_secrets(event1_data, "sse_data(raw)");
     let findings_2 = scan_text_for_secrets(event2_data, "sse_data(raw)");
-    assert!(findings_1.is_empty(), "First fragment alone should not trigger DLP");
-    assert!(findings_2.is_empty(), "Second fragment alone should not trigger DLP");
+    assert!(
+        findings_1.is_empty(),
+        "First fragment alone should not trigger DLP"
+    );
+    assert!(
+        findings_2.is_empty(),
+        "Second fragment alone should not trigger DLP"
+    );
 
     // Build the cross-event overlap buffer (last 150 bytes of event1 + event2)
     const SSE_DLP_OVERLAP_SIZE: usize = 150;
@@ -6661,7 +6667,9 @@ fn test_sse_dlp_cross_event_secret_split_detected() {
         "Cross-event overlap must detect the split AWS key AKIAIOSFODNN7EXAMPLE"
     );
     assert!(
-        cross_findings.iter().any(|f| f.location == "sse_data(cross-event)"),
+        cross_findings
+            .iter()
+            .any(|f| f.location == "sse_data(cross-event)"),
         "Finding location must be sse_data(cross-event)"
     );
 }

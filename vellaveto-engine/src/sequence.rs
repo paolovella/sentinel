@@ -17,6 +17,9 @@ use vellaveto_types::provenance::SinkClass;
 /// Maximum call log entries per session.
 const MAX_CALL_LOG: usize = 1000;
 
+/// SECURITY (R255-ENG-1): Maximum accumulated anomalies to prevent unbounded growth.
+const MAX_ANOMALIES: usize = 10_000;
+
 /// A recorded tool call in the sequence.
 #[derive(Debug, Clone)]
 struct SequenceEntry {
@@ -156,7 +159,12 @@ impl SequenceTracker {
             new_anomalies.push(a);
         }
 
-        self.anomalies.extend(new_anomalies.clone());
+        // SECURITY (R255-ENG-1): Cap accumulated anomalies to prevent unbounded growth.
+        if self.anomalies.len() < MAX_ANOMALIES {
+            let remaining = MAX_ANOMALIES.saturating_sub(self.anomalies.len());
+            self.anomalies
+                .extend(new_anomalies.iter().take(remaining).cloned());
+        }
         new_anomalies
     }
 

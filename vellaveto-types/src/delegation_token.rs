@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use crate::TrustTier;
 
 /// A signed delegation token for inter-agent capability transfer.
+// SECURITY (R255-TYP-1): Reject unknown fields to prevent smuggling extra data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct DelegationToken {
     /// Unique token ID.
     pub token_id: String,
@@ -71,6 +73,10 @@ impl DelegationToken {
         if self.tool_pattern.is_empty() || self.tool_pattern.len() > MAX_TOKEN_FIELD_LEN {
             return Err("delegation_token.tool_pattern must be 1-256 chars".to_string());
         }
+        // SECURITY (R255-TYP-2): Validate tool_pattern for dangerous characters.
+        if crate::has_dangerous_chars(&self.tool_pattern) {
+            return Err("delegation_token.tool_pattern contains dangerous characters".to_string());
+        }
         if self.remaining_depth > MAX_DELEGATION_DEPTH {
             return Err(format!(
                 "delegation_token.remaining_depth {} exceeds max {MAX_DELEGATION_DEPTH}",
@@ -79,6 +85,21 @@ impl DelegationToken {
         }
         if self.signature.is_empty() || self.signature.len() > 512 {
             return Err("delegation_token.signature must be 1-512 chars".to_string());
+        }
+        // SECURITY (R255-TYP-2): Validate signature for dangerous characters.
+        if crate::has_dangerous_chars(&self.signature) {
+            return Err("delegation_token.signature contains dangerous characters".to_string());
+        }
+        // SECURITY (R255-TYP-2): Validate parent_token_id for dangerous characters.
+        if let Some(ref parent_id) = self.parent_token_id {
+            if parent_id.is_empty() || parent_id.len() > MAX_TOKEN_FIELD_LEN {
+                return Err("delegation_token.parent_token_id must be 1-256 chars".to_string());
+            }
+            if crate::has_dangerous_chars(parent_id) {
+                return Err(
+                    "delegation_token.parent_token_id contains dangerous characters".to_string(),
+                );
+            }
         }
         Ok(())
     }

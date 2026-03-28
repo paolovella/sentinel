@@ -20,6 +20,9 @@ use vellaveto_types::provenance::SinkClass;
 /// Maximum tracked agents.
 const MAX_AGENTS: usize = 1000;
 
+/// SECURITY (R255-ENG-2): Maximum distinct tools per agent baseline.
+const MAX_TOOLS_PER_BASELINE: usize = 1_000;
+
 /// An agent's behavioral baseline.
 #[derive(Debug, Clone, Default)]
 pub struct AgentBaseline {
@@ -119,15 +122,21 @@ impl AgentBaselineTracker {
         }
 
         // Update baseline
-        *baseline
-            .tool_counts
-            .entry(tool_name[..tool_name.len().min(256)].to_string())
-            .or_insert(0) = baseline
-            .tool_counts
-            .get(tool_name)
-            .copied()
-            .unwrap_or(0)
-            .saturating_add(1);
+        // SECURITY (R255-ENG-2): Skip insertion if at capacity and tool is new.
+        let tool_key = &tool_name[..tool_name.len().min(256)];
+        if baseline.tool_counts.contains_key(tool_key)
+            || baseline.tool_counts.len() < MAX_TOOLS_PER_BASELINE
+        {
+            *baseline
+                .tool_counts
+                .entry(tool_key.to_string())
+                .or_insert(0) = baseline
+                .tool_counts
+                .get(tool_key)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(1);
+        }
         *baseline.sink_counts.entry(sink_class.rank()).or_insert(0) = baseline
             .sink_counts
             .get(&sink_class.rank())

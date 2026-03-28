@@ -16,6 +16,9 @@ use std::collections::HashMap;
 /// Maximum tracked nodes in the failure graph.
 const MAX_NODES: usize = 500;
 
+/// SECURITY (R255-ENG-3): Maximum failure events per tool within a window.
+const MAX_EVENTS_PER_TOOL: usize = 10_000;
+
 /// A failure propagation event.
 #[derive(Debug, Clone)]
 pub struct FailureEvent {
@@ -74,8 +77,18 @@ impl CascadeGraph {
     ) -> Option<CascadeFinding> {
         let now = now_ms();
 
+        // SECURITY (R255-ENG-4): Fail-closed on capacity exhaustion.
+        // When at MAX_NODES and the tool is new, emit a capacity-exhaustion
+        // finding instead of silently dropping the event (fail-open).
         if self.failure_counts.len() >= MAX_NODES && !self.failure_counts.contains_key(tool_name) {
-            return None;
+            return Some(CascadeFinding {
+                cascade_depth: self.failure_counts.len(),
+                affected_tools: Vec::new(),
+                trigger: tool_name.to_string(),
+                description: format!(
+                    "Cascade tracker at capacity ({MAX_NODES}) — possible evasion attack"
+                ),
+            });
         }
 
         let events = self
@@ -91,6 +104,12 @@ impl CascadeGraph {
         // Prune old events
         let cutoff = now.saturating_sub(self.window_ms);
         events.retain(|e| e.timestamp_ms >= cutoff);
+
+        // SECURITY (R255-ENG-3): Truncate oldest entries if per-tool limit exceeded.
+        if events.len() > MAX_EVENTS_PER_TOOL {
+            let excess = events.len().saturating_sub(MAX_EVENTS_PER_TOOL);
+            events.drain(..excess);
+        }
 
         // Count distinct failing tools in the window
         let mut failing_tools = Vec::new();

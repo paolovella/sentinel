@@ -81,6 +81,11 @@ impl UpstreamForwarder {
             self.state.upstream_url.clone()
         };
 
+        // SECURITY (R255-PROXY-1): Enforce HTTPS for non-local upstream URLs.
+        // Parity with fallback.rs and smart_fallback.rs.
+        super::super::validate_upstream_url_scheme(&upstream_url)
+            .map_err(UpstreamError::HttpError)?;
+
         let mut request_builder = self
             .state
             .http_client

@@ -146,7 +146,9 @@ impl<'a> SmartFallbackChain<'a> {
                 let history = FallbackNegotiationHistory {
                     attempts,
                     successful_transport: None,
-                    total_duration_ms: chain_start.elapsed().as_millis() as u64,
+                    // SECURITY (R255-PROXY-2): Safe u128→u64 conversion.
+                    total_duration_ms: u64::try_from(chain_start.elapsed().as_millis())
+                        .unwrap_or(u64::MAX),
                 };
                 return Err(SmartFallbackError::TotalTimeoutExceeded { history });
             }
@@ -182,7 +184,9 @@ impl<'a> SmartFallbackChain<'a> {
                 let history = FallbackNegotiationHistory {
                     attempts,
                     successful_transport: None,
-                    total_duration_ms: chain_start.elapsed().as_millis() as u64,
+                    // SECURITY (R255-PROXY-2): Safe u128→u64 conversion.
+                    total_duration_ms: u64::try_from(chain_start.elapsed().as_millis())
+                        .unwrap_or(u64::MAX),
                 };
                 return Err(SmartFallbackError::TotalTimeoutExceeded { history });
             }
@@ -216,7 +220,9 @@ impl<'a> SmartFallbackChain<'a> {
                 }
             };
 
-            let duration_ms = attempt_start.elapsed().as_millis() as u64;
+            // SECURITY (R255-PROXY-2): Safe u128→u64 conversion.
+            let duration_ms =
+                u64::try_from(attempt_start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
             match result {
                 Ok((response_bytes, status)) => {
@@ -269,7 +275,9 @@ impl<'a> SmartFallbackChain<'a> {
                     let history = FallbackNegotiationHistory {
                         attempts,
                         successful_transport: Some(target.protocol),
-                        total_duration_ms: chain_start.elapsed().as_millis() as u64,
+                        // SECURITY (R255-PROXY-2): Safe u128→u64 conversion.
+                        total_duration_ms: u64::try_from(chain_start.elapsed().as_millis())
+                            .unwrap_or(u64::MAX),
                     };
 
                     return Ok(SmartFallbackResult {
@@ -305,7 +313,8 @@ impl<'a> SmartFallbackChain<'a> {
         let history = FallbackNegotiationHistory {
             attempts,
             successful_transport: None,
-            total_duration_ms: chain_start.elapsed().as_millis() as u64,
+            // SECURITY (R255-PROXY-2): Safe u128→u64 conversion.
+            total_duration_ms: u64::try_from(chain_start.elapsed().as_millis()).unwrap_or(u64::MAX),
         };
         Err(SmartFallbackError::AllTransportsFailed { history })
     }

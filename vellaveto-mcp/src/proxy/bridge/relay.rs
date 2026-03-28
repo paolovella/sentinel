@@ -380,6 +380,33 @@ fn strip_server_meta_security_fields(msg: &mut Value) {
     }
 }
 
+/// SECURITY (R255-RELAY-3): Strip security-sensitive `_meta` fields from notification params.
+///
+/// Server-originated notifications carry data in `params._meta` and `params.data._meta`
+/// rather than `result._meta`. This function provides parity with
+/// `strip_server_meta_security_fields` for the notification path.
+fn strip_notification_meta_security_fields(msg: &mut Value) {
+    // Strip from params._meta
+    if let Some(meta) = msg
+        .pointer_mut("/params/_meta")
+        .and_then(|m| m.as_object_mut())
+    {
+        for field in STRIPPED_META_FIELDS {
+            meta.remove(*field);
+        }
+    }
+
+    // Strip from params.data._meta
+    if let Some(meta) = msg
+        .pointer_mut("/params/data/_meta")
+        .and_then(|m| m.as_object_mut())
+    {
+        for field in STRIPPED_META_FIELDS {
+            meta.remove(*field);
+        }
+    }
+}
+
 /// Map TrustTier to an ordinal for comparison (lower = less trusted).
 fn trust_tier_ord(t: TrustTier) -> u8 {
     match t {
@@ -7796,6 +7823,13 @@ impl ProxyBridge {
             // redundant scanning and incorrect pending-request bookkeeping).
             let is_notification = msg.get("id").is_none_or(|v| v.is_null());
             if is_notification {
+                // SECURITY (R255-RELAY-3): Strip security-sensitive _meta fields from
+                // server-originated notification params before forwarding to the agent.
+                // The response-path strip_server_meta_security_fields only covers
+                // result._meta; notifications carry data in params._meta and
+                // params.data._meta.
+                strip_notification_meta_security_fields(&mut msg);
+
                 return write_message(agent_writer, &msg)
                     .await
                     .map_err(ProxyError::Framing);

@@ -84,6 +84,8 @@ struct TransmissionEvent {
 const MAX_EVENTS: usize = 200;
 /// Time window for path detection (ms).
 const PATH_WINDOW_MS: u64 = 30_000;
+/// SECURITY (R255-ENG-1): Maximum accumulated findings to prevent unbounded growth.
+const MAX_FINDINGS: usize = 10_000;
 
 impl ExfilPathTracker {
     pub fn new() -> Self {
@@ -188,7 +190,12 @@ impl ExfilPathTracker {
         self.acquisitions.retain(|e| e.timestamp_ms >= cutoff);
         self.transmissions.retain(|e| e.timestamp_ms >= cutoff);
 
-        self.findings.extend(new_findings.clone());
+        // SECURITY (R255-ENG-1): Cap accumulated findings to prevent unbounded growth.
+        if self.findings.len() < MAX_FINDINGS {
+            let remaining = MAX_FINDINGS.saturating_sub(self.findings.len());
+            self.findings
+                .extend(new_findings.iter().take(remaining).cloned());
+        }
         new_findings
     }
 

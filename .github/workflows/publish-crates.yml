@@ -18,7 +18,7 @@ jobs:
   publish:
     name: Publish Workspace Crates
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     environment:
       name: cargo
     steps:

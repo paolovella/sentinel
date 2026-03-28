@@ -2,7 +2,7 @@
 
 > **Version:** 3.0.0
 > **Date:** 2026-03-06
-> **Status:** Formal foundation current (877+ verification instances across Verus, Kani, TLA+, Coq, Lean 4, and Alloy)
+> **Status:** Formal foundation current (882+ verification instances across Verus, Kani, TLA+, Coq, Lean 4, and Alloy)
 > **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the proof-program detail and [../ROADMAP.md](../ROADMAP.md) for 2026 execution sequencing
 
 This document defines what Vellaveto formally verifies, what it trusts, and
@@ -450,7 +450,7 @@ Kani operates on extracted Rust code verified to match production code via
 - `formal/kani/src/constraint.rs` ↔ `vellaveto-engine/src/constraint_eval.rs`
 - `formal/kani/src/task.rs` ↔ `vellaveto-mcp/src/task_state.rs`
 
-**Total: 877+ verification instances across 6 tools (668 Verus + 108 Kani + 14 TLA+ specs + 45 Coq + 32 Lean + 10 Alloy).**
+**Total: 882+ verification instances across 6 tools (668 Verus + 108 Kani + 14 TLA+ specs + 45 Coq + 37 Lean + 10 Alloy).**
 
 ---
 
@@ -593,11 +593,11 @@ PR-level gating on security-critical paths will be added for:
 | TLA+ safety invariants | 51 |
 | TLA+ liveness properties | 13 |
 | Alloy assertions | 10 |
-| Lean 4 theorems | 32 |
+| Lean 4 theorems | 37 |
 | Coq theorems | 45 |
 | Verus verified items (ALL inputs, deductive) | 668 |
 | Kani proof harnesses (bounded) | 108 |
-| **Total verification instances** | **877+** |
+| **Total verification instances** | **882+** |
 | Rust unit/integration tests | 11,490+ |
 | Fuzz targets | 24 |
 | Property-based tests (proptest) | ~50 |

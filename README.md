@@ -398,7 +398,7 @@ Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model
 
 ### MCPSEC Benchmark
 
-We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. The current published reference result for VellaVeto is [mcpsec/results/vellaveto-v6.0.json](mcpsec/results/vellaveto-v6.0.json): **100/100 (Tier 5: Hardened)** on 105/105 tests. Run it against any MCP gateway — including ours:
+We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. The current published reference result for VellaVeto is [mcpsec/results/vellaveto-v6.1.json](mcpsec/results/vellaveto-v6.1.json): **100/100 (Tier 5: Hardened)** on 105/105 tests. Run it against any MCP gateway — including ours:
 
 ```bash
 cargo run -p mcpsec -- --target http://localhost:3000 --format markdown

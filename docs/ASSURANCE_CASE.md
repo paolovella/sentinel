@@ -81,11 +81,11 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | **Clarification** | These are *internal automated audit iterations*, not external penetration tests by a third-party firm. The badge text reflects this. |
 | **Reproduce** | Finding verification: `cargo test -p vellaveto-integration -- regression` |
 
-### C7. "877+ formally verified properties"
+### C7. "882+ formally verified properties"
 
 | Field | Value |
 |-------|-------|
-| **Scope** | 668 Verus verified items (deductive, ALL inputs via Z3 SMT on actual Rust), 108 Kani CBMC proof harnesses (on actual Rust), 14 TLA+ specs, 45 Coq theorems, 32 Lean 4 theorems, 10 Alloy assertions — across 6 tools. |
+| **Scope** | 668 Verus verified items (deductive, ALL inputs via Z3 SMT on actual Rust), 108 Kani CBMC proof harnesses (on actual Rust), 14 TLA+ specs, 45 Coq theorems, 37 Lean 4 theorems, 10 Alloy assertions — across 6 tools. |
 | **Verus coverage** | 47 verified kernels covering verdict fail-closed (V1-V8), path normalization (V9-V10), rule override (V11-V12), DLP buffer safety (D1-D6), constraint evaluation, audit chain integrity, Merkle proofs, rotation manifests, capability delegation, NHI delegation, approval scope binding, deputy chain, entropy gates, cross-call DLP, refinement safety obligations, and ACIS envelope invariants. |
 | **Assumptions** | Verus: Z3 SMT-checked for ALL inputs. Kani: bounded model checking (finite state spaces). TLA+: exhaustive within declared bounds. Properties are structural. |
 | **What is NOT verified** | Pattern compilation, cryptographic primitives, timing, concurrency, network properties, serialization. See [FORMAL_SCOPE.md](FORMAL_SCOPE.md). |

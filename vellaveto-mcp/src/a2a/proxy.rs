@@ -28,7 +28,7 @@
 //! - DLP scanning on message content
 //! - Injection detection on text content
 //! - Circuit breaker for upstream protection
-//! - Shadow agent detection
+//! - Shadow agent detection (fingerprint-based impersonation defense)
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -179,10 +179,10 @@ pub struct A2aProxyConfig {
     pub enable_circuit_breaker: bool,
     /// Enable shadow agent detection.
     ///
-    /// Note: Shadow agent detection is not yet implemented for A2A transport.
-    /// This flag is retained for forward compatibility and configuration
-    /// parity. It will be wired to a behavioral analysis engine in a future
-    /// phase. Setting it to `true` (the default) is a no-op today.
+    /// When enabled, the proxy fingerprints agents by JWT claims, client ID,
+    /// and IP hash. If a new fingerprint claims an identity already registered
+    /// to a different fingerprint, the request is blocked as a shadow agent
+    /// impersonation attempt. Transport parity with the MCP stdio relay.
     pub enable_shadow_agent_detection: bool,
     /// Require agent card verification.
     pub require_agent_card: bool,
@@ -303,9 +303,9 @@ pub fn extract_a2a_trace_context(msg: &Value) -> Option<String> {
 /// - **Circuit breaker**: Tracks consecutive upstream failures and opens the
 ///   circuit to protect against cascading failures.
 ///
-/// Note: Shadow agent detection (`enable_shadow_agent_detection` config flag)
-/// is not yet implemented for A2A. The flag is retained for forward
-/// compatibility but has no effect.
+/// - **Shadow agent detection**: Fingerprints agents by JWT claims, client ID,
+///   and IP hash. Blocks requests where a new fingerprint claims an identity
+///   already registered to a different fingerprint.
 pub struct A2aProxyService {
     config: A2aProxyConfig,
     engine: Arc<PolicyEngine>,
@@ -315,6 +315,8 @@ pub struct A2aProxyService {
     memory_tracker: std::sync::Mutex<MemoryTracker>,
     cross_call_dlp: std::sync::Mutex<CrossCallDlpTracker>,
     circuit_breaker: std::sync::Mutex<A2aCircuitBreaker>,
+    // SECURITY (R256-MCP-3): Shadow agent detection (transport parity with stdio relay)
+    shadow_agent: Option<Arc<crate::shadow_agent::ShadowAgentDetector>>,
 }
 
 impl A2aProxyService {
@@ -325,6 +327,17 @@ impl A2aProxyService {
         policies: Arc<Vec<Policy>>,
         agent_card_cache: Arc<AgentCardCache>,
     ) -> Self {
+        // SECURITY (R256-MCP-3): Create shadow agent detector if enabled.
+        // Uses Option<Arc<...>> (not Mutex) because the detector uses internal
+        // RwLock for thread safety.
+        let shadow_agent = if config.enable_shadow_agent_detection {
+            Some(Arc::new(crate::shadow_agent::ShadowAgentDetector::new(
+                10_000,
+            )))
+        } else {
+            None
+        };
+
         Self {
             config,
             engine,
@@ -336,6 +349,8 @@ impl A2aProxyService {
             cross_call_dlp: std::sync::Mutex::new(CrossCallDlpTracker::new()),
             // SECURITY (R256-MCP-3): Circuit breaker (transport parity with stdio relay)
             circuit_breaker: std::sync::Mutex::new(A2aCircuitBreaker::new()),
+            // SECURITY (R256-MCP-3): Shadow agent detection (transport parity with stdio relay)
+            shadow_agent,
         }
     }
 
@@ -483,6 +498,36 @@ impl A2aProxyService {
                         reason,
                         verdict: None,
                     });
+                }
+            }
+        }
+
+        // 9b. SECURITY (R256-MCP-3): Shadow agent detection — transport parity with stdio relay.
+        // After policy evaluation succeeds, check if the request's agent fingerprint
+        // matches the registered fingerprint for the claimed identity. A mismatch
+        // indicates a shadow agent impersonation attempt.
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = extract_a2a_fingerprint(&msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = extract_a2a_agent_id(&msg) {
+                    // Detect impersonation first, then register on first sight
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        let id = get_request_id(&msg_type);
+                        return Ok(A2aProxyDecision::Block {
+                            response: make_a2a_error_response(&id, -32000, "Shadow agent detected"),
+                            reason: format!(
+                                "Shadow agent impersonation: claimed={}, severity={:?}",
+                                vellaveto_types::sanitize_for_log(&claimed_id, 256),
+                                alert.severity,
+                            ),
+                            verdict: Some(Verdict::Deny {
+                                reason: "Shadow agent detected".to_string(),
+                            }),
+                        });
+                    }
+                    // Register on first sight (no-op overwrite on subsequent same-fingerprint)
+                    detector.register_agent(fingerprint, &claimed_id);
+                    detector.record_request(&claimed_id);
                 }
             }
         }
@@ -1006,6 +1051,71 @@ fn collect_string_leaves(value: &Value, texts: &mut Vec<String>) {
     }
 }
 
+/// SECURITY (R256-MCP-3): Maximum length for a claimed agent ID in A2A metadata.
+const MAX_A2A_AGENT_ID_LEN: usize = 256;
+
+/// SECURITY (R256-MCP-3): Extract agent fingerprint from A2A message metadata.
+///
+/// A2A messages carry agent identity in `params.metadata` or top-level `metadata`.
+/// This mirrors the MCP relay's `extract_fingerprint_from_meta` but adapted for
+/// A2A's metadata placement conventions.
+fn extract_a2a_fingerprint(msg: &Value) -> vellaveto_types::AgentFingerprint {
+    // Check params.metadata first (primary A2A location), then top-level metadata
+    let meta = msg
+        .get("params")
+        .and_then(|p| p.get("metadata"))
+        .or_else(|| msg.get("metadata"));
+
+    vellaveto_types::AgentFingerprint {
+        jwt_sub: meta
+            .and_then(|m| m.get("agent_id").or_else(|| m.get("agentId")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        jwt_iss: meta
+            .and_then(|m| m.get("issuer").or_else(|| m.get("iss")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        client_id: meta
+            .and_then(|m| m.get("client_id").or_else(|| m.get("clientId")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        ip_hash: None, // Not available at the message level
+    }
+}
+
+/// SECURITY (R256-MCP-3): Extract claimed agent ID from A2A message metadata.
+///
+/// Checks `params.metadata.agent_id` (or camelCase `agentId`), then falls back to
+/// top-level `metadata.agent_id`. Enforces max length and rejects dangerous chars
+/// to prevent log injection and unbounded memory allocation.
+fn extract_a2a_agent_id(msg: &Value) -> Option<String> {
+    let meta = msg
+        .get("params")
+        .and_then(|p| p.get("metadata"))
+        .or_else(|| msg.get("metadata"))?;
+
+    let raw = meta
+        .get("agent_id")
+        .or_else(|| meta.get("agentId"))
+        .and_then(|v| v.as_str())?;
+
+    if raw.len() > MAX_A2A_AGENT_ID_LEN {
+        tracing::warn!(
+            len = raw.len(),
+            max = MAX_A2A_AGENT_ID_LEN,
+            "SECURITY (R256-MCP-3): A2A agent_id exceeds maximum length — ignoring"
+        );
+        return None;
+    }
+    if vellaveto_types::has_dangerous_chars(raw) {
+        tracing::warn!(
+            "SECURITY (R256-MCP-3): A2A agent_id contains control or Unicode format characters — ignoring"
+        );
+        return None;
+    }
+    Some(raw.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1024,9 +1134,11 @@ mod tests {
         let engine = PolicyEngine::with_policies(false, &policies).expect("compile failed");
         let policies = Arc::new(policies);
         let cache = Arc::new(AgentCardCache::default());
-        // Explicitly disable agent card requirement for general tests
+        // Explicitly disable agent card requirement and shadow agent detection
+        // for general tests so they don't interfere with other assertions.
         let config = A2aProxyConfig {
             require_agent_card: false,
+            enable_shadow_agent_detection: false,
             ..Default::default()
         };
 
@@ -2245,14 +2357,314 @@ mod tests {
         assert!(meta.contains_key("other_field"));
     }
 
-    /// R256: Shadow agent detection flag is documented as not yet implemented.
+    /// R256: Shadow agent detection flag defaults to true (fail-closed).
     #[test]
     fn test_r256_shadow_agent_config_flag_present() {
-        // The flag exists for forward compatibility; just verify it defaults to true.
         let config = A2aProxyConfig::default();
         assert!(
             config.enable_shadow_agent_detection,
             "Shadow agent detection flag should default to true"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R256-MCP-3: Shadow Agent Detection — A2A Transport Parity
+    // ════════════════════════════════════════════════════════
+
+    /// Helper: create a test service with shadow agent detection enabled.
+    fn create_shadow_agent_test_service() -> A2aProxyService {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: vellaveto_types::PolicyType::Allow,
+            priority: 1,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).expect("compile failed");
+        let policies = Arc::new(policies);
+        let cache = Arc::new(AgentCardCache::default());
+        let config = A2aProxyConfig {
+            require_agent_card: false,
+            enable_shadow_agent_detection: true,
+            ..Default::default()
+        };
+        A2aProxyService::new(config, Arc::new(engine), policies, cache)
+    }
+
+    /// R256-MCP-3: Shadow agent detection blocks impersonation.
+    /// Register agent "agent-1" with fingerprint A, then send a request
+    /// claiming "agent-1" with fingerprint B. The second request must be
+    /// blocked.
+    #[test]
+    fn test_r256_shadow_agent_detects_impersonation() {
+        let service = create_shadow_agent_test_service();
+
+        // First request: register agent-1 with fingerprint A
+        let body1 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello from agent-1"}]
+                },
+                "metadata": {
+                    "agent_id": "agent-1",
+                    "issuer": "https://auth.example.com",
+                    "client_id": "client-aaa"
+                }
+            }
+        }))
+        .unwrap();
+        let decision1 = service.process_request(&body1).unwrap();
+        assert!(
+            matches!(decision1, A2aProxyDecision::Forward { .. }),
+            "R256-MCP-3: First request should be forwarded (registers agent)"
+        );
+
+        // Second request: different fingerprint claiming same agent-1
+        let body2 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello from impersonator"}]
+                },
+                "metadata": {
+                    "agent_id": "agent-1",
+                    "issuer": "https://evil.example.com",
+                    "client_id": "client-zzz"
+                }
+            }
+        }))
+        .unwrap();
+        let decision2 = service.process_request(&body2).unwrap();
+        match decision2 {
+            A2aProxyDecision::Block {
+                reason, verdict, ..
+            } => {
+                assert!(
+                    reason.contains("Shadow agent impersonation"),
+                    "R256-MCP-3: Block reason should mention shadow agent, got: {}",
+                    reason
+                );
+                assert!(
+                    matches!(verdict, Some(Verdict::Deny { .. })),
+                    "R256-MCP-3: Verdict should be Deny"
+                );
+            }
+            _ => panic!("R256-MCP-3: Expected impersonation to be blocked"),
+        }
+    }
+
+    /// R256-MCP-3: Shadow agent detection allows legitimate requests.
+    /// Register and request with the same fingerprint — should be forwarded.
+    #[test]
+    fn test_r256_shadow_agent_allows_legitimate() {
+        let service = create_shadow_agent_test_service();
+
+        // First request: register agent-1
+        let body1 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello"}]
+                },
+                "metadata": {
+                    "agent_id": "agent-1",
+                    "issuer": "https://auth.example.com"
+                }
+            }
+        }))
+        .unwrap();
+        let decision1 = service.process_request(&body1).unwrap();
+        assert!(matches!(decision1, A2aProxyDecision::Forward { .. }));
+
+        // Second request: same fingerprint, same agent-1
+        let body2 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Follow-up"}]
+                },
+                "metadata": {
+                    "agent_id": "agent-1",
+                    "issuer": "https://auth.example.com"
+                }
+            }
+        }))
+        .unwrap();
+        let decision2 = service.process_request(&body2).unwrap();
+        assert!(
+            matches!(decision2, A2aProxyDecision::Forward { .. }),
+            "R256-MCP-3: Legitimate request with same fingerprint should be forwarded"
+        );
+    }
+
+    /// R256-MCP-3: Shadow agent detection disabled allows all requests.
+    /// When `enable_shadow_agent_detection` is false, mismatched fingerprints
+    /// must not trigger blocking.
+    #[test]
+    fn test_r256_shadow_agent_disabled_allows_all() {
+        // create_test_service already sets enable_shadow_agent_detection: false
+        let service = create_test_service();
+
+        // Register agent-1 with fingerprint A
+        let body1 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello"}]
+                },
+                "metadata": {
+                    "agent_id": "agent-1",
+                    "issuer": "https://auth.example.com"
+                }
+            }
+        }))
+        .unwrap();
+        let _ = service.process_request(&body1).unwrap();
+
+        // Different fingerprint claiming same agent-1
+        let body2 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello again"}]
+                },
+                "metadata": {
+                    "agent_id": "agent-1",
+                    "issuer": "https://evil.example.com"
+                }
+            }
+        }))
+        .unwrap();
+        let decision2 = service.process_request(&body2).unwrap();
+        assert!(
+            matches!(decision2, A2aProxyDecision::Forward { .. }),
+            "R256-MCP-3: With detection disabled, mismatched fingerprint should be forwarded"
+        );
+    }
+
+    /// R256-MCP-3: Unpopulated fingerprint passes without detection.
+    /// Requests with no metadata should not trigger shadow agent checks.
+    #[test]
+    fn test_r256_shadow_agent_unpopulated_fingerprint_passes() {
+        let service = create_shadow_agent_test_service();
+
+        // Request with no metadata — fingerprint will be unpopulated
+        let body = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello without metadata"}]
+                }
+            }
+        }))
+        .unwrap();
+        let decision = service.process_request(&body).unwrap();
+        assert!(
+            matches!(decision, A2aProxyDecision::Forward { .. }),
+            "R256-MCP-3: Request with no fingerprint metadata should be forwarded"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R256-MCP-3: A2A Fingerprint/Agent ID Extraction Helpers
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extract_a2a_fingerprint_from_params_metadata() {
+        let msg = json!({
+            "params": {
+                "metadata": {
+                    "agent_id": "agent-42",
+                    "issuer": "https://auth.example.com",
+                    "client_id": "client-abc"
+                }
+            }
+        });
+        let fp = extract_a2a_fingerprint(&msg);
+        assert!(fp.is_populated());
+        assert_eq!(fp.jwt_sub.as_deref(), Some("agent-42"));
+        assert_eq!(fp.jwt_iss.as_deref(), Some("https://auth.example.com"));
+        assert_eq!(fp.client_id.as_deref(), Some("client-abc"));
+    }
+
+    #[test]
+    fn test_extract_a2a_fingerprint_from_top_level_metadata() {
+        let msg = json!({
+            "metadata": {
+                "agentId": "agent-99",
+                "iss": "https://other-issuer.example.com",
+                "clientId": "client-xyz"
+            }
+        });
+        let fp = extract_a2a_fingerprint(&msg);
+        assert!(fp.is_populated());
+        assert_eq!(fp.jwt_sub.as_deref(), Some("agent-99"));
+        assert_eq!(
+            fp.jwt_iss.as_deref(),
+            Some("https://other-issuer.example.com")
+        );
+        assert_eq!(fp.client_id.as_deref(), Some("client-xyz"));
+    }
+
+    #[test]
+    fn test_extract_a2a_fingerprint_empty_when_no_metadata() {
+        let msg = json!({"jsonrpc": "2.0", "id": 1, "method": "message/send"});
+        let fp = extract_a2a_fingerprint(&msg);
+        assert!(!fp.is_populated());
+    }
+
+    #[test]
+    fn test_extract_a2a_agent_id_rejects_oversized() {
+        let msg = json!({
+            "params": {
+                "metadata": {
+                    "agent_id": "a".repeat(257)
+                }
+            }
+        });
+        let id = extract_a2a_agent_id(&msg);
+        assert!(
+            id.is_none(),
+            "R256-MCP-3: Oversized agent_id should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_extract_a2a_agent_id_rejects_dangerous_chars() {
+        let msg = json!({
+            "params": {
+                "metadata": {
+                    "agent_id": "agent\x00-injected"
+                }
+            }
+        });
+        let id = extract_a2a_agent_id(&msg);
+        assert!(
+            id.is_none(),
+            "R256-MCP-3: Agent ID with control chars should be rejected"
         );
     }
 }

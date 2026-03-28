@@ -85,9 +85,14 @@ impl Default for A2aProxyConfig {
             enable_injection_detection: true,
             enable_circuit_breaker: true,
             enable_shadow_agent_detection: true,
-            require_agent_card: false,
+            // SECURITY: Fail-closed — require agent card verification by default.
+            // Deployments that explicitly do not need agent card verification
+            // must opt out by setting this to false.
+            require_agent_card: true,
             request_timeout_ms: 30000,
-            allowed_task_operations: vec![],
+            // SECURITY: Fail-closed — only allow safe read-only task operations by default.
+            // Empty allowlist would deny all task operations when the guard is removed.
+            allowed_task_operations: vec!["get".into(), "cancel".into(), "resubscribe".into()],
         }
     }
 }
@@ -242,15 +247,16 @@ impl A2aProxyService {
         }
 
         // 7. Check task operation restrictions
-        if !self.config.allowed_task_operations.is_empty() {
-            if let Err(e) = self.check_task_operation(&msg_type) {
-                let id = get_request_id(&msg_type);
-                return Ok(A2aProxyDecision::Block {
-                    response: make_a2a_error_response(&id, e.code(), &e.to_string()),
-                    reason: e.to_string(),
-                    verdict: None,
-                });
-            }
+        // SECURITY: Always check task operations — empty allowlist denies all (fail-closed).
+        // The previous is_empty() guard silently allowed all task operations when the
+        // allowlist was empty, which is a fail-open default.
+        if let Err(e) = self.check_task_operation(&msg_type) {
+            let id = get_request_id(&msg_type);
+            return Ok(A2aProxyDecision::Block {
+                response: make_a2a_error_response(&id, e.code(), &e.to_string()),
+                reason: e.to_string(),
+                verdict: None,
+            });
         }
 
         // 8. Extract action for policy evaluation
@@ -690,7 +696,11 @@ mod tests {
         let engine = PolicyEngine::with_policies(false, &policies).expect("compile failed");
         let policies = Arc::new(policies);
         let cache = Arc::new(AgentCardCache::default());
-        let config = A2aProxyConfig::default();
+        // Explicitly disable agent card requirement for general tests
+        let config = A2aProxyConfig {
+            require_agent_card: false,
+            ..Default::default()
+        };
 
         A2aProxyService::new(config, Arc::new(engine), policies, cache)
     }
@@ -795,6 +805,7 @@ mod tests {
         let engine = PolicyEngine::with_policies(false, &policies).expect("compile failed");
 
         let config = A2aProxyConfig {
+            require_agent_card: false,
             allowed_task_operations: vec!["get".to_string()],
             ..Default::default()
         };
@@ -1104,11 +1115,59 @@ mod tests {
     }
 
     #[test]
-    fn test_config_allowed_task_operations_empty_by_default() {
+    fn test_config_allowed_task_operations_default() {
+        // SECURITY: Default allows safe read-only task operations.
+        let config = A2aProxyConfig::default();
+        assert_eq!(
+            config.allowed_task_operations,
+            vec!["get", "cancel", "resubscribe"],
+            "allowed_task_operations should default to safe read-only operations"
+        );
+    }
+
+    #[test]
+    fn test_default_config_requires_agent_card() {
+        // SECURITY: Fail-closed — agent card verification must be required by default.
         let config = A2aProxyConfig::default();
         assert!(
-            config.allowed_task_operations.is_empty(),
-            "allowed_task_operations should be empty by default (allowing all)"
+            config.require_agent_card,
+            "require_agent_card must default to true (fail-closed)"
+        );
+    }
+
+    #[test]
+    fn test_empty_allowed_task_operations_denies_task_get() {
+        // SECURITY: Empty allowlist must deny all task operations (fail-closed).
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: vellaveto_types::PolicyType::Allow,
+            priority: 1,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).expect("compile failed");
+
+        let config = A2aProxyConfig {
+            require_agent_card: false,
+            allowed_task_operations: vec![],
+            ..Default::default()
+        };
+        let policies = Arc::new(policies);
+        let cache = Arc::new(AgentCardCache::default());
+        let service = A2aProxyService::new(config, Arc::new(engine), policies, cache);
+
+        let body = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tasks/get",
+            "params": {"id": "task-123"}
+        }))
+        .unwrap();
+        let decision = service.process_request(&body).unwrap();
+        assert!(
+            matches!(decision, A2aProxyDecision::Block { .. }),
+            "Empty allowed_task_operations must deny tasks/get"
         );
     }
 

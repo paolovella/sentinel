@@ -277,7 +277,8 @@ impl Default for A2aConfig {
             enabled: false,
             upstream_url: None,
             listen_addr: None,
-            require_agent_card: false,
+            // SECURITY: Fail-closed — require agent card verification by default.
+            require_agent_card: true,
             agent_card_cache_secs: default_a2a_card_cache_secs(),
             allowed_auth_methods: default_a2a_auth_methods(),
             enable_circuit_breaker: true,
@@ -286,7 +287,8 @@ impl Default for A2aConfig {
             enable_injection_detection: true,
             max_message_size: default_a2a_max_message_size(),
             request_timeout_ms: default_a2a_timeout(),
-            allowed_task_operations: vec![],
+            // SECURITY: Fail-closed — only allow safe read-only task operations by default.
+            allowed_task_operations: vec!["get".into(), "cancel".into(), "resubscribe".into()],
         }
     }
 }

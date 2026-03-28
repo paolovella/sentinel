@@ -188,10 +188,11 @@ pub(super) async fn scan_sse_events_for_injection(
         // an injection payload across data: lines to evade per-line scanning.
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
-            // before prefix check. Without NBSP handling, a malicious server can prefix
-            // "data:" lines with U+00A0 to bypass SSE injection scanning.
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5, F5): Trim ALL Unicode whitespace
+            // before prefix check. Using char::is_whitespace() covers NBSP (U+00A0),
+            // EN QUAD (U+2000), IDEOGRAPHIC SPACE (U+3000), and other exotic whitespace
+            // that could bypass SSE prefix detection.
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -201,7 +202,7 @@ pub(super) async fn scan_sse_events_for_injection(
         // These fields are forwarded verbatim to the client and could carry
         // injection payloads that bypass data-only scanning.
         for line in event.lines() {
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(value) = trimmed
                 .strip_prefix("event:")
                 .or_else(|| trimmed.strip_prefix("id:"))
@@ -234,7 +235,7 @@ pub(super) async fn scan_sse_events_for_injection(
         // be logged or displayed by non-browser MCP clients, making them a
         // viable injection vector.
         for line in event.lines() {
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(comment) = trimmed.strip_prefix(':') {
                 let comment = comment.trim();
                 if !comment.is_empty() {
@@ -440,16 +441,14 @@ pub(super) async fn scan_sse_events_for_injection(
 /// them for secrets (AWS keys, GitHub tokens, etc). Findings are logged
 /// as audit entries. Returns `true` if any secrets were detected.
 ///
-/// # Known Limitation (FIND-R44-027)
+/// # Cross-Event Secret Detection (FIND-R44-027)
 ///
 /// SSE streaming can split a secret across multiple `data:` lines within
 /// a single event, or across event boundaries. This scanner concatenates
-/// `data:` lines per event (R11-RESP-4) but cannot detect secrets split
-/// across separate SSE events. A malicious server could fragment a secret
-/// like "AKIA" + "IOSFODNN7EXAMPLE" across two events to evade detection.
-/// Mitigation: use `response_dlp_blocking` with a downstream reassembly
-/// buffer, or rely on request-side DLP to catch secrets when they are
-/// subsequently used in tool call parameters.
+/// `data:` lines per event (R11-RESP-4) and uses a rolling overlap buffer
+/// to detect secrets split across separate SSE events. The overlap buffer
+/// carries the last 150 bytes of each event's data payload into the next
+/// event's scan, catching fragments like "AKIA" + "IOSFODNN7EXAMPLE".
 pub(super) async fn scan_sse_events_for_dlp(
     sse_bytes: &[u8],
     session_id: &str,
@@ -462,14 +461,22 @@ pub(super) async fn scan_sse_events_for_dlp(
     // SECURITY (R17-SSE-1): Normalize SSE line endings per W3C spec (see injection scanner).
     let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
 
+    // SECURITY (FIND-R44-027): Rolling overlap buffer for cross-event secret detection.
+    // Carries the tail of the previous event's data payload so secrets split across
+    // SSE event boundaries (e.g., "AKIA" in event N, "IOSFODNN7EXAMPLE" in event N+1)
+    // are caught by scanning the concatenation of tail + current payload.
+    const SSE_DLP_OVERLAP_SIZE: usize = 150;
+    let mut previous_data_tail = String::new();
+
     // SECURITY (R11-RESP-4): Concatenate data: lines per event before scanning.
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
-            // before prefix check. Without NBSP handling, a malicious server can prefix
-            // "data:" lines with U+00A0 to bypass SSE injection scanning.
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5, F5): Trim ALL Unicode whitespace
+            // before prefix check. Using char::is_whitespace() covers NBSP (U+00A0),
+            // EN QUAD (U+2000), IDEOGRAPHIC SPACE (U+3000), and other exotic whitespace
+            // that could bypass SSE prefix detection.
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -479,7 +486,7 @@ pub(super) async fn scan_sse_events_for_dlp(
         // These fields are forwarded verbatim to the client and could carry
         // secret data that bypasses data-only DLP scanning.
         for line in event.lines() {
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(value) = trimmed
                 .strip_prefix("event:")
                 .or_else(|| trimmed.strip_prefix("id:"))
@@ -510,7 +517,7 @@ pub(super) async fn scan_sse_events_for_dlp(
         // be logged or displayed by non-browser MCP clients. Secrets embedded
         // in comment lines bypass data-only DLP scanning.
         for line in event.lines() {
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(comment) = trimmed.strip_prefix(':') {
                 let comment = comment.trim();
                 if !comment.is_empty() {
@@ -549,7 +556,87 @@ pub(super) async fn scan_sse_events_for_dlp(
                 state.limits.max_sse_event_bytes,
             );
             secrets_found = true;
+            // SECURITY (FIND-R44-027): Still update overlap tail for oversized events
+            // so the next event can detect cross-boundary secrets at the tail boundary.
+            let tail_start = data_payload.len().saturating_sub(SSE_DLP_OVERLAP_SIZE);
+            previous_data_tail = data_payload[tail_start..].to_string();
             continue;
+        }
+
+        // SECURITY (FIND-R44-027): Cross-event DLP overlap scanning.
+        // Scan the concatenation of the previous event's tail and the current
+        // event's data payload to detect secrets split across SSE event boundaries.
+        if !previous_data_tail.is_empty() {
+            let overlap_text = format!("{}{}", previous_data_tail, &data_payload);
+            let cross_event_findings =
+                scan_text_for_secrets(&overlap_text, "sse_data(cross-event)");
+            if !cross_event_findings.is_empty() {
+                for finding in &cross_event_findings {
+                    record_dlp_finding(&finding.pattern_name);
+                }
+                secrets_found = true;
+                let patterns: Vec<String> = cross_event_findings
+                    .iter()
+                    .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                    .collect();
+                tracing::warn!(
+                    "SECURITY: Cross-event DLP secret detected in SSE stream! \
+                     Session: {}, Findings: {:?}, Blocking: {}",
+                    session_id,
+                    patterns,
+                    state.response_dlp_blocking,
+                );
+                let verdict = if state.response_dlp_blocking {
+                    Verdict::Deny {
+                        reason: format!("SSE response DLP blocked (cross-event): {patterns:?}"),
+                    }
+                } else {
+                    Verdict::Allow
+                };
+                let action = Action::new(
+                    "vellaveto",
+                    "sse_response_dlp_scan",
+                    json!({
+                        "findings": patterns,
+                        "session": session_id,
+                        "finding_count": cross_event_findings.len(),
+                        "cross_event": true,
+                    }),
+                );
+                let sse_security_context = text_dlp_security_context(
+                    &overlap_text,
+                    state.response_dlp_blocking,
+                    "sse_response_dlp_cross_event",
+                );
+                let envelope = build_secondary_acis_envelope_with_security_context(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::Dlp,
+                    "sse",
+                    Some(session_id),
+                    Some(&sse_security_context),
+                );
+                if let Err(e) = state
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "http_proxy",
+                            "event": "sse_response_dlp_cross_event_alert",
+                            "blocked": state.response_dlp_blocking,
+                            "dlp_detail": format!(
+                                "Cross-event secrets detected in SSE response: {:?}",
+                                patterns
+                            ),
+                        }),
+                        envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit SSE cross-event DLP finding: {}", e);
+                }
+            }
         }
 
         let dlp_findings = if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
@@ -639,6 +726,12 @@ pub(super) async fn scan_sse_events_for_dlp(
                 tracing::warn!("Failed to audit SSE DLP finding: {}", e);
             }
         }
+
+        // SECURITY (FIND-R44-027): Update rolling overlap tail for the next event.
+        // Carry the last SSE_DLP_OVERLAP_SIZE bytes of this event's data payload
+        // so secrets split at event boundaries are detected in the next iteration.
+        let tail_start = data_payload.len().saturating_sub(SSE_DLP_OVERLAP_SIZE);
+        previous_data_tail = data_payload[tail_start..].to_string();
     }
     secrets_found
 }
@@ -666,10 +759,11 @@ pub(super) async fn check_sse_for_rug_pull_and_manifest(
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
-            // before prefix check. Without NBSP handling, a malicious server can prefix
-            // "data:" lines with U+00A0 to bypass SSE injection scanning.
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5, F5): Trim ALL Unicode whitespace
+            // before prefix check. Using char::is_whitespace() covers NBSP (U+00A0),
+            // EN QUAD (U+2000), IDEOGRAPHIC SPACE (U+3000), and other exotic whitespace
+            // that could bypass SSE prefix detection.
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -746,10 +840,11 @@ pub(super) fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
-            // before prefix check. Without NBSP handling, a malicious server can prefix
-            // "data:" lines with U+00A0 to bypass SSE injection scanning.
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5, F5): Trim ALL Unicode whitespace
+            // before prefix check. Using char::is_whitespace() covers NBSP (U+00A0),
+            // EN QUAD (U+2000), IDEOGRAPHIC SPACE (U+3000), and other exotic whitespace
+            // that could bypass SSE prefix detection.
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -796,7 +891,7 @@ pub(super) async fn scan_sse_events_for_output_schema(
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            let trimmed = line.trim_start_matches(|c: char| c.is_whitespace());
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -1136,4 +1231,5 @@ mod tests {
         // Invalid base64 should be silently skipped, not crash
         assert!(!text.contains("not-base64"));
     }
+
 }

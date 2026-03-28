@@ -1734,6 +1734,19 @@ impl PolicyConfig {
     /// Validates config bounds after parsing to prevent memory exhaustion
     /// from excessively large arrays.
     pub fn load_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // SECURITY (F7): Reject symlinks to prevent TOCTOU attacks and /dev/zero hang.
+        // symlink_metadata() does NOT follow symlinks, so we can detect them before
+        // std::fs::metadata() (which follows symlinks and could hang on /dev/zero).
+        let symlink_meta = std::fs::symlink_metadata(path)
+            .map_err(|e| format!("Cannot read config file '{}': {}", path, e))?;
+        if symlink_meta.file_type().is_symlink() {
+            return Err(format!(
+                "Config file '{}' is a symbolic link. Symlinks are rejected to prevent TOCTOU attacks.",
+                path
+            )
+            .into());
+        }
+
         // SECURITY (R9-5): Check file size before reading to prevent OOM
         // from maliciously large config files. 10 MB is generous for any
         // realistic policy configuration.

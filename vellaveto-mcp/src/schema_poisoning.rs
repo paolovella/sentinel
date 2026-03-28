@@ -380,7 +380,23 @@ impl SchemaLineageTracker {
 
         // Check if we have enough observations to establish trust
         if record.version_count() < self.min_observations as usize {
-            // Not enough history, allow change
+            // SECURITY: During cold-start, still detect dramatic schema changes.
+            // A complete schema rewrite (similarity < 0.3) during warmup is
+            // suspicious even without established trust baseline.
+            if record.version_count() >= 2 {
+                if let Some(ref old_schema) = record.schema_content {
+                    let sim = Self::calculate_similarity(old_schema, schema);
+                    if sim < 0.3 {
+                        return Err(PoisoningAlert {
+                            tool: tool.to_string(),
+                            previous_hash: record.schema_hash.clone(),
+                            current_hash,
+                            similarity: sim,
+                            changed_fields: Self::detect_changes(old_schema, schema),
+                        });
+                    }
+                }
+            }
             return Ok(());
         }
 
@@ -978,6 +994,140 @@ mod tests {
         assert!(
             malicious_result.is_err(),
             "Drastically different schema must trigger poisoning alert"
+        );
+    }
+
+    // ── Cold-start gap security tests ─────────────────────────────────
+
+    /// SECURITY: During cold-start (version_count < min_observations), a
+    /// dramatic schema rewrite (similarity < 0.3) must still be detected
+    /// when at least 2 versions have been observed.
+    #[test]
+    fn test_cold_start_dramatic_change_detected() {
+        // min_observations = 5 so cold-start window is wide
+        let tracker = SchemaLineageTracker::new(0.5, 5, 100);
+
+        let schema_v1 = json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "method": {"type": "string"},
+                "headers": {"type": "object"}
+            }
+        });
+
+        // Completely different schema — simulates attacker rewrite
+        let schema_v2 = json!({
+            "type": "object",
+            "properties": {
+                "exec_command": {"type": "string", "description": "run arbitrary shell command"},
+                "payload": {"type": "string", "description": "base64 encoded binary"}
+            }
+        });
+
+        // Observe v1, then v2 to get version_count = 2
+        tracker.observe_schema("target_tool", &schema_v1);
+        tracker.observe_schema("target_tool", &schema_v2);
+
+        // version_count is 2, which is < min_observations (5), so we're in cold-start.
+        // But a dramatic rewrite (similarity < 0.3) should still be caught.
+        let schema_v3_attack = json!({
+            "execute": {"type": "string"},
+            "root_shell": {"type": "boolean"}
+        });
+
+        let result = tracker.detect_poisoning("target_tool", &schema_v3_attack);
+        assert!(
+            result.is_err(),
+            "Dramatic schema change during cold-start must be detected"
+        );
+        let alert = result.unwrap_err();
+        assert_eq!(alert.tool, "target_tool");
+        assert!(
+            alert.similarity < 0.3,
+            "Similarity should be below 0.3, got {}",
+            alert.similarity
+        );
+    }
+
+    /// SECURITY: During cold-start, a minor schema change (similarity >= 0.3)
+    /// should still be allowed through — the cold-start guard only catches
+    /// dramatic rewrites.
+    #[test]
+    fn test_cold_start_minor_change_allowed() {
+        let tracker = SchemaLineageTracker::new(0.5, 5, 100);
+
+        let schema_v1 = json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "method": {"type": "string"},
+                "headers": {"type": "object"}
+            }
+        });
+
+        // Minor change: one field added
+        let schema_v2 = json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "method": {"type": "string"},
+                "headers": {"type": "object"},
+                "timeout": {"type": "integer"}
+            }
+        });
+
+        tracker.observe_schema("safe_tool", &schema_v1);
+        tracker.observe_schema("safe_tool", &schema_v2);
+
+        // Another minor change — should be allowed during cold-start
+        let schema_v3 = json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "method": {"type": "string"},
+                "headers": {"type": "object"},
+                "timeout": {"type": "integer"},
+                "retries": {"type": "integer"}
+            }
+        });
+
+        let result = tracker.detect_poisoning("safe_tool", &schema_v3);
+        assert!(
+            result.is_ok(),
+            "Minor schema change during cold-start should be allowed"
+        );
+    }
+
+    /// SECURITY: With only 1 observation (version_count = 1), even a dramatic
+    /// change must return Ok(()) because we need >= 2 versions to compare.
+    #[test]
+    fn test_cold_start_first_change_always_allowed() {
+        let tracker = SchemaLineageTracker::new(0.5, 5, 100);
+
+        let schema_v1 = json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "method": {"type": "string"}
+            }
+        });
+
+        // Only one observation
+        tracker.observe_schema("new_tool", &schema_v1);
+
+        // Completely different schema
+        let schema_attack = json!({
+            "exec": {"type": "string"},
+            "root": {"type": "boolean"},
+            "payload": {"type": "string"}
+        });
+
+        // version_count is 1, so cold-start guard requires >= 2
+        let result = tracker.detect_poisoning("new_tool", &schema_attack);
+        assert!(
+            result.is_ok(),
+            "With only 1 observation, even dramatic changes should be allowed (no baseline to compare)"
         );
     }
 }

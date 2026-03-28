@@ -9298,3 +9298,40 @@ fn test_r252_cfg1_memory_tracking_wired_in_policy_config() {
     config.memory_tracking.block_on_match = true;
     assert!(config.validate().is_ok());
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// F7: Config symlink rejection
+// ═══════════════════════════════════════════════════════════════════════
+
+/// SECURITY (F7): load_file must reject symbolic links to prevent TOCTOU attacks.
+#[cfg(unix)]
+#[test]
+fn test_load_file_rejects_symlink() {
+    use std::io::Write;
+
+    let dir = std::env::temp_dir().join("vellaveto_test_symlink_f7");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+
+    // Create a valid TOML config file
+    let real_path = dir.join("real_config.toml");
+    let mut f = std::fs::File::create(&real_path).expect("create real file");
+    writeln!(f, "[policies]").expect("write toml");
+    drop(f);
+
+    // Create a symlink to it
+    let link_path = dir.join("link_config.toml");
+    std::os::unix::fs::symlink(&real_path, &link_path).expect("create symlink");
+
+    // load_file must reject the symlink
+    let result = PolicyConfig::load_file(link_path.to_str().expect("path to str"));
+    assert!(result.is_err(), "load_file must reject symlinks");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("symbolic link"),
+        "Error must mention 'symbolic link', got: {err_msg}"
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&dir);
+}

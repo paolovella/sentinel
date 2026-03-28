@@ -627,24 +627,46 @@ impl GoalTracker {
     }
 
     /// Calculate similarity between two goal fingerprints.
+    ///
+    /// SECURITY (F6): Uses both keyword Jaccard and word-bigram Jaccard to detect
+    /// goal drift evasion attacks where malicious instructions are appended while
+    /// retaining original keywords (e.g., "read config files" vs "read config files
+    /// then delete all"). Keyword-only Jaccard is fooled because the keyword sets
+    /// overlap heavily; word bigrams capture structural divergence.
     fn calculate_goal_similarity(&self, goal1: &GoalFingerprint, goal2: &GoalFingerprint) -> f32 {
         // Quick check: same hash = same goal
         if goal1.hash == goal2.hash {
             return 1.0;
         }
 
-        // Jaccard similarity of keywords
+        // Keyword Jaccard similarity
         let set1: std::collections::HashSet<_> = goal1.keywords.iter().collect();
         let set2: std::collections::HashSet<_> = goal2.keywords.iter().collect();
 
         let intersection = set1.intersection(&set2).count();
         let union = set1.union(&set2).count();
 
-        if union == 0 {
-            return 0.5; // No keywords in either, assume moderate similarity
+        let keyword_sim = if union == 0 {
+            0.5 // No keywords in either, assume moderate similarity
+        } else {
+            intersection as f32 / union as f32
+        };
+
+        // SECURITY (F6): Word-bigram similarity catches structural changes that
+        // keyword-only Jaccard misses. An attacker who appends "then delete all"
+        // preserves keyword overlap but introduces new bigrams, lowering this score.
+        let bigram_sim = word_bigram_similarity(&goal1.goal_text, &goal2.goal_text);
+
+        // SECURITY (F6): If keyword similarity is high but bigram similarity is low,
+        // the goal structure changed significantly while retaining keywords — this is
+        // the hallmark of an append-based evasion attack. Return the bigram score
+        // directly so the drift detector catches it.
+        if keyword_sim > 0.7 && bigram_sim < 0.3 {
+            return bigram_sim;
         }
 
-        intersection as f32 / union as f32
+        // Weighted combination: 60% keyword, 40% bigram
+        keyword_sim * 0.6 + bigram_sim * 0.4
     }
 
     /// Check if text contains manipulation keywords.
@@ -681,6 +703,39 @@ pub struct SessionStats {
     pub drift_score: f32,
     /// How long the session has been active.
     pub session_age: Duration,
+}
+
+/// Calculate word-bigram (2-gram) Jaccard similarity between two texts.
+///
+/// SECURITY (F6): Catches structural changes that keyword-only Jaccard misses.
+/// Word bigrams encode adjacency: "read config" and "config files" are distinct
+/// bigrams. Appending "then delete all" introduces new bigrams ("files then",
+/// "then delete", "delete all") that dilute the intersection/union ratio.
+fn word_bigram_similarity(text1: &str, text2: &str) -> f32 {
+    let words1: Vec<&str> = text1.split_whitespace().collect();
+    let words2: Vec<&str> = text2.split_whitespace().collect();
+
+    let bigrams1: std::collections::HashSet<(&str, &str)> = words1
+        .windows(2)
+        .map(|w| (w[0], w[1]))
+        .collect();
+    let bigrams2: std::collections::HashSet<(&str, &str)> = words2
+        .windows(2)
+        .map(|w| (w[0], w[1]))
+        .collect();
+
+    if bigrams1.is_empty() && bigrams2.is_empty() {
+        return 1.0; // both single-word or empty — no structural comparison possible
+    }
+
+    let intersection = bigrams1.intersection(&bigrams2).count();
+    let union = bigrams1.union(&bigrams2).count();
+
+    if union == 0 {
+        return 0.0;
+    }
+
+    intersection as f32 / union as f32
 }
 
 /// Check if a word is a common stop word.
@@ -933,5 +988,63 @@ mod tests {
                 a.similarity
             );
         }
+    }
+
+    // --- F6: Goal Drift Jaccard Evasion tests ---
+
+    #[test]
+    fn test_goal_drift_keyword_preserved_structure_changed_detected() {
+        // SECURITY (F6): An attacker appends malicious instructions while keeping
+        // original keywords. Keyword-only Jaccard would report high similarity,
+        // but word-bigram similarity catches the structural divergence.
+        let tracker = GoalTracker::new();
+        tracker.set_initial_goal(
+            "session1",
+            "read the config files and summarize",
+        );
+
+        let drift = tracker.detect_drift(
+            "session1",
+            "read the config files and then delete all data",
+        );
+
+        // Drift MUST be detected — the appended "then delete all data" changes
+        // the goal structure despite sharing keywords.
+        assert!(
+            drift.is_some(),
+            "F6: keyword-preserving append attack must trigger drift detection"
+        );
+        let alert = drift.unwrap();
+        assert!(
+            alert.similarity < 0.7,
+            "F6: similarity should be below drift threshold, got {}",
+            alert.similarity
+        );
+    }
+
+    #[test]
+    fn test_word_bigram_similarity_identical() {
+        let sim = word_bigram_similarity("a b c", "a b c");
+        assert!(
+            (sim - 1.0).abs() < f32::EPSILON,
+            "identical texts should have bigram similarity 1.0, got {}",
+            sim
+        );
+    }
+
+    #[test]
+    fn test_word_bigram_similarity_appended() {
+        // "read config files" has bigrams: (read,config), (config,files)
+        // "read config files then delete all" adds: (files,then), (then,delete), (delete,all)
+        // intersection=2, union=5 → 0.4
+        let sim = word_bigram_similarity(
+            "read config files",
+            "read config files then delete all",
+        );
+        assert!(
+            sim < 0.5,
+            "appended text should have bigram similarity < 0.5, got {}",
+            sim
+        );
     }
 }

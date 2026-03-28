@@ -145,6 +145,14 @@ impl MemoryTracker {
                     if let Ok(bytes) = decoded {
                         if let Ok(text) = std::str::from_utf8(&bytes) {
                             self.extract_and_store(text);
+                        } else {
+                            // SECURITY: Fingerprint binary payloads via hex encoding.
+                            // Without this, non-UTF-8 base64 content is silently skipped
+                            // and can be replayed in parameters without detection.
+                            let hex_str = hex::encode(&bytes);
+                            if hex_str.len() >= self.min_trackable_length {
+                                self.store_fingerprint(&hex_str);
+                            }
                         }
                     }
                 }
@@ -760,14 +768,18 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_tracker_blob_non_utf8_ignored() {
-        // Non-UTF-8 decoded content should be silently skipped
+    fn test_memory_tracker_blob_non_utf8_fingerprinted_via_hex() {
+        // Non-UTF-8 decoded content is fingerprinted via hex encoding.
+        // SECURITY: Binary payloads must be tracked to prevent replay evasion.
         use base64::Engine;
         let mut tracker = MemoryTracker::new();
 
-        // Encode some invalid UTF-8 bytes
-        let invalid_utf8: Vec<u8> = vec![0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA];
-        let encoded = base64::engine::general_purpose::STANDARD.encode(&invalid_utf8);
+        // Encode binary bytes that are NOT valid UTF-8, long enough to track.
+        // hex encoding doubles the length, so 10+ bytes → 20+ hex chars ≥ min_trackable_length.
+        let binary_payload: Vec<u8> = vec![
+            0xFF, 0xFE, 0x00, 0x01, 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0,
+        ];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&binary_payload);
 
         let response = json!({
             "result": {
@@ -780,9 +792,45 @@ mod tests {
                 }]
             }
         });
-        // Should not panic — non-UTF-8 blobs are binary data, not trackable
+        // Should not panic and SHOULD store fingerprints (hex-encoded binary + raw base64)
         tracker.record_response(&response);
-        assert_eq!(tracker.fingerprint_count(), 0);
+        assert!(
+            tracker.fingerprint_count() > 0,
+            "Binary blobs must be fingerprinted via hex encoding"
+        );
+    }
+
+    #[test]
+    fn test_memory_tracker_blob_non_utf8_too_short_ignored() {
+        // Binary blobs shorter than min_trackable_length/2 bytes produce hex
+        // strings shorter than min_trackable_length and are correctly ignored.
+        use base64::Engine;
+        let mut tracker = MemoryTracker::new();
+
+        // 3 bytes → 6 hex chars, well below DEFAULT_MIN_TRACKABLE_LENGTH (20)
+        let short_binary: Vec<u8> = vec![0xFF, 0xFE, 0xFD];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&short_binary);
+
+        // The base64 of 3 bytes is only 4 chars, also below threshold
+        assert!(encoded.len() < DEFAULT_MIN_TRACKABLE_LENGTH);
+
+        let response = json!({
+            "result": {
+                "content": [{
+                    "type": "resource",
+                    "resource": {
+                        "uri": "file:///tmp/tiny",
+                        "blob": encoded
+                    }
+                }]
+            }
+        });
+        tracker.record_response(&response);
+        assert_eq!(
+            tracker.fingerprint_count(),
+            0,
+            "Short binary blobs should not be tracked"
+        );
     }
 
     // SECURITY (R38-MCP-1): Notification params must be fingerprinted.
@@ -1031,5 +1079,106 @@ mod tests {
         let params = json!({"url": url});
         let matches = tracker.check_parameters(&params);
         assert!(!matches.is_empty(), "Exact match should be detected");
+    }
+
+    // ── Binary Payload Evasion Fix ──
+
+    #[test]
+    fn test_memory_tracker_binary_blob_fingerprinted() {
+        // SECURITY: Binary (non-UTF-8) base64 blobs must be fingerprinted via hex
+        // encoding. Without this, an attacker can embed arbitrary binary payloads
+        // in resource.blob fields that evade memory poisoning detection because
+        // from_utf8() fails and the bytes were silently dropped.
+        use base64::Engine;
+        let mut tracker = MemoryTracker::new();
+
+        // Build a binary payload that is NOT valid UTF-8, large enough to track.
+        // 20 bytes → 40 hex chars, well above DEFAULT_MIN_TRACKABLE_LENGTH (20).
+        let binary_payload: Vec<u8> = vec![
+            0xFF, 0xFE, 0x00, 0x01, 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0, 0x13, 0x37,
+            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE,
+        ];
+        assert!(
+            std::str::from_utf8(&binary_payload).is_err(),
+            "Test payload must be non-UTF-8"
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&binary_payload);
+
+        let response = json!({
+            "result": {
+                "content": [{
+                    "type": "resource",
+                    "resource": {
+                        "uri": "file:///tmp/malicious_binary",
+                        "blob": encoded
+                    }
+                }]
+            }
+        });
+        tracker.record_response(&response);
+
+        // Verify the hex-encoded fingerprint was stored by checking that the
+        // hex string is detected when passed as a parameter.
+        let hex_of_payload = hex::encode(&binary_payload);
+        let params = json!({ "data": hex_of_payload });
+        let matches = tracker.check_parameters(&params);
+        assert!(
+            !matches.is_empty(),
+            "Hex-encoded binary blob must be fingerprinted and detectable. \
+             Hex: {hex_of_payload}"
+        );
+    }
+
+    #[test]
+    fn test_memory_tracker_binary_blob_replay_detected() {
+        // SECURITY: When a binary blob's hex representation appears in subsequent
+        // tool call parameters, memory poisoning must be detected. This tests the
+        // full attack flow: malicious server → binary blob → agent replays hex in params.
+        use base64::Engine;
+        let mut tracker = MemoryTracker::new();
+
+        // Simulate a malicious server returning a binary payload (e.g., a shellcode
+        // snippet or binary command) in a resource.blob field.
+        let binary_payload: Vec<u8> = vec![
+            0xFF, 0xFE, 0x00, 0x01, 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0, 0x13, 0x37,
+            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0x42, 0x43, 0x44, 0x45,
+        ];
+        assert!(
+            std::str::from_utf8(&binary_payload).is_err(),
+            "Test payload must be non-UTF-8"
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&binary_payload);
+
+        // Step 1: Record the response containing the binary blob
+        let response = json!({
+            "result": {
+                "content": [{
+                    "type": "resource",
+                    "resource": {
+                        "uri": "file:///tmp/exploit",
+                        "blob": encoded
+                    }
+                }]
+            }
+        });
+        tracker.record_response(&response);
+
+        // Step 2: Agent replays the hex-encoded binary in a subsequent tool call.
+        // This simulates data laundering where the agent decodes the blob to hex
+        // and passes it as a parameter to another tool.
+        let hex_of_payload = hex::encode(&binary_payload);
+        let tool_call_params = json!({
+            "shellcode": hex_of_payload,
+            "target": "internal-server.corp"
+        });
+        let matches = tracker.check_parameters(&tool_call_params);
+        assert!(
+            !matches.is_empty(),
+            "Binary blob replay via hex encoding must be detected as memory poisoning"
+        );
+        assert_eq!(
+            matches[0].param_location, "$.shellcode",
+            "Match should be at the correct parameter path"
+        );
     }
 }

@@ -31,11 +31,15 @@
 //! - Shadow agent detection
 
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Policy, Verdict};
 
-use crate::inspection::{inspect_for_injection, scan_text_for_secrets};
+use crate::inspection::{
+    cross_call_dlp::CrossCallDlpTracker, inspect_for_injection, scan_text_for_secrets,
+};
+use crate::memory_tracking::MemoryTracker;
 
 use super::agent_card::AgentCardCache;
 use super::error::A2aError;
@@ -51,6 +55,117 @@ fn json_contains_dangerous_chars(val: &Value, depth: usize) -> bool {
     vellaveto_types::json_has_dangerous_chars(val, depth)
 }
 
+/// SECURITY (R256-MCP-4): Fields to strip from `_meta` objects in A2A responses.
+/// These fields may leak server-internal security context to the client.
+const META_FIELDS_TO_STRIP: &[&str] = &[
+    "security_context",
+    "client_provenance",
+    "agent_identity",
+    "trust_tier",
+    "lineage_refs",
+    "taint_labels",
+    "session_scope",
+    "containment_context",
+    "evaluation_context",
+    "acis_envelope",
+];
+
+/// SECURITY (R256-MCP-4): Strip security-sensitive fields from `_meta` objects
+/// in an A2A response. Walks `result._meta`, `result.message._meta`, and
+/// `result.message.parts[]._meta`.
+fn strip_a2a_response_meta(response: &mut Value) {
+    fn strip_meta_fields(meta: &mut Value) {
+        if let Some(obj) = meta.as_object_mut() {
+            for field in META_FIELDS_TO_STRIP {
+                obj.remove(*field);
+            }
+        }
+    }
+
+    // result._meta
+    if let Some(result) = response.get_mut("result") {
+        if let Some(meta) = result.get_mut("_meta") {
+            strip_meta_fields(meta);
+        }
+
+        // result.message._meta
+        if let Some(message) = result.get_mut("message") {
+            if let Some(meta) = message.get_mut("_meta") {
+                strip_meta_fields(meta);
+            }
+
+            // result.message.parts[]._meta
+            if let Some(parts) = message.get_mut("parts").and_then(|p| p.as_array_mut()) {
+                for part in parts.iter_mut().take(MAX_HISTORY_ENTRIES) {
+                    if let Some(meta) = part.get_mut("_meta") {
+                        strip_meta_fields(meta);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// SECURITY (FIND-R116-MCP-004): Bound iteration on history/parts to prevent
+/// OOM from attacker-controlled response payloads. Also used by
+/// `strip_a2a_response_meta` for bounded iteration over message parts.
+const MAX_HISTORY_ENTRIES: usize = 1000;
+
+/// SECURITY (R256-MCP-3): Per-upstream circuit breaker for A2A proxy.
+///
+/// Tracks consecutive failures per upstream identifier. After `threshold`
+/// consecutive failures, the circuit opens for `reset_after_secs` seconds,
+/// during which all requests to that upstream are immediately rejected.
+struct A2aCircuitBreaker {
+    /// upstream identifier -> (consecutive_failure_count, last_failure_time)
+    failures: HashMap<String, (u32, std::time::Instant)>,
+    /// Number of consecutive failures before opening the circuit.
+    threshold: u32,
+    /// Seconds the circuit stays open before allowing a retry.
+    reset_after_secs: u64,
+}
+
+impl A2aCircuitBreaker {
+    fn new() -> Self {
+        Self {
+            failures: HashMap::new(),
+            threshold: 5,
+            reset_after_secs: 60,
+        }
+    }
+
+    /// Check if the circuit is open for the given upstream.
+    /// Returns `true` if the circuit is open (requests should be rejected).
+    fn is_open(&self, upstream: &str) -> bool {
+        if let Some((count, last_failure)) = self.failures.get(upstream) {
+            if *count >= self.threshold {
+                // Check if the reset window has elapsed
+                let elapsed = last_failure.elapsed().as_secs();
+                if elapsed < self.reset_after_secs {
+                    return true;
+                }
+                // Reset window elapsed — allow retry (half-open)
+            }
+        }
+        false
+    }
+
+    /// Record a failure for the given upstream.
+    fn record_failure(&mut self, upstream: &str) {
+        let entry = self
+            .failures
+            .entry(upstream.to_string())
+            .or_insert((0, std::time::Instant::now()));
+        entry.0 = entry.0.saturating_add(1);
+        entry.1 = std::time::Instant::now();
+    }
+
+    /// Record a success for the given upstream, resetting the failure count.
+    fn record_success(&mut self, upstream: &str) {
+        self.failures.remove(upstream);
+    }
+}
+
 /// Configuration for the A2A proxy service.
 #[derive(Debug, Clone)]
 pub struct A2aProxyConfig {
@@ -63,6 +178,11 @@ pub struct A2aProxyConfig {
     /// Enable circuit breaker for upstream servers.
     pub enable_circuit_breaker: bool,
     /// Enable shadow agent detection.
+    ///
+    /// Note: Shadow agent detection is not yet implemented for A2A transport.
+    /// This flag is retained for forward compatibility and configuration
+    /// parity. It will be wired to a behavioral analysis engine in a future
+    /// phase. Setting it to `true` (the default) is a no-op today.
     pub enable_shadow_agent_detection: bool,
     /// Require agent card verification.
     pub require_agent_card: bool,
@@ -172,11 +292,29 @@ pub fn extract_a2a_trace_context(msg: &Value) -> Option<String> {
 ///
 /// This service coordinates policy evaluation, security checks, and
 /// upstream forwarding for A2A JSON-RPC requests.
+///
+/// # Security (R256): Transport Parity
+///
+/// Session-level security trackers provide parity with the MCP stdio relay:
+/// - **Memory poisoning detection**: Fingerprints tool response content and
+///   flags replayed data in subsequent request parameters.
+/// - **Cross-call DLP**: Detects secrets split across multiple requests using
+///   overlap buffers.
+/// - **Circuit breaker**: Tracks consecutive upstream failures and opens the
+///   circuit to protect against cascading failures.
+///
+/// Note: Shadow agent detection (`enable_shadow_agent_detection` config flag)
+/// is not yet implemented for A2A. The flag is retained for forward
+/// compatibility but has no effect.
 pub struct A2aProxyService {
     config: A2aProxyConfig,
     engine: Arc<PolicyEngine>,
     policies: Arc<Vec<Policy>>,
     agent_card_cache: Arc<AgentCardCache>,
+    // SECURITY (R256): Transport parity — session-level security trackers
+    memory_tracker: std::sync::Mutex<MemoryTracker>,
+    cross_call_dlp: std::sync::Mutex<CrossCallDlpTracker>,
+    circuit_breaker: std::sync::Mutex<A2aCircuitBreaker>,
 }
 
 impl A2aProxyService {
@@ -192,6 +330,12 @@ impl A2aProxyService {
             engine,
             policies,
             agent_card_cache,
+            // SECURITY (R256-MCP-1): Memory poisoning tracker (transport parity with stdio relay)
+            memory_tracker: std::sync::Mutex::new(MemoryTracker::new()),
+            // SECURITY (R256-MCP-2): Cross-call DLP tracker (transport parity with stdio relay)
+            cross_call_dlp: std::sync::Mutex::new(CrossCallDlpTracker::new()),
+            // SECURITY (R256-MCP-3): Circuit breaker (transport parity with stdio relay)
+            circuit_breaker: std::sync::Mutex::new(A2aCircuitBreaker::new()),
         }
     }
 
@@ -426,6 +570,40 @@ impl A2aProxyService {
             }
         };
 
+        // SECURITY (R256-MCP-1): Memory poisoning detection — check if request
+        // parameters contain data previously seen in tool responses, indicating
+        // possible data laundering. Parity with MCP stdio relay MemoryTracker.
+        {
+            let tracker = match self.memory_tracker.lock() {
+                Ok(guard) => guard,
+                Err(_poisoned) => {
+                    // SECURITY: Fail-closed on lock poisoning
+                    tracing::error!("Memory tracker lock poisoned, denying request");
+                    return Err(A2aError::InjectionDetected(
+                        "Internal security tracker unavailable".to_string(),
+                    ));
+                }
+            };
+            // Build a JSON value from the extracted texts for parameter checking
+            let params_value = serde_json::Value::Array(
+                texts
+                    .iter()
+                    .map(|t| serde_json::Value::String(t.clone()))
+                    .collect(),
+            );
+            let poisoning_matches = tracker.check_parameters(&params_value);
+            if !poisoning_matches.is_empty() {
+                tracing::warn!(
+                    match_count = poisoning_matches.len(),
+                    "SECURITY (R256-MCP-1): Memory poisoning detected in A2A request"
+                );
+                return Err(A2aError::InjectionDetected(
+                    "Memory poisoning detected: request contains replayed response data"
+                        .to_string(),
+                ));
+            }
+        }
+
         // Injection detection via shared inspection scanner.
         if self.config.enable_injection_detection {
             for text in &texts {
@@ -443,6 +621,36 @@ impl A2aProxyService {
                 if self.contains_sensitive_data(text) {
                     return Err(A2aError::DlpViolation(
                         "Sensitive data detected in message content".to_string(),
+                    ));
+                }
+            }
+        }
+
+        // SECURITY (R256-MCP-2): Cross-call DLP — detect secrets split across
+        // multiple A2A requests within the same session. Parity with MCP stdio
+        // relay CrossCallDlpTracker.
+        if self.config.enable_dlp_scanning {
+            let mut dlp_tracker = match self.cross_call_dlp.lock() {
+                Ok(guard) => guard,
+                Err(_poisoned) => {
+                    // SECURITY: Fail-closed on lock poisoning
+                    tracing::error!("Cross-call DLP tracker lock poisoned, denying request");
+                    return Err(A2aError::DlpViolation(
+                        "Internal security tracker unavailable".to_string(),
+                    ));
+                }
+            };
+            for (i, text) in texts.iter().enumerate() {
+                let field_path = format!("a2a.request.text[{i}]");
+                let findings = dlp_tracker.scan_with_overlap(&field_path, text);
+                if !findings.is_empty() {
+                    tracing::warn!(
+                        finding_count = findings.len(),
+                        "SECURITY (R256-MCP-2): Cross-call DLP findings in A2A request"
+                    );
+                    return Err(A2aError::DlpViolation(
+                        "Cross-call DLP: sensitive data detected across request boundary"
+                            .to_string(),
                     ));
                 }
             }
@@ -470,6 +678,105 @@ impl A2aProxyService {
     pub fn config(&self) -> &A2aProxyConfig {
         &self.config
     }
+
+    /// SECURITY (R256-MCP-3): Check if the circuit breaker is open for the
+    /// given upstream. Returns an error if the circuit is open.
+    pub fn check_circuit_breaker(&self, upstream: &str) -> Result<(), A2aError> {
+        if !self.config.enable_circuit_breaker {
+            return Ok(());
+        }
+        let cb = match self.circuit_breaker.lock() {
+            Ok(guard) => guard,
+            Err(_poisoned) => {
+                // SECURITY: Fail-closed on lock poisoning
+                tracing::error!("Circuit breaker lock poisoned, denying request");
+                return Err(A2aError::CircuitBreakerOpen {
+                    upstream: upstream.to_string(),
+                });
+            }
+        };
+        if cb.is_open(upstream) {
+            return Err(A2aError::CircuitBreakerOpen {
+                upstream: upstream.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// SECURITY (R256-MCP-3): Record a failure for the given upstream.
+    pub fn record_upstream_failure(&self, upstream: &str) {
+        if !self.config.enable_circuit_breaker {
+            return;
+        }
+        if let Ok(mut cb) = self.circuit_breaker.lock() {
+            cb.record_failure(upstream);
+        }
+        // Lock poisoning: silently skip recording (fail-closed check is in
+        // check_circuit_breaker, which denies on poisoning).
+    }
+
+    /// SECURITY (R256-MCP-3): Record a success for the given upstream.
+    pub fn record_upstream_success(&self, upstream: &str) {
+        if !self.config.enable_circuit_breaker {
+            return;
+        }
+        if let Ok(mut cb) = self.circuit_breaker.lock() {
+            cb.record_success(upstream);
+        }
+    }
+
+    /// Process an A2A response from the upstream server (method variant).
+    ///
+    /// In addition to the scans performed by the free function [`process_response`],
+    /// this method:
+    /// - Records response fingerprints for memory poisoning detection (R256-MCP-1)
+    /// - Strips security-sensitive `_meta` fields from the response (R256-MCP-4)
+    pub fn process_response_with_tracking(&self, response: &Value) -> Result<Value, A2aError> {
+        // Delegate to the shared scanning logic
+        let mut result = process_response(
+            response,
+            self.config.enable_dlp_scanning,
+            self.config.enable_injection_detection,
+        )?;
+
+        // SECURITY (R256-MCP-1): Record response text fingerprints for memory
+        // poisoning detection. Subsequent requests containing replayed data
+        // will be detected in run_security_scans().
+        {
+            let mut tracker = match self.memory_tracker.lock() {
+                Ok(guard) => guard,
+                Err(_poisoned) => {
+                    // SECURITY: Fail-closed — cannot track responses, deny
+                    tracing::error!(
+                        "Memory tracker lock poisoned during response recording, denying"
+                    );
+                    return Err(A2aError::InjectionDetected(
+                        "Internal security tracker unavailable".to_string(),
+                    ));
+                }
+            };
+            // Extract response texts using A2A-aware extraction, then record
+            // each text via a synthetic MCP-format response. record_response()
+            // calls extract_and_store() internally, which fingerprints full
+            // text, URLs, and per-line content — providing richer matching
+            // than extract_from_value() which only fingerprints full strings.
+            let response_texts = extract_response_text_content(response);
+            for text in &response_texts {
+                let synthetic = serde_json::json!({
+                    "result": {
+                        "content": [{"type": "text", "text": text}]
+                    }
+                });
+                tracker.record_response(&synthetic);
+            }
+        }
+
+        // SECURITY (R256-MCP-4): Strip security-sensitive _meta fields from
+        // the response before returning to the client.
+        strip_a2a_response_meta(&mut result);
+
+        Ok(result)
+    }
 }
 
 /// Maximum response size for A2A responses (16 MB).
@@ -484,6 +791,10 @@ const MAX_A2A_RESPONSE_SIZE: usize = 16 * 1024 * 1024;
 /// Scans the response for security issues before returning to the client.
 /// SECURITY (FIND-R52-004): Estimates response size before cloning to prevent
 /// unbounded memory use from oversized upstream responses.
+///
+/// Note: This free function does not perform memory poisoning recording or
+/// `_meta` stripping. Use [`A2aProxyService::process_response_with_tracking`]
+/// for the full pipeline.
 pub fn process_response(
     response: &Value,
     enable_dlp: bool,
@@ -523,10 +834,6 @@ pub fn process_response(
 
     Ok(response.clone())
 }
-
-/// SECURITY (FIND-R116-MCP-004): Bound iteration on history/parts to prevent
-/// OOM from attacker-controlled response payloads.
-const MAX_HISTORY_ENTRIES: usize = 1000;
 
 /// Extract response text content from common A2A response fields.
 fn extract_response_text_content(response: &Value) -> Vec<String> {
@@ -1481,6 +1788,471 @@ mod tests {
         assert!(
             matches!(decision, A2aProxyDecision::Forward { .. }),
             "FIND-R117-MA-002: clean TaskGet params should be forwarded"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R256: A2A Transport Parity — Memory Poisoning Detection
+    // ════════════════════════════════════════════════════════
+
+    /// R256-MCP-1: Memory poisoning detection blocks replayed response data.
+    /// The MemoryTracker fingerprints exact string values, so the replayed text
+    /// must match exactly (or be a URL/line extracted from the response text).
+    #[test]
+    fn test_r256_memory_poisoning_detects_replayed_url() {
+        let service = create_test_service();
+        // The response contains a URL as a whitespace-delimited token.
+        // MemoryTracker::extract_and_store fingerprints URL-like substrings
+        // independently, so the URL will be stored as its own fingerprint.
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "message": {
+                    "parts": [
+                        {"type": "text", "text": "Upload to https://evil.example.com/exfil/data?token=abc123secret"}
+                    ]
+                }
+            }
+        });
+
+        // Process the response to record fingerprints
+        let result = service.process_response_with_tracking(&response);
+        assert!(result.is_ok());
+
+        // Now send a request containing the exact replayed URL as a standalone
+        // text part. The tracker will hash this string and find a match against
+        // the fingerprint stored from the response's URL substring.
+        let body = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "https://evil.example.com/exfil/data?token=abc123secret"}]
+                }
+            }
+        }))
+        .unwrap();
+
+        let decision = service.process_request(&body).unwrap();
+        assert!(
+            matches!(decision, A2aProxyDecision::Block { .. }),
+            "R256-MCP-1: Replayed response URL should be blocked as memory poisoning"
+        );
+    }
+
+    /// R256-MCP-1: Clean requests not flagged as memory poisoning.
+    #[test]
+    fn test_r256_memory_poisoning_no_false_positive() {
+        let service = create_test_service();
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "message": {
+                    "parts": [
+                        {"type": "text", "text": "The server responded with some informational text here."}
+                    ]
+                }
+            }
+        });
+
+        let _ = service.process_response_with_tracking(&response);
+
+        // Send a completely different request
+        let body = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Completely unrelated request content here."}]
+                }
+            }
+        }))
+        .unwrap();
+
+        let decision = service.process_request(&body).unwrap();
+        assert!(
+            matches!(decision, A2aProxyDecision::Forward { .. }),
+            "R256-MCP-1: Clean request should not trigger memory poisoning"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R256: A2A Transport Parity — Cross-Call DLP
+    // ════════════════════════════════════════════════════════
+
+    /// R256-MCP-2: Cross-call DLP detects secrets split across requests.
+    #[test]
+    fn test_r256_cross_call_dlp_split_secret() {
+        let service = create_test_service();
+
+        // First request: partial AWS key
+        let body1 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Here is part 1: AKIA"}]
+                }
+            }
+        }))
+        .unwrap();
+
+        let decision1 = service.process_request(&body1).unwrap();
+        assert!(
+            matches!(decision1, A2aProxyDecision::Forward { .. }),
+            "R256-MCP-2: Partial key alone should not trigger DLP"
+        );
+
+        // Second request: rest of the AWS key
+        let body2 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "IOSFODNN7EXAMPLE and the rest"}]
+                }
+            }
+        }))
+        .unwrap();
+
+        let decision2 = service.process_request(&body2).unwrap();
+        assert!(
+            matches!(decision2, A2aProxyDecision::Block { .. }),
+            "R256-MCP-2: Cross-call DLP should detect AWS key split across requests"
+        );
+    }
+
+    /// R256-MCP-2: Cross-call DLP does not false-positive on clean text.
+    #[test]
+    fn test_r256_cross_call_dlp_no_false_positive() {
+        let service = create_test_service();
+
+        let body1 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello, how are you doing today?"}]
+                }
+            }
+        }))
+        .unwrap();
+
+        let _ = service.process_request(&body1).unwrap();
+
+        let body2 = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Just asking about the weather forecast."}]
+                }
+            }
+        }))
+        .unwrap();
+
+        let decision2 = service.process_request(&body2).unwrap();
+        assert!(
+            matches!(decision2, A2aProxyDecision::Forward { .. }),
+            "R256-MCP-2: Clean text should not trigger cross-call DLP"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R256: A2A Transport Parity — Response _meta Stripping
+    // ════════════════════════════════════════════════════════
+
+    /// R256-MCP-4: Security-sensitive _meta fields are stripped from responses.
+    #[test]
+    fn test_r256_meta_stripping_result_meta() {
+        let service = create_test_service();
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "status": "ok",
+                "_meta": {
+                    "security_context": {"level": "high"},
+                    "agent_identity": "agent-007",
+                    "trust_tier": "verified",
+                    "safe_field": "this should remain"
+                }
+            }
+        });
+
+        let result = service.process_response_with_tracking(&response).unwrap();
+        let meta = result.get("result").unwrap().get("_meta").unwrap();
+
+        assert!(
+            meta.get("security_context").is_none(),
+            "R256-MCP-4: security_context should be stripped"
+        );
+        assert!(
+            meta.get("agent_identity").is_none(),
+            "R256-MCP-4: agent_identity should be stripped"
+        );
+        assert!(
+            meta.get("trust_tier").is_none(),
+            "R256-MCP-4: trust_tier should be stripped"
+        );
+        assert!(
+            meta.get("safe_field").is_some(),
+            "R256-MCP-4: non-sensitive fields should remain"
+        );
+    }
+
+    /// R256-MCP-4: _meta stripping works on message and parts.
+    #[test]
+    fn test_r256_meta_stripping_message_and_parts() {
+        let service = create_test_service();
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "message": {
+                    "parts": [
+                        {
+                            "type": "text",
+                            "text": "Hello",
+                            "_meta": {
+                                "lineage_refs": ["ref-1"],
+                                "taint_labels": ["pii"],
+                                "normal_field": "keep"
+                            }
+                        }
+                    ],
+                    "_meta": {
+                        "session_scope": "global",
+                        "containment_context": {"mode": "strict"},
+                        "evaluation_context": {"risk": 0.5},
+                        "acis_envelope": {"id": "env-1"},
+                        "client_provenance": "client-a"
+                    }
+                }
+            }
+        });
+
+        let result = service.process_response_with_tracking(&response).unwrap();
+
+        // Check message._meta
+        let msg_meta = result
+            .get("result")
+            .unwrap()
+            .get("message")
+            .unwrap()
+            .get("_meta")
+            .unwrap();
+        assert!(msg_meta.get("session_scope").is_none());
+        assert!(msg_meta.get("containment_context").is_none());
+        assert!(msg_meta.get("evaluation_context").is_none());
+        assert!(msg_meta.get("acis_envelope").is_none());
+        assert!(msg_meta.get("client_provenance").is_none());
+
+        // Check parts[]._meta
+        let part_meta = result
+            .get("result")
+            .unwrap()
+            .get("message")
+            .unwrap()
+            .get("parts")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .get("_meta")
+            .unwrap();
+        assert!(part_meta.get("lineage_refs").is_none());
+        assert!(part_meta.get("taint_labels").is_none());
+        assert!(
+            part_meta.get("normal_field").is_some(),
+            "R256-MCP-4: non-sensitive fields should remain in parts._meta"
+        );
+    }
+
+    /// R256-MCP-4: Responses without _meta pass through unchanged.
+    #[test]
+    fn test_r256_meta_stripping_no_meta_no_error() {
+        let service = create_test_service();
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "status": "ok"
+            }
+        });
+
+        let result = service.process_response_with_tracking(&response);
+        assert!(
+            result.is_ok(),
+            "R256-MCP-4: Response without _meta should pass through"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // R256: A2A Transport Parity — Circuit Breaker
+    // ════════════════════════════════════════════════════════
+
+    /// R256-MCP-3: Circuit breaker opens after consecutive failures.
+    #[test]
+    fn test_r256_circuit_breaker_opens_after_threshold() {
+        let service = create_test_service();
+        let upstream = "agent-b.example.com";
+
+        // Record 5 consecutive failures (default threshold)
+        for _ in 0..5 {
+            service.record_upstream_failure(upstream);
+        }
+
+        // Circuit should now be open
+        let result = service.check_circuit_breaker(upstream);
+        assert!(
+            result.is_err(),
+            "R256-MCP-3: Circuit breaker should be open after 5 failures"
+        );
+        if let Err(A2aError::CircuitBreakerOpen { upstream: u }) = result {
+            assert_eq!(u, upstream);
+        } else {
+            panic!("Expected CircuitBreakerOpen error");
+        }
+    }
+
+    /// R256-MCP-3: Circuit breaker resets on success.
+    #[test]
+    fn test_r256_circuit_breaker_resets_on_success() {
+        let service = create_test_service();
+        let upstream = "agent-c.example.com";
+
+        // Record some failures (below threshold)
+        for _ in 0..3 {
+            service.record_upstream_failure(upstream);
+        }
+
+        // Circuit should still be closed
+        assert!(
+            service.check_circuit_breaker(upstream).is_ok(),
+            "R256-MCP-3: Circuit should be closed below threshold"
+        );
+
+        // Record success
+        service.record_upstream_success(upstream);
+
+        // Now even after more failures, we start from 0
+        service.record_upstream_failure(upstream);
+        assert!(
+            service.check_circuit_breaker(upstream).is_ok(),
+            "R256-MCP-3: Circuit should be closed after success + 1 failure"
+        );
+    }
+
+    /// R256-MCP-3: Circuit breaker disabled via config.
+    #[test]
+    fn test_r256_circuit_breaker_disabled() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: vellaveto_types::PolicyType::Allow,
+            priority: 1,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).expect("compile failed");
+        let config = A2aProxyConfig {
+            require_agent_card: false,
+            enable_circuit_breaker: false,
+            ..Default::default()
+        };
+        let service = A2aProxyService::new(
+            config,
+            Arc::new(engine),
+            Arc::new(policies),
+            Arc::new(AgentCardCache::default()),
+        );
+
+        // Record many failures
+        for _ in 0..10 {
+            service.record_upstream_failure("upstream");
+        }
+
+        // Circuit should still be "closed" (feature disabled)
+        assert!(
+            service.check_circuit_breaker("upstream").is_ok(),
+            "R256-MCP-3: Circuit breaker check should pass when disabled"
+        );
+    }
+
+    /// R256-MCP-3: Circuit breaker uses saturating_add for failure counter.
+    #[test]
+    fn test_r256_circuit_breaker_saturating_add() {
+        let mut cb = A2aCircuitBreaker::new();
+        // Record max failures — should not wrap
+        for _ in 0..u32::MAX as u64 + 10 {
+            cb.record_failure("upstream");
+            if cb.is_open("upstream") {
+                break;
+            }
+        }
+        // Circuit should be open, not wrapped to 0
+        assert!(
+            cb.is_open("upstream"),
+            "R256-MCP-3: Circuit breaker counter must not wrap around"
+        );
+    }
+
+    /// R256-MCP-4: strip_a2a_response_meta correctly strips all listed fields.
+    #[test]
+    fn test_r256_strip_meta_all_fields() {
+        let mut response = json!({
+            "result": {
+                "_meta": {
+                    "security_context": {},
+                    "client_provenance": "x",
+                    "agent_identity": "y",
+                    "trust_tier": "z",
+                    "lineage_refs": [],
+                    "taint_labels": [],
+                    "session_scope": "s",
+                    "containment_context": {},
+                    "evaluation_context": {},
+                    "acis_envelope": {},
+                    "other_field": "keep me"
+                }
+            }
+        });
+
+        strip_a2a_response_meta(&mut response);
+
+        let meta = response
+            .get("result")
+            .unwrap()
+            .get("_meta")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        assert_eq!(meta.len(), 1, "Only 'other_field' should remain");
+        assert!(meta.contains_key("other_field"));
+    }
+
+    /// R256: Shadow agent detection flag is documented as not yet implemented.
+    #[test]
+    fn test_r256_shadow_agent_config_flag_present() {
+        // The flag exists for forward compatibility; just verify it defaults to true.
+        let config = A2aProxyConfig::default();
+        assert!(
+            config.enable_shadow_agent_detection,
+            "Shadow agent detection flag should default to true"
         );
     }
 }

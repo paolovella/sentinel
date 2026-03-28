@@ -1735,8 +1735,8 @@ impl PolicyConfig {
     /// from excessively large arrays.
     pub fn load_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // SECURITY (F7): Reject symlinks to prevent TOCTOU attacks and /dev/zero hang.
-        // symlink_metadata() does NOT follow symlinks, so we can detect them before
-        // std::fs::metadata() (which follows symlinks and could hang on /dev/zero).
+        // symlink_metadata() does NOT follow symlinks (uses lstat), so we detect them
+        // before any symlink-following operation like canonicalize() or metadata().
         let symlink_meta = std::fs::symlink_metadata(path)
             .map_err(|e| format!("Cannot read config file '{}': {}", path, e))?;
         if symlink_meta.file_type().is_symlink() {
@@ -1746,6 +1746,15 @@ impl PolicyConfig {
             )
             .into());
         }
+
+        // SECURITY: Canonicalize path to prevent path traversal attacks.
+        // Done after symlink check so symlinks are rejected first.
+        let canonical = std::path::Path::new(path)
+            .canonicalize()
+            .map_err(|e| format!("Cannot resolve config file path '{}': {}", path, e))?;
+        let path = canonical
+            .to_str()
+            .ok_or_else(|| format!("Config file path '{}' contains invalid UTF-8", path))?;
 
         // SECURITY (R9-5): Check file size before reading to prevent OOM
         // from maliciously large config files. 10 MB is generous for any

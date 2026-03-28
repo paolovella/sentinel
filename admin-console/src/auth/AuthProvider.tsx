@@ -8,7 +8,7 @@
  * 2. **API-key mode** — for development / single-operator deployments.
  *
  * The mode is determined by config: if OIDC issuer is set, use OIDC.
- * Otherwise fall back to API-key stored in localStorage.
+ * Otherwise fall back to API-key stored in sessionStorage.
  */
 
 import {
@@ -65,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // On mount, configure API client from localStorage (if API key mode)
-    const stored = localStorage.getItem(API_KEY_STORAGE);
+    // On mount, configure API client from sessionStorage (if API key mode)
+    const stored = sessionStorage.getItem(API_KEY_STORAGE);
     if (stored) {
       const serverUrl =
         import.meta.env.VITE_SERVER_URL ?? window.location.origin;
@@ -79,7 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Redirect to server's OIDC login flow
     const serverUrl =
       import.meta.env.VITE_SERVER_URL ?? window.location.origin;
-    window.location.href = `${serverUrl}/iam/login?next=${encodeURIComponent(window.location.href)}`;
+    // Use pathname (relative URL) to prevent open-redirect to external origins
+    window.location.href = `${serverUrl}/iam/login?next=${encodeURIComponent(window.location.pathname)}`;
   }, []);
 
   const logout = useCallback(async () => {
@@ -88,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore — server may not have session
     }
-    localStorage.removeItem(API_KEY_STORAGE);
+    sessionStorage.removeItem(API_KEY_STORAGE);
     setSession(null);
   }, []);
 
@@ -96,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (key: string) => {
       const serverUrl =
         import.meta.env.VITE_SERVER_URL ?? window.location.origin;
-      localStorage.setItem(API_KEY_STORAGE, key);
+      sessionStorage.setItem(API_KEY_STORAGE, key);
       api.configure(serverUrl, key);
       checkSession();
     },

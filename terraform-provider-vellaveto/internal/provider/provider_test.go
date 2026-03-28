@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -259,5 +260,84 @@ func TestHealthDataSourceModel(t *testing.T) {
 	}
 	if model.UptimeSecs.ValueInt64() != 3600 {
 		t.Error("UptimeSecs mismatch")
+	}
+}
+
+// --- R257-TF-2 tests: API key redaction ---
+
+func TestAPIClientStringRedactsAPIKey(t *testing.T) {
+	client := &APIClient{
+		BaseURL: "https://vellaveto.example.com",
+		APIKey:  "super-secret-key-12345",
+	}
+	s := client.String()
+	if strings.Contains(s, "super-secret-key-12345") {
+		t.Error("String() must not contain the API key")
+	}
+	if !strings.Contains(s, "[REDACTED]") {
+		t.Error("String() must contain [REDACTED]")
+	}
+	if !strings.Contains(s, "https://vellaveto.example.com") {
+		t.Error("String() must contain the BaseURL")
+	}
+}
+
+func TestAPIClientGoStringRedactsAPIKey(t *testing.T) {
+	client := &APIClient{
+		BaseURL: "https://vellaveto.example.com",
+		APIKey:  "super-secret-key-12345",
+	}
+	s := fmt.Sprintf("%#v", client)
+	if strings.Contains(s, "super-secret-key-12345") {
+		t.Error("GoString() must not contain the API key")
+	}
+	if !strings.Contains(s, "[REDACTED]") {
+		t.Error("GoString() must contain [REDACTED]")
+	}
+}
+
+func TestAPIClientSprintfSRedactsAPIKey(t *testing.T) {
+	client := &APIClient{
+		BaseURL: "https://vellaveto.example.com",
+		APIKey:  "super-secret-key-12345",
+	}
+	s := fmt.Sprintf("%s", client)
+	if strings.Contains(s, "super-secret-key-12345") {
+		t.Error("fmt Sprintf with percent-s must not contain the API key")
+	}
+}
+
+// --- R257-TF-1 tests: URL validation ---
+
+func TestValidateAPIURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"valid https", "https://example.com", false},
+		{"valid http", "http://localhost:8080", false},
+		{"valid https with path", "https://example.com/api", false},
+		{"trailing slash trimmed", "https://example.com/", false},
+		{"ftp scheme rejected", "ftp://example.com", true},
+		{"no scheme rejected", "example.com", true},
+		{"empty rejected", "", true},
+		{"userinfo rejected", "https://user:pass@example.com", true},
+		{"userinfo user only rejected", "https://user@example.com", true},
+		{"file scheme rejected", "file:///etc/passwd", true},
+		{"javascript scheme rejected", "javascript:alert(1)", true},
+		{"data scheme rejected", "data:text/html,<h1>hi</h1>", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateAPIURL(tc.url)
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error for URL %q, got nil", tc.url)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error for URL %q: %v", tc.url, err)
+			}
+		})
 	}
 }

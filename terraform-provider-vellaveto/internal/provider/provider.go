@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -39,6 +41,41 @@ type APIClient struct {
 	APIKey     string
 	TenantID   string
 	HTTPClient *http.Client
+}
+
+// String returns a human-readable representation with the API key redacted.
+// SECURITY (R257-TF-2): Prevents API key leakage in logs and debug output.
+func (c *APIClient) String() string {
+	return fmt.Sprintf("APIClient{BaseURL: %q, APIKey: [REDACTED]}", c.BaseURL)
+}
+
+// GoString implements fmt.GoStringer for %#v formatting with the API key redacted.
+// SECURITY (R257-TF-2): Prevents API key leakage via fmt.Fprintf(w, "%#v", client).
+func (c *APIClient) GoString() string {
+	return c.String()
+}
+
+// validateAPIURL validates a base URL for the Vellaveto API.
+// SECURITY (R257-TF-1): Rejects non-http(s) schemes, missing hosts, and userinfo.
+func validateAPIURL(rawURL string) error {
+	trimmed := strings.TrimRight(rawURL, "/")
+	if trimmed == "" {
+		return fmt.Errorf("api_url must not be empty")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("api_url is not a valid URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("api_url must use http:// or https:// scheme")
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("api_url must include a host")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("api_url must not contain credentials (user:pass@host)")
+	}
+	return nil
 }
 
 // New creates a new provider factory function.
@@ -102,6 +139,17 @@ func (p *VellavetoProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
+	// SECURITY (R257-TF-1): Validate base URL before creating the client.
+	// Matches the Go SDK validation pattern (FIND-R46-GO-004, FIND-R67-SDK-003).
+	rawURL := strings.TrimRight(config.APIURL.ValueString(), "/")
+	if err := validateAPIURL(rawURL); err != nil {
+		resp.Diagnostics.AddError(
+			"Invalid API URL",
+			err.Error(),
+		)
+		return
+	}
+
 	timeout := int64(30)
 	if !config.Timeout.IsNull() && !config.Timeout.IsUnknown() {
 		timeout = config.Timeout.ValueInt64()
@@ -115,11 +163,27 @@ func (p *VellavetoProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	client := &APIClient{
-		BaseURL:  config.APIURL.ValueString(),
+		BaseURL:  rawURL,
 		APIKey:   config.APIKey.ValueString(),
 		TenantID: config.TenantID.ValueString(),
 		HTTPClient: &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
+			// SECURITY (R257-TF-1): Strip Authorization header on cross-domain redirects
+			// to prevent API key leakage to third-party hosts.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("stopped after 10 redirects")
+				}
+				// Reject redirects to non-HTTP(S) schemes.
+				if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+					return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)
+				}
+				if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+					// Cross-domain redirect: strip Authorization to prevent API key leak.
+					req.Header.Del("Authorization")
+				}
+				return nil
+			},
 		},
 	}
 

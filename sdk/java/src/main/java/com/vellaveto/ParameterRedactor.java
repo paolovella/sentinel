@@ -1,9 +1,11 @@
 package com.vellaveto;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -21,6 +23,7 @@ import java.util.regex.Pattern;
 public class ParameterRedactor {
 
     private static final String REDACTED = "[REDACTED]";
+    private static final int MAX_REDACT_DEPTH = 10;
 
     private static final Set<String> DEFAULT_SENSITIVE_KEYS;
     static {
@@ -79,15 +82,53 @@ public class ParameterRedactor {
     /**
      * Redacts sensitive entries from a parameter map.
      * Returns a new map with sensitive values replaced by "[REDACTED]".
+     * SECURITY: Recurses into nested Maps and Lists up to depth 10 to prevent
+     * secrets hiding in nested structures. Matches TypeScript SDK parity.
      */
     public Map<String, Object> redact(Map<String, Object> parameters) {
         if (parameters == null) return null;
+        return redactMap(parameters, 0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> redactMap(Map<String, Object> parameters, int depth) {
         Map<String, Object> result = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : parameters.entrySet()) {
             if (isSensitiveKey(entry.getKey()) || isSensitiveValue(entry.getValue())) {
                 result.put(entry.getKey(), REDACTED);
+            } else if (depth >= MAX_REDACT_DEPTH) {
+                // Beyond max depth, redact all values to prevent unbounded recursion
+                result.put(entry.getKey(), REDACTED);
+            } else if (entry.getValue() instanceof Map) {
+                result.put(entry.getKey(),
+                        redactMap((Map<String, Object>) entry.getValue(), depth + 1));
+            } else if (entry.getValue() instanceof List) {
+                result.put(entry.getKey(),
+                        redactList((List<Object>) entry.getValue(), depth + 1));
             } else {
                 result.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> redactList(List<Object> items, int depth) {
+        if (depth >= MAX_REDACT_DEPTH) {
+            List<Object> result = new ArrayList<>(items.size());
+            for (int i = 0; i < items.size(); i++) {
+                result.add(REDACTED);
+            }
+            return result;
+        }
+        List<Object> result = new ArrayList<>(items.size());
+        for (Object item : items) {
+            if (item instanceof Map) {
+                result.add(redactMap((Map<String, Object>) item, depth + 1));
+            } else if (item instanceof List) {
+                result.add(redactList((List<Object>) item, depth + 1));
+            } else {
+                result.add(item);
             }
         }
         return result;

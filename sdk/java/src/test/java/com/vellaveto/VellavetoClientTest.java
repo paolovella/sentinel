@@ -273,7 +273,7 @@ class VellavetoClientTest {
     @Test
     void test_context_session_id_too_long() {
         EvaluationContext ctx = new EvaluationContext(
-                "s".repeat(129), null, null, null, null);
+                "s".repeat(257), null, null, null, null);
         assertThrows(VellavetoException.class, ctx::validate);
     }
 
@@ -293,7 +293,7 @@ class VellavetoClientTest {
 
     @Test
     void test_context_call_chain_too_long() {
-        List<String> chain = IntStream.range(0, 51)
+        List<String> chain = IntStream.range(0, 101)
                 .mapToObj(i -> "agent-" + i)
                 .collect(Collectors.toList());
         EvaluationContext ctx = new EvaluationContext(null, null, null, chain, null);
@@ -303,9 +303,38 @@ class VellavetoClientTest {
     @Test
     void test_context_metadata_too_many() {
         Map<String, Object> meta = new HashMap<>();
-        for (int i = 0; i < 51; i++) meta.put("key" + i, "value");
+        for (int i = 0; i < 101; i++) meta.put("key" + i, "value");
         EvaluationContext ctx = new EvaluationContext(null, null, null, null, meta);
         assertThrows(VellavetoException.class, ctx::validate);
+    }
+
+    @Test
+    void test_context_call_chain_entry_too_long() {
+        List<String> chain = Arrays.asList("ok", "a".repeat(257));
+        EvaluationContext ctx = new EvaluationContext(null, null, null, chain, null);
+        assertThrows(VellavetoException.class, ctx::validate);
+    }
+
+    @Test
+    void test_context_call_chain_entry_control_chars() {
+        List<String> chain = Arrays.asList("ok", "bad\u0001agent");
+        EvaluationContext ctx = new EvaluationContext(null, null, null, chain, null);
+        assertThrows(VellavetoException.class, ctx::validate);
+    }
+
+    @Test
+    void test_context_call_chain_entry_unicode_format_chars() {
+        // U+200B zero-width space
+        List<String> chain = Arrays.asList("ok", "agent\u200Bhidden");
+        EvaluationContext ctx = new EvaluationContext(null, null, null, chain, null);
+        assertThrows(VellavetoException.class, ctx::validate);
+    }
+
+    @Test
+    void test_context_call_chain_valid_entries() throws VellavetoException {
+        List<String> chain = Arrays.asList("agent-a", "agent-b", "a".repeat(256));
+        EvaluationContext ctx = new EvaluationContext(null, null, null, chain, null);
+        ctx.validate(); // should not throw
     }
 
     @Test
@@ -594,6 +623,66 @@ class VellavetoClientTest {
                 Collections.singleton("custom_secret"));
         assertTrue(redactor.isSensitiveKey("custom_secret"));
         assertTrue(redactor.isSensitiveKey("password")); // default still works
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void test_redactor_recurses_into_nested_map() {
+        ParameterRedactor redactor = new ParameterRedactor();
+        Map<String, Object> inner = new HashMap<>();
+        inner.put("token", "my-secret-token");
+        inner.put("safe", "visible");
+        Map<String, Object> params = new HashMap<>();
+        params.put("config", inner);
+        params.put("name", "test");
+
+        Map<String, Object> redacted = redactor.redact(params);
+        assertEquals("test", redacted.get("name"));
+        Map<String, Object> redactedInner = (Map<String, Object>) redacted.get("config");
+        assertEquals("[REDACTED]", redactedInner.get("token"));
+        assertEquals("visible", redactedInner.get("safe"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void test_redactor_recurses_into_list() {
+        ParameterRedactor redactor = new ParameterRedactor();
+        Map<String, Object> listItem = new HashMap<>();
+        listItem.put("password", "secret123");
+        listItem.put("name", "item1");
+        Map<String, Object> params = new HashMap<>();
+        params.put("items", Arrays.asList(listItem));
+
+        Map<String, Object> redacted = redactor.redact(params);
+        List<Object> items = (List<Object>) redacted.get("items");
+        Map<String, Object> redactedItem = (Map<String, Object>) items.get(0);
+        assertEquals("[REDACTED]", redactedItem.get("password"));
+        assertEquals("item1", redactedItem.get("name"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void test_redactor_depth_limit_redacts_all() {
+        ParameterRedactor redactor = new ParameterRedactor();
+        // Build a structure nested 11 levels deep: level9 -> level8 -> ... -> level0 -> {safe_key: "..."}
+        Map<String, Object> leaf = new HashMap<>();
+        leaf.put("safe_key", "should_be_redacted_at_depth");
+        Map<String, Object> current = leaf;
+        for (int i = 0; i < 10; i++) {
+            Map<String, Object> parent = new HashMap<>();
+            parent.put("level" + i, current);
+            current = parent;
+        }
+        // current is the outermost map, leaf is at depth 10
+        Map<String, Object> redacted = redactor.redact(current);
+        // Walk down to the leaf map at depth 10
+        Object node = redacted;
+        for (int i = 9; i >= 0; i--) {
+            node = ((Map<String, Object>) node).get("level" + i);
+        }
+        // At depth 10, all values in the leaf map should be [REDACTED]
+        Map<String, Object> leafRedacted = (Map<String, Object>) node;
+        assertEquals("[REDACTED]", leafRedacted.get("safe_key"));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as https from 'https';
 import * as http from 'http';
+import * as crypto from 'crypto';
 import { URL } from 'url';
 import { getConfig } from './config';
 
@@ -106,8 +107,16 @@ export class SimulatorPanel {
                     timeout: 10000,
                 },
                 (res) => {
+                    const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB
                     let data = '';
-                    res.on('data', (chunk: string) => { data += chunk; });
+                    res.on('data', (chunk: string) => {
+                        data += chunk;
+                        if (data.length > MAX_RESPONSE_SIZE) {
+                            req.destroy();
+                            reject(new Error('Response too large'));
+                            return;
+                        }
+                    });
                     res.on('end', () => {
                         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
                             try {
@@ -129,10 +138,12 @@ export class SimulatorPanel {
     }
 
     private getHtml(): string {
+        const nonce = crypto.randomUUID();
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vellaveto Simulator</title>
   <style>
@@ -161,7 +172,7 @@ export class SimulatorPanel {
   <textarea id="params" placeholder='{"path": "/tmp/test.txt"}'></textarea>
   <button onclick="simulate()">Evaluate</button>
   <div id="result"></div>
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     function simulate() {
       vscode.postMessage({

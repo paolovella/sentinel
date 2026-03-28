@@ -262,6 +262,27 @@ impl A2aProxyService {
         // 8. Extract action for policy evaluation
         let action = extract_a2a_action(&msg_type);
 
+        // SECURITY (R256-MCP-5): Validate extracted A2A action before engine evaluation.
+        // Without this, crafted A2A parameters (null bytes in tool names, oversized
+        // parameter blobs) bypass Action validation and reach the policy engine.
+        if let Some(ref action) = action {
+            if let Err(e) = action.validate() {
+                use vellaveto_types::json_rpc;
+                let id = get_request_id(&msg_type);
+                return Ok(A2aProxyDecision::Block {
+                    response: make_a2a_error_response(
+                        &id,
+                        json_rpc::VALIDATION_ERROR as i32,
+                        "Action validation failed",
+                    ),
+                    reason: format!("A2A action validation failed: {e}"),
+                    verdict: Some(Verdict::Deny {
+                        reason: "Action validation failed".to_string(),
+                    }),
+                });
+            }
+        }
+
         // 9. Evaluate policy
         if let Some(ref action) = action {
             match self.engine.evaluate_action(action, &self.policies) {

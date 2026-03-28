@@ -727,6 +727,15 @@ impl BehavioralTracker {
             )));
         }
         for (agent_id, entry) in &snapshot.agents {
+            // SECURITY (R256-ENG-1): Reject oversized agent_id keys from snapshots.
+            // Parity with the live-path check in check_session()/record_session().
+            if agent_id.len() > Self::MAX_AGENT_ID_LEN {
+                return Err(BehavioralError::InvalidSnapshot(format!(
+                    "agent_id length {} exceeds maximum {}",
+                    agent_id.len(),
+                    Self::MAX_AGENT_ID_LEN
+                )));
+            }
             // SECURITY (FIND-R114-002): Reject agent_id keys with control or
             // Unicode format characters to prevent bidi override injection in
             // pattern matching and log confusion.
@@ -747,6 +756,15 @@ impl BehavioralTracker {
                 )));
             }
             for (tool, baseline) in &entry.tools {
+                // SECURITY (R256-ENG-1): Reject oversized tool keys from snapshots.
+                // Parity with the live-path check in check_session()/record_session().
+                if tool.len() > Self::MAX_TOOL_KEY_LEN {
+                    return Err(BehavioralError::InvalidSnapshot(format!(
+                        "tool key length {} exceeds maximum {}",
+                        tool.len(),
+                        Self::MAX_TOOL_KEY_LEN
+                    )));
+                }
                 // SECURITY (FIND-R114-002): Reject tool keys with control or
                 // Unicode format characters.
                 if tool

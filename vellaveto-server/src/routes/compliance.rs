@@ -1094,6 +1094,66 @@ pub async fn create_incident_report(
         .unwrap_or("")
         .to_string();
     let severity = body.get("severity").and_then(|v| v.as_u64()).unwrap_or(3) as u8;
+
+    // SECURITY (R256-SRV-1): Validate incident report fields from raw JSON input.
+    // Length bounds prevent OOM; dangerous char checks prevent log injection.
+    if incident_id.len() > 256 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "incident_id exceeds maximum length".to_string(),
+            }),
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(&incident_id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "incident_id contains invalid characters".to_string(),
+            }),
+        ));
+    }
+    if title.len() > 1024 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "title exceeds maximum length".to_string(),
+            }),
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(&title) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "title contains invalid characters".to_string(),
+            }),
+        ));
+    }
+    if description.len() > 10_000 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "description exceeds maximum length".to_string(),
+            }),
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(&description) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "description contains invalid characters".to_string(),
+            }),
+        ));
+    }
+    if !(1..=5).contains(&severity) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "severity must be between 1 and 5".to_string(),
+            }),
+        ));
+    }
+
     let classification = match body
         .get("classification")
         .and_then(|v| v.as_str())
@@ -1108,23 +1168,30 @@ pub async fn create_incident_report(
         _ => vellaveto_audit::article73::IncidentClassification::SystemMalfunction,
     };
 
+    // SECURITY (R256-SRV-1): Cap affected_assets to prevent OOM from large arrays.
+    let affected_assets: Vec<String> = body
+        .get("affected_assets")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .take(100)
+                .filter_map(|v| {
+                    v.as_str()
+                        .map(|s| vellaveto_types::sanitize_for_log(s, 256))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let report = vellaveto_audit::article73::build_incident_report(
         vellaveto_audit::article73::IncidentParams {
-            incident_id,
-            title,
+            incident_id: vellaveto_types::sanitize_for_log(&incident_id, 256),
+            title: vellaveto_types::sanitize_for_log(&title, 1024),
             classification,
             severity,
             detected_at: chrono::Utc::now().to_rfc3339(),
-            description,
-            affected_assets: body
-                .get("affected_assets")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
+            description: vellaveto_types::sanitize_for_log(&description, 10_000),
+            affected_assets,
             evidence_refs: Vec::new(),
         },
     );

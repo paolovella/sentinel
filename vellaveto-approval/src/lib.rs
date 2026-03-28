@@ -191,11 +191,70 @@ pub struct ApprovalContainmentContext {
     pub counterfactual_review_required: bool,
 }
 
+// SECURITY (R256-APPR-1): Bounds for ApprovalContainmentContext validation.
+const MAX_SEMANTIC_TAINT: usize = 100;
+const MAX_LINEAGE_CHANNELS: usize = 100;
+const MAX_CONTAINMENT_STRING_LEN: usize = 512;
+
+impl ApprovalContainmentContext {
+    /// Validate the containment context for bounds and dangerous characters.
+    ///
+    /// SECURITY (R256-APPR-1): Prevent OOM from unbounded collections and
+    /// log injection from dangerous characters in string fields.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.semantic_taint.len() > MAX_SEMANTIC_TAINT {
+            return Err(format!(
+                "semantic_taint count {} exceeds maximum {MAX_SEMANTIC_TAINT}",
+                self.semantic_taint.len()
+            ));
+        }
+        if self.lineage_channels.len() > MAX_LINEAGE_CHANNELS {
+            return Err(format!(
+                "lineage_channels count {} exceeds maximum {MAX_LINEAGE_CHANNELS}",
+                self.lineage_channels.len()
+            ));
+        }
+        if let Some(ref key_id) = self.client_key_id {
+            if key_id.len() > MAX_CONTAINMENT_STRING_LEN {
+                return Err(format!(
+                    "client_key_id exceeds maximum length of {MAX_CONTAINMENT_STRING_LEN}"
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(key_id) {
+                return Err("client_key_id contains dangerous characters".to_string());
+            }
+        }
+        if let Some(ref binding) = self.session_scope_binding {
+            if binding.len() > MAX_CONTAINMENT_STRING_LEN {
+                return Err(format!(
+                    "session_scope_binding exceeds maximum length of {MAX_CONTAINMENT_STRING_LEN}"
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(binding) {
+                return Err("session_scope_binding contains dangerous characters".to_string());
+            }
+        }
+        if let Some(ref hash) = self.canonical_request_hash {
+            if hash.len() > MAX_CONTAINMENT_STRING_LEN {
+                return Err(format!(
+                    "canonical_request_hash exceeds maximum length of {MAX_CONTAINMENT_STRING_LEN}"
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(hash) {
+                return Err("canonical_request_hash contains dangerous characters".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Phase 2: Structured fact summary for human reviewers.
 ///
 /// Generates a concise, human-readable review brief from a pending approval
 /// so operators can make informed decisions without parsing raw JSON.
+// SECURITY (R256-APPR-2): Reject unknown fields from deserialized input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ApprovalFactSummary {
     /// One-line summary (e.g., "execute_command requests approval: destructive operation").
     pub headline: String,
@@ -906,6 +965,18 @@ impl ApprovalStore {
             }
             match serde_json::from_str::<PendingApproval>(line) {
                 Ok(approval) => {
+                    // SECURITY (R256-APPR-1): Validate containment context loaded from file.
+                    if let Some(ref ctx) = approval.containment_context {
+                        if let Err(e) = ctx.validate() {
+                            tracing::warn!(
+                                "Skipping approval {} with invalid containment context: {}",
+                                approval.id,
+                                e
+                            );
+                            skipped = skipped.saturating_add(1);
+                            continue;
+                        }
+                    }
                     pending.insert(approval.id.clone(), approval);
                     count += 1;
                 }
@@ -1110,6 +1181,11 @@ impl ApprovalStore {
                     "action_fingerprint must be hex-encoded".to_string(),
                 ));
             }
+        }
+
+        // SECURITY (R256-APPR-1): Validate containment context before use.
+        if let Some(ref ctx) = containment_context {
+            ctx.validate().map_err(ApprovalError::Validation)?;
         }
 
         let containment_context = containment_context

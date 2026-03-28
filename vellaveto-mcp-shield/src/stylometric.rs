@@ -135,7 +135,11 @@ impl StylometricNormalizer {
             serde_json::Value::Object(map) => {
                 let mut result = serde_json::Map::new();
                 for (key, val) in map {
-                    result.insert(key.clone(), self.walk_json(val, depth + 1)?);
+                    // SECURITY (R256-SHIELD-2): Normalize object keys, not just values.
+                    // Without this, stylometric fingerprints in key names (e.g. extra
+                    // spaces, curly quotes) would survive normalization and leak identity.
+                    let normalized_key = self.normalize(key)?;
+                    result.insert(normalized_key, self.walk_json(val, depth + 1)?);
                 }
                 Ok(serde_json::Value::Object(result))
             }

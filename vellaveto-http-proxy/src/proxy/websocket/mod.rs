@@ -428,6 +428,24 @@ async fn handle_ws_connection(
     } else {
         convert_to_ws_url(&state.upstream_url)
     };
+
+    // SECURITY (R256-WS-1): Enforce HTTPS/WSS for non-local upstream URLs.
+    // Parity with fallback.rs, smart_fallback.rs, upstream.rs, and grpc/upstream.rs.
+    if let Err(reason) = super::validate_upstream_url_scheme(&upstream_url) {
+        tracing::warn!(
+            session_id = %session_id,
+            "Rejecting non-HTTPS/WSS upstream URL in WebSocket handler"
+        );
+        let (mut client_sink, _) = client_ws.split();
+        let _ = client_sink
+            .send(Message::Close(Some(CloseFrame {
+                code: CLOSE_POLICY_VIOLATION,
+                reason: reason.into(),
+            })))
+            .await;
+        return;
+    }
+
     let upstream_ws = match connect_upstream_ws(&upstream_url).await {
         Ok(ws) => ws,
         Err(e) => {

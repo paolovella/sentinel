@@ -380,16 +380,11 @@ impl AuditLogger {
         // R230-AUD-2: Validate metadata keys for control/format characters.
         // Metadata keys appear in log output and SIEM queries — control chars
         // enable log injection, Unicode format chars enable confusion attacks.
-        if let Some(obj) = metadata.as_object() {
-            for key in obj.keys() {
-                if vellaveto_types::has_dangerous_chars(key) {
-                    return Err(AuditError::Validation(format!(
-                        "Metadata key contains control or format characters (key starts with: '{}')",
-                        key.chars().take(32).collect::<String>()
-                    )));
-                }
-            }
-        }
+        // SECURITY (R256-AUD-1): Recurse into nested objects so that deeply buried
+        // keys with dangerous chars are also rejected. Bounded by MAX_METADATA_KEY_DEPTH
+        // to prevent stack overflow from attacker-crafted deeply nested metadata.
+        const MAX_METADATA_KEY_DEPTH: usize = 5;
+        Self::validate_metadata_keys(&metadata, 0, MAX_METADATA_KEY_DEPTH)?;
 
         // Redact sensitive values based on configured redaction level
         let logged_action = match self.redaction_level {
@@ -760,6 +755,39 @@ impl AuditLogger {
             )));
         }
 
+        Ok(())
+    }
+
+    /// SECURITY (R256-AUD-1): Recursively validate that no metadata key at any
+    /// nesting level contains control or Unicode format characters. Uses an
+    /// iterative stack to avoid stack overflow on deep payloads.
+    fn validate_metadata_keys(
+        value: &serde_json::Value,
+        current_depth: usize,
+        max_depth: usize,
+    ) -> Result<(), AuditError> {
+        if current_depth > max_depth {
+            // Depth already validated by MAX_METADATA_DEPTH check above;
+            // this guard prevents unbounded recursion in this helper.
+            return Ok(());
+        }
+        if let Some(obj) = value.as_object() {
+            for (key, val) in obj {
+                if vellaveto_types::has_dangerous_chars(key) {
+                    return Err(AuditError::Validation(format!(
+                        "Metadata key contains control or format characters at depth {} (key starts with: '{}')",
+                        current_depth,
+                        key.chars().take(32).collect::<String>()
+                    )));
+                }
+                // Recurse into nested objects and arrays
+                Self::validate_metadata_keys(val, current_depth + 1, max_depth)?;
+            }
+        } else if let Some(arr) = value.as_array() {
+            for item in arr {
+                Self::validate_metadata_keys(item, current_depth + 1, max_depth)?;
+            }
+        }
         Ok(())
     }
 

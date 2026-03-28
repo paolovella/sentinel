@@ -109,8 +109,10 @@ impl TopologyGuard {
                 tracing::error!(
                     "TopologyGuard RwLock poisoned during check — denying (fail-closed)"
                 );
+                // SECURITY (R256-DISC-1b): Sanitize tool_name in poisoned-lock
+                // fail-closed path to prevent log injection from attacker-controlled input.
                 return TopologyVerdict::Unknown {
-                    requested_tool: tool_name.to_string(),
+                    requested_tool: vellaveto_types::sanitize_for_log(tool_name, 256),
                     suggestion: None,
                     available_tools: Vec::new(),
                 };
@@ -187,8 +189,10 @@ impl TopologyGuard {
             }
             _ => {
                 let match_names: Vec<String> = matches.into_iter().map(|(q, _)| q).collect();
+                // SECURITY (R256-DISC-1): Sanitize tool_name in Ambiguous verdict to
+                // prevent log injection from attacker-controlled tool name strings.
                 TopologyVerdict::Ambiguous {
-                    requested_tool: tool_name.to_string(),
+                    requested_tool: vellaveto_types::sanitize_for_log(tool_name, 256),
                     matches: match_names,
                 }
             }

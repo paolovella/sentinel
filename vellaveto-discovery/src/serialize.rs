@@ -113,6 +113,35 @@ impl TopologyGraph {
             )));
         }
 
+        // SECURITY (R256-DISC-2): Validate edge source/target qualified names for length
+        // and dangerous characters. Without this, crafted snapshot JSON can inject control
+        // characters via source/target that propagate into graph node lookups and logs.
+        const MAX_EDGE_QUALIFIED_NAME_LEN: usize = 4096;
+        for edge in &snapshot.edges {
+            if edge.source.len() > MAX_EDGE_QUALIFIED_NAME_LEN {
+                return Err(crate::error::DiscoveryError::ValidationError(format!(
+                    "Edge source length {} exceeds max {MAX_EDGE_QUALIFIED_NAME_LEN}",
+                    edge.source.len()
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(&edge.source) {
+                return Err(crate::error::DiscoveryError::ValidationError(
+                    "Edge source contains dangerous characters".to_string(),
+                ));
+            }
+            if edge.target.len() > MAX_EDGE_QUALIFIED_NAME_LEN {
+                return Err(crate::error::DiscoveryError::ValidationError(format!(
+                    "Edge target length {} exceeds max {MAX_EDGE_QUALIFIED_NAME_LEN}",
+                    edge.target.len()
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(&edge.target) {
+                return Err(crate::error::DiscoveryError::ValidationError(
+                    "Edge target contains dangerous characters".to_string(),
+                ));
+            }
+        }
+
         // SECURITY (R239-DISC-1): Validate DataFlow edge confidence for NaN/Infinity/range.
         // SECURITY (R239-DISC-2): Validate edge string fields for dangerous chars and length.
         const MAX_EDGE_STRING_LEN: usize = 1024;

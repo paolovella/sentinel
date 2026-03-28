@@ -46,7 +46,9 @@ pub enum ValidationCategory {
 }
 
 /// A single validation finding.
+// SECURITY (R256-CFG-1): Reject unknown fields from deserialized input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidationFinding {
     /// Severity of the finding.
     pub severity: ValidationSeverity,
@@ -119,7 +121,9 @@ impl ValidationFinding {
 }
 
 /// Result of policy configuration validation.
+// SECURITY (R256-CFG-1): Reject unknown fields from deserialized input.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidationResult {
     /// All findings from validation.
     pub findings: Vec<ValidationFinding>,
@@ -128,7 +132,9 @@ pub struct ValidationResult {
 }
 
 /// Summary of validation results.
+// SECURITY (R256-CFG-1): Reject unknown fields from deserialized input.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidationSummary {
     /// Total number of policies.
     pub total_policies: usize,

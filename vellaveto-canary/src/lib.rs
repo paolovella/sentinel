@@ -154,6 +154,13 @@ pub fn create_canary(
     valid_days: u64,
     signing_key_hex: &str,
 ) -> Result<WarrantCanary, String> {
+    // SECURITY (R256-CAN-1): Reject valid_days == 0 — a canary that expires
+    // on the same day it is created is effectively already expired and provides
+    // no meaningful guarantee to consumers.
+    if valid_days == 0 {
+        return Err("valid_days must be at least 1".to_string());
+    }
+
     // Validate statement
     if statement.is_empty() {
         return Err("statement must not be empty".to_string());

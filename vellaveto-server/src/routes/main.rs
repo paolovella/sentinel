@@ -805,6 +805,11 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
         .max_age(std::time::Duration::from_secs(3600)); // Cache preflight for 1 hour
 
     if origins.iter().any(|o| o == "*") {
+        // SECURITY (R256-SRV-3): Warn when wildcard CORS is configured so operators
+        // notice the open policy in logs rather than accepting it silently.
+        tracing::warn!(
+            "CORS wildcard origin configured — all cross-origin requests will be accepted"
+        );
         base.allow_origin(Any)
     } else if origins.is_empty() {
         // Strict default: localhost only

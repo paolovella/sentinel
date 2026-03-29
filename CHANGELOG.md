@@ -16,6 +16,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Go, Java). Even if injection detection misses a payload, the attestation
   creates an auditable cryptographic record of what the proxy assessed.
 
+- **R259-R267 adversarial audit campaign (Mar 2026):**
+  9-round swarm adversarial audit. 30 security findings fixed (9 HIGH, 14 MEDIUM,
+  7 LOW). Key fixes: HMAC key minimum 32 bytes, passphrase minimum 12 chars,
+  Bearer token whitespace trim, attestation signature hex length validation,
+  canary date chronological ordering, SDK signature/type validation (all 4 SDKs),
+  approval consumption expiration check, call chain future timestamp rejection,
+  GitHub fine-grained PAT DLP pattern, NHI rotation terminal state check, config
+  validate() call gaps, fail-open default correction, email injection char
+  rejection, A2A message dangerous char validation, Terraform Sensitive field,
+  VS Code HTTP downgrade block, evidence pack signing content completeness,
+  semantic guardrails constructor validation, tenant key bypass fix, webhook
+  dedup off-by-one, approval lineage drift enforcement, ACIS audit entries for
+  DoW/jailbreak/token-leakage/memory-query, store error fail-closed.
+
+- **11 architectural hardening changes (Mar 2026):**
+  Ed25519 evidence pack signing, SHA-256 plugin content-hash verification,
+  FallbackBehavior::Allow acknowledgment gate, eager transitive NHI revocation
+  (BFS depth-bounded), transparency Full verbosity admin gate, atomic signup
+  capacity check, webhook idempotency tracking, SessionBackend trait +
+  write-through persistence, warm restart (Locked/Suspicious sessions),
+  per-tenant API key verification (constant-time), cross-tenant integration
+  test suite. 36 new Rust tests, 36 new SDK tests, 4 new integration tests.
+
+- **Formal verification expansion (Mar 2026):**
+  4 new Verus kernels (DRIFT-1–4 approval drift, REVOKE-1–4 transitive
+  revocation, EVIDENCE-SIGN-1–3 evidence signing, WARM-1–3 session restart).
+  8 new Kani harnesses (K133-K140). 24 new Kani unit tests. Total: 682 Verus
+  items, 116 Kani harnesses, 264 Kani unit tests, 910+ verification instances.
+
 ## [6.1.1] - 2026-03-27
 
 ## [6.1.0] - 2026-03-27

@@ -1766,6 +1766,32 @@ fn test_max_path_decode_iterations_json_roundtrip() {
     assert_eq!(config.max_path_decode_iterations, Some(10));
 }
 
+// R261-CFG-3: max_path_decode_iterations must be bounded
+#[test]
+fn test_validate_rejects_max_path_decode_iterations_exceeds_1000() {
+    let mut config = minimal_config();
+    config.max_path_decode_iterations = Some(1001);
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("max_path_decode_iterations"),
+        "Should reject >1000: {err}"
+    );
+}
+
+#[test]
+fn test_validate_accepts_max_path_decode_iterations_at_1000() {
+    let mut config = minimal_config();
+    config.max_path_decode_iterations = Some(1000);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_validate_accepts_max_path_decode_iterations_none() {
+    let mut config = minimal_config();
+    config.max_path_decode_iterations = None;
+    assert!(config.validate().is_ok());
+}
+
 // R32-SSRF-1: IPv4-mapped IPv6 webhook URL must be rejected
 #[test]
 fn test_validate_rejects_webhook_ipv4_mapped_ipv6() {

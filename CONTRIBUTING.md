@@ -105,7 +105,7 @@ All pull requests must pass the following before merge:
 ### CI Gates (Automated)
 - `cargo fmt --all -- --check` (formatting)
 - `cargo clippy --workspace --all-targets --locked -- -D warnings` (linting)
-- `cargo test --workspace --no-fail-fast --locked` (9,900+ tests)
+- `cargo test --workspace --no-fail-fast --locked` (11,571+ tests)
 - unwrap/expect/panic scanner (no panics in library code)
 - SPDX license header check (all `.rs` files)
 - Feature matrix (5 feature combinations)
@@ -119,6 +119,14 @@ All pull requests must pass the following before merge:
 - [ ] Input validation on all external data (bounds, control chars, format)
 - [ ] Transport parity: if HTTP has the check, WebSocket/gRPC/stdio must too
 - [ ] SDK parity: changes to server format reflected in all 4 SDKs
+- [ ] `#[serde(deny_unknown_fields)]` on all new Deserialize structs
+- [ ] `validate()` methods with bounded collections (`MAX_*` constants) on new types
+- [ ] `has_dangerous_chars()` validation on all external string inputs
+- [ ] Custom `Debug` impl redacting keys, tokens, signatures, credentials
+- [ ] `saturating_add` (not `+= 1`) on all security counters and rate limiters
+- [ ] Store/database error paths fail-closed (Deny), not fail-open (Allow)
+- [ ] ACIS decision envelope passed to audit logging on all verdict paths
+- [ ] Formal verification updated if applicable (Verus kernel, Kani harness)
 
 ### Acceptance Criteria
 - All CI jobs green

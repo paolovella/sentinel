@@ -3,10 +3,10 @@
 > **Living document** tracking all adversarial security audit rounds, findings, and fixes.
 > Updated after every audit-fix-commit cycle.
 >
-> **Last updated:** 2026-03-11 (Round 254)
-> **Total audit rounds:** 254
-> **Total security fix commits:** 365+
-> **Total findings resolved:** 1,720+
+> **Last updated:** 2026-03-30 (Round 267)
+> **Total audit rounds:** 267
+> **Total security fix commits:** 375+
+> **Total findings resolved:** 1,750+
 
 ---
 

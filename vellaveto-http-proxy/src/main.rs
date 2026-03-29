@@ -904,15 +904,16 @@ async fn main() -> Result<()> {
         attestation_hmac_key: std::env::var("VELLAVETO_ATTESTATION_SECRET")
             .ok()
             .filter(|s| !s.is_empty())
-            .map(|s| {
+            .and_then(|s| {
                 if s.len() < 32 {
-                    panic!(
-                        "VELLAVETO_ATTESTATION_SECRET must be at least 32 bytes, got {} \
-                         (R259-ATT-1: short HMAC keys are trivially brute-forceable)",
+                    tracing::error!(
+                        "VELLAVETO_ATTESTATION_SECRET too short ({} bytes, minimum 32). \
+                         Content-bound attestation will be DISABLED.",
                         s.len()
                     );
+                    return None;
                 }
-                s.into_bytes()
+                Some(s.into_bytes())
             }),
     };
 

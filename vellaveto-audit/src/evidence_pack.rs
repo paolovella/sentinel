@@ -578,10 +578,7 @@ fn build_pack(
 /// The signature covers the canonical content hash produced by
 /// `EvidencePack::signing_content()`, providing non-repudiation and
 /// tamper detection for compliance artifacts.
-pub fn sign_evidence_pack(
-    pack: &mut EvidencePack,
-    signing_key: &ed25519_dalek::SigningKey,
-) {
+pub fn sign_evidence_pack(pack: &mut EvidencePack, signing_key: &ed25519_dalek::SigningKey) {
     use ed25519_dalek::Signer;
     let content = pack.signing_content();
     let sig = signing_key.sign(&content);
@@ -623,9 +620,9 @@ pub fn verify_evidence_pack_signature(pack: &EvidencePack) -> Result<bool, crate
             vk_bytes.len()
         )));
     }
-    let vk_array: [u8; 32] = vk_bytes
-        .try_into()
-        .map_err(|_| crate::AuditError::Validation("verifying_key conversion failed".to_string()))?;
+    let vk_array: [u8; 32] = vk_bytes.try_into().map_err(|_| {
+        crate::AuditError::Validation("verifying_key conversion failed".to_string())
+    })?;
     let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&vk_array)
         .map_err(|e| crate::AuditError::Validation(format!("invalid verifying key: {e}")))?;
 

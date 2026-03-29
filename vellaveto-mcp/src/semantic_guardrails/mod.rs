@@ -218,8 +218,7 @@ impl ServiceConfig {
         // acknowledged. Mirrors OPA fail_open_acknowledged pattern (vellaveto-config
         // enterprise.rs). Without acknowledgment, misconfiguration silently makes
         // the entire guardrail layer a no-op under load.
-        if self.fallback == FallbackBehavior::Allow
-            && !self.dangerous_allow_fail_open_acknowledged
+        if self.fallback == FallbackBehavior::Allow && !self.dangerous_allow_fail_open_acknowledged
         {
             return Err(
                 "fallback=Allow requires dangerous_allow_fail_open_acknowledged=true \

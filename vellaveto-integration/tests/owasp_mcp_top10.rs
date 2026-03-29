@@ -892,7 +892,11 @@ mod owasp_mcp07_auth {
                 vellaveto_server::idempotency::IdempotencyConfig::default(),
             ),
             signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+            webhook_dedup: std::sync::Arc::new(
+                vellaveto_server::routes::billing::WebhookDedup::new(
+                    std::time::Duration::from_secs(600),
+                ),
+            ),
             task_state: None,
             auth_level: None,
             iam_state: None,
@@ -1359,7 +1363,11 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
                 vellaveto_server::idempotency::IdempotencyConfig::default(),
             ),
             signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+            webhook_dedup: std::sync::Arc::new(
+                vellaveto_server::routes::billing::WebhookDedup::new(
+                    std::time::Duration::from_secs(600),
+                ),
+            ),
             task_state: None,
             auth_level: None,
             iam_state: None,
@@ -1678,7 +1686,9 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
         signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600),
+        )),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1942,7 +1952,9 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
         signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600),
+        )),
         task_state: None,
         auth_level: None,
         iam_state: None,

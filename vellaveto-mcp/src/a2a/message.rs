@@ -210,16 +210,12 @@ impl A2aMessage {
                     file.validate()?;
                     if let Some(ref name) = file.name {
                         if vellaveto_types::has_dangerous_chars(name) {
-                            return Err(
-                                "file.name contains dangerous characters".to_string(),
-                            );
+                            return Err("file.name contains dangerous characters".to_string());
                         }
                     }
                     if let Some(ref mime) = file.mime_type {
                         if vellaveto_types::has_dangerous_chars(mime) {
-                            return Err(
-                                "file.mime_type contains dangerous characters".to_string(),
-                            );
+                            return Err("file.mime_type contains dangerous characters".to_string());
                         }
                     }
                 }

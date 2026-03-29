@@ -1102,14 +1102,20 @@ mod tests {
     #[test]
     fn test_webhook_dedup_first_event_accepted() {
         let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
-        assert!(dedup.check_or_insert("evt_001"), "first occurrence should be accepted");
+        assert!(
+            dedup.check_or_insert("evt_001"),
+            "first occurrence should be accepted"
+        );
     }
 
     #[test]
     fn test_webhook_dedup_duplicate_rejected() {
         let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
         assert!(dedup.check_or_insert("evt_002"));
-        assert!(!dedup.check_or_insert("evt_002"), "duplicate should be rejected");
+        assert!(
+            !dedup.check_or_insert("evt_002"),
+            "duplicate should be rejected"
+        );
     }
 
     #[test]
@@ -1122,7 +1128,10 @@ mod tests {
     #[test]
     fn test_webhook_dedup_empty_id_rejected() {
         let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
-        assert!(!dedup.check_or_insert(""), "empty event ID should be rejected");
+        assert!(
+            !dedup.check_or_insert(""),
+            "empty event ID should be rejected"
+        );
     }
 
     #[test]

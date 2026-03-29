@@ -262,8 +262,8 @@ pub fn verify_canary(canary: &WarrantCanary) -> Result<CanaryVerification, Strin
     }
     // SECURITY (R239-CAN-3): Also validate expires_date format early (previously only
     // validated late at line 271 — fail-fast is more defensive).
-    let parsed_expires = NaiveDate::parse_from_str(&canary.expires_date, "%Y-%m-%d")
-        .map_err(|_| {
+    let parsed_expires =
+        NaiveDate::parse_from_str(&canary.expires_date, "%Y-%m-%d").map_err(|_| {
             format!(
                 "expires_date '{}' is not a valid YYYY-MM-DD date",
                 canary.expires_date

@@ -394,7 +394,11 @@ mod server_auth {
                 vellaveto_server::idempotency::IdempotencyConfig::default(),
             ),
             signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+            webhook_dedup: std::sync::Arc::new(
+                vellaveto_server::routes::billing::WebhookDedup::new(
+                    std::time::Duration::from_secs(600),
+                ),
+            ),
             task_state: None,
             auth_level: None,
             iam_state: None,
@@ -590,7 +594,11 @@ mod server_auth {
                 vellaveto_server::idempotency::IdempotencyConfig::default(),
             ),
             signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-            webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+            webhook_dedup: std::sync::Arc::new(
+                vellaveto_server::routes::billing::WebhookDedup::new(
+                    std::time::Duration::from_secs(600),
+                ),
+            ),
             task_state: None,
             auth_level: None,
             iam_state: None,
@@ -1248,7 +1256,9 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
         signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600),
+        )),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1410,7 +1420,9 @@ async fn finding_12_approval_creation_failure_denies_request() {
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
         signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600),
+        )),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1908,7 +1920,9 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
         signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600),
+        )),
         task_state: None,
         auth_level: None,
         iam_state: None,

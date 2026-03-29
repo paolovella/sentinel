@@ -4543,10 +4543,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(
-            !consumed,
-            "expired approval should not be consumable"
-        );
+        assert!(!consumed, "expired approval should not be consumable");
 
         let approval = store.get(&id).await.unwrap();
         assert_eq!(

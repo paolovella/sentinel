@@ -74,7 +74,9 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
         signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600),
+        )),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -488,7 +490,9 @@ async fn regression_24_error_message_does_not_leak_architecture() {
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
         signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
-        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600),
+        )),
         task_state: None,
         auth_level: None,
         iam_state: None,

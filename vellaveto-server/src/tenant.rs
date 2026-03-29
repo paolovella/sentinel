@@ -1479,8 +1479,7 @@ mod tests {
             source: TenantSource::Header,
             quotas: None,
         };
-        let result =
-            verify_tenant_api_key(&ctx, Some("Bearer vvt_correct_key"), Some(&store));
+        let result = verify_tenant_api_key(&ctx, Some("Bearer vvt_correct_key"), Some(&store));
         assert!(result.is_ok());
     }
 
@@ -1495,8 +1494,7 @@ mod tests {
             source: TenantSource::Header,
             quotas: None,
         };
-        let result =
-            verify_tenant_api_key(&ctx, Some("Bearer vvt_wrong_key"), Some(&store));
+        let result = verify_tenant_api_key(&ctx, Some("Bearer vvt_wrong_key"), Some(&store));
         assert_eq!(result, Err(StatusCode::UNAUTHORIZED));
     }
 
@@ -1527,8 +1525,7 @@ mod tests {
             source: TenantSource::Header,
             quotas: None,
         };
-        let result =
-            verify_tenant_api_key(&ctx, Some("Bearer key"), Some(&store));
+        let result = verify_tenant_api_key(&ctx, Some("Bearer key"), Some(&store));
         assert!(result.is_ok(), "tenant without hash should pass (legacy)");
     }
 
@@ -1540,6 +1537,9 @@ mod tests {
             quotas: None,
         };
         let result = verify_tenant_api_key(&ctx, None, None);
-        assert!(result.is_ok(), "no auth header should pass to other middleware");
+        assert!(
+            result.is_ok(),
+            "no auth header should pass to other middleware"
+        );
     }
 }

@@ -263,8 +263,7 @@ mod tests {
     #[test]
     fn test_verify_rejects_truncated_signature() {
         let key = b"test-key-for-attestation-verify!";
-        let mut token =
-            mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        let mut token = mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
         // Truncate to 32 hex chars (half of correct 64)
         token.signature = token.signature[..32].to_string();
         let err = verify_attestation(&token, key).unwrap_err();
@@ -278,8 +277,7 @@ mod tests {
     #[test]
     fn test_verify_rejects_empty_signature() {
         let key = b"test-key-for-attestation-verify!";
-        let mut token =
-            mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        let mut token = mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
         token.signature = String::new();
         let err = verify_attestation(&token, key).unwrap_err();
         assert!(
@@ -292,8 +290,7 @@ mod tests {
     #[test]
     fn test_verify_rejects_oversized_signature() {
         let key = b"test-key-for-attestation-verify!";
-        let mut token =
-            mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        let mut token = mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
         token.signature = format!("{}aa", token.signature); // 66 hex chars
         let err = verify_attestation(&token, key).unwrap_err();
         assert!(

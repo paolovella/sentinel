@@ -310,14 +310,8 @@ impl EvidencePack {
         hash_field(&mut hasher, self.generated_at.as_bytes());
         hash_field(&mut hasher, self.organization_name.as_bytes());
         hash_field(&mut hasher, self.system_id.as_bytes());
-        hash_field(
-            &mut hasher,
-            &self.overall_coverage_percent.to_le_bytes(),
-        );
-        hash_field(
-            &mut hasher,
-            &(self.total_requirements as u64).to_le_bytes(),
-        );
+        hash_field(&mut hasher, &self.overall_coverage_percent.to_le_bytes());
+        hash_field(&mut hasher, &(self.total_requirements as u64).to_le_bytes());
         hash_field(
             &mut hasher,
             &(self.covered_requirements as u64).to_le_bytes(),
@@ -482,9 +476,7 @@ impl EvidencePack {
                 ));
             }
             if crate::has_dangerous_chars(sig) {
-                return Err(
-                    "EvidencePack.signature contains dangerous characters".to_string(),
-                );
+                return Err("EvidencePack.signature contains dangerous characters".to_string());
             }
         }
         if let Some(ref vk) = self.verifying_key {
@@ -496,9 +488,7 @@ impl EvidencePack {
                 ));
             }
             if crate::has_dangerous_chars(vk) {
-                return Err(
-                    "EvidencePack.verifying_key contains dangerous characters".to_string(),
-                );
+                return Err("EvidencePack.verifying_key contains dangerous characters".to_string());
             }
         }
         Ok(())

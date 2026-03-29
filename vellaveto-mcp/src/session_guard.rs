@@ -632,14 +632,13 @@ impl SessionGuard {
     /// Returns the number of sessions restored, or an error if the backend
     /// is not configured or fails to load.
     pub fn warm_restart(&self) -> Result<usize, SessionGuardError> {
-        let backend = self
-            .backend
-            .as_ref()
-            .ok_or_else(|| SessionGuardError::SessionNotFound("no backend configured".to_string()))?;
-
-        let persisted = backend.load_all().map_err(|e| {
-            SessionGuardError::SessionNotFound(format!("backend load failed: {e}"))
+        let backend = self.backend.as_ref().ok_or_else(|| {
+            SessionGuardError::SessionNotFound("no backend configured".to_string())
         })?;
+
+        let persisted = backend
+            .load_all()
+            .map_err(|e| SessionGuardError::SessionNotFound(format!("backend load failed: {e}")))?;
 
         let mut sessions = self.sessions.write().map_err(|_| {
             tracing::error!("SessionGuard write lock poisoned during warm_restart");
@@ -664,7 +663,10 @@ impl SessionGuard {
             restored = restored.saturating_add(1);
         }
 
-        tracing::info!("warm_restart: restored {} security-critical sessions", restored);
+        tracing::info!(
+            "warm_restart: restored {} security-critical sessions",
+            restored
+        );
         Ok(restored)
     }
 
@@ -2283,9 +2285,14 @@ mod tests {
         let backend = std::sync::Arc::new(MockBackend::new());
         let guard = SessionGuard::new(SessionGuardConfig::default())
             .with_backend(Box::new(MockBackendRef(backend.clone())));
-        guard.process_event("sess-1", SessionEvent::NormalAction).unwrap();
+        guard
+            .process_event("sess-1", SessionEvent::NormalAction)
+            .unwrap();
         let store = backend.store.lock().unwrap();
-        assert!(store.contains_key("sess-1"), "session should be persisted after transition");
+        assert!(
+            store.contains_key("sess-1"),
+            "session should be persisted after transition"
+        );
     }
 
     #[test]
@@ -2296,13 +2303,20 @@ mod tests {
             let mut ctx = SessionContext::new(1000);
             ctx.state = SessionState::Locked;
             ctx.locked_at = Some(1000);
-            backend.store.lock().unwrap().insert("locked-1".to_string(), ctx);
+            backend
+                .store
+                .lock()
+                .unwrap()
+                .insert("locked-1".to_string(), ctx);
         }
         let guard = SessionGuard::new(SessionGuardConfig::default())
             .with_backend(Box::new(MockBackendRef(backend.clone())));
         let count = guard.warm_restart().unwrap();
         assert_eq!(count, 1, "should restore 1 Locked session");
-        assert!(guard.should_deny("locked-1").is_some(), "restored Locked session should deny");
+        assert!(
+            guard.should_deny("locked-1").is_some(),
+            "restored Locked session should deny"
+        );
     }
 
     #[test]
@@ -2310,7 +2324,11 @@ mod tests {
         let backend = std::sync::Arc::new(MockBackend::new());
         {
             let ctx = SessionContext::new(1000); // state = Init
-            backend.store.lock().unwrap().insert("init-1".to_string(), ctx);
+            backend
+                .store
+                .lock()
+                .unwrap()
+                .insert("init-1".to_string(), ctx);
         }
         let guard = SessionGuard::new(SessionGuardConfig::default())
             .with_backend(Box::new(MockBackendRef(backend.clone())));
@@ -2321,7 +2339,10 @@ mod tests {
     #[test]
     fn test_warm_restart_no_backend_returns_error() {
         let guard = SessionGuard::new(SessionGuardConfig::default());
-        assert!(guard.warm_restart().is_err(), "no backend should return error");
+        assert!(
+            guard.warm_restart().is_err(),
+            "no backend should return error"
+        );
     }
 
     /// Wrapper to make Arc<MockBackend> implement SessionBackend.

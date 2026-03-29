@@ -1032,8 +1032,7 @@ mod tests {
     #[test]
     fn test_plugin_config_content_hash_valid() {
         let mut config = valid_plugin_config("my-plugin");
-        config.content_hash =
-            Some(format!("sha256:{}", "a".repeat(64)));
+        config.content_hash = Some(format!("sha256:{}", "a".repeat(64)));
         assert!(config.validate().is_ok());
     }
 
@@ -1054,8 +1053,7 @@ mod tests {
     #[test]
     fn test_plugin_config_content_hash_non_hex_rejected() {
         let mut config = valid_plugin_config("my-plugin");
-        config.content_hash =
-            Some(format!("sha256:{}", "g".repeat(64)));
+        config.content_hash = Some(format!("sha256:{}", "g".repeat(64)));
         assert!(config.validate().is_err());
     }
 

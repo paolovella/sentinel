@@ -3510,7 +3510,10 @@ mod tests {
         let result = manager
             .rotate_credentials(&id, "new-key", Some("Ed25519"), "scheduled", Some(3600))
             .await;
-        assert!(result.is_err(), "rotate_credentials on revoked identity must fail");
+        assert!(
+            result.is_err(),
+            "rotate_credentials on revoked identity must fail"
+        );
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("Revoked") || err.contains("revoked"),
@@ -5793,18 +5796,30 @@ mod tests {
         let b = register_test_agent(&manager, "B").await;
         let c = register_test_agent(&manager, "C").await;
 
-        manager.create_delegation(&a, &b, vec!["r".into()], vec![], 3600, None).await.unwrap();
-        manager.create_delegation(&b, &c, vec!["r".into()], vec![], 3600, None).await.unwrap();
+        manager
+            .create_delegation(&a, &b, vec!["r".into()], vec![], 3600, None)
+            .await
+            .unwrap();
+        manager
+            .create_delegation(&b, &c, vec!["r".into()], vec![], 3600, None)
+            .await
+            .unwrap();
 
         // Both delegations should be active before revocation
         let chain_c = manager.resolve_delegation_chain(&c).await;
         assert_eq!(chain_c.chain.len(), 2, "chain A→B→C should have 2 links");
 
         // Revoke A — should transitively deactivate A→B and B→C
-        manager.update_status(&a, NhiIdentityStatus::Revoked).await.unwrap();
+        manager
+            .update_status(&a, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
 
         let chain_c = manager.resolve_delegation_chain(&c).await;
-        assert!(chain_c.chain.is_empty(), "chain must be empty after transitive revocation of A");
+        assert!(
+            chain_c.chain.is_empty(),
+            "chain must be empty after transitive revocation of A"
+        );
     }
 
     #[tokio::test]
@@ -5816,10 +5831,19 @@ mod tests {
         let c = register_test_agent(&manager, "C").await;
         let d = register_test_agent(&manager, "D").await;
 
-        manager.create_delegation(&a, &b, vec!["r".into()], vec![], 3600, None).await.unwrap();
-        manager.create_delegation(&c, &d, vec!["r".into()], vec![], 3600, None).await.unwrap();
+        manager
+            .create_delegation(&a, &b, vec!["r".into()], vec![], 3600, None)
+            .await
+            .unwrap();
+        manager
+            .create_delegation(&c, &d, vec!["r".into()], vec![], 3600, None)
+            .await
+            .unwrap();
 
-        manager.update_status(&a, NhiIdentityStatus::Revoked).await.unwrap();
+        manager
+            .update_status(&a, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
 
         // C→D should still be active
         let chain_d = manager.resolve_delegation_chain(&d).await;
@@ -5828,7 +5852,16 @@ mod tests {
 
     async fn register_test_agent(manager: &NhiManager, name: &str) -> String {
         manager
-            .register_identity(name, NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                name,
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap()
     }

@@ -259,14 +259,17 @@ mod tests {
         );
     }
 
+    /// Test-only HMAC key — NOT a production secret.
+    const TEST_HMAC_KEY: &[u8; 32] = b"test-only-key---not-production!!";
+
     // R259-ATT-2: Truncated signatures must be rejected
     #[test]
     fn test_verify_rejects_truncated_signature() {
-        let key = b"test-key-for-attestation-verify!";
-        let mut token = mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        let mut token =
+            mint_attestation("abc123", true, true, true, "Verified", 5, TEST_HMAC_KEY).unwrap();
         // Truncate to 32 hex chars (half of correct 64)
         token.signature = token.signature[..32].to_string();
-        let err = verify_attestation(&token, key).unwrap_err();
+        let err = verify_attestation(&token, TEST_HMAC_KEY).unwrap_err();
         assert!(
             err.contains("exactly 64 hex characters"),
             "should reject truncated signature: {err}"
@@ -276,10 +279,10 @@ mod tests {
     // R259-ATT-2: Empty signature must be rejected
     #[test]
     fn test_verify_rejects_empty_signature() {
-        let key = b"test-key-for-attestation-verify!";
-        let mut token = mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        let mut token =
+            mint_attestation("abc123", true, true, true, "Verified", 5, TEST_HMAC_KEY).unwrap();
         token.signature = String::new();
-        let err = verify_attestation(&token, key).unwrap_err();
+        let err = verify_attestation(&token, TEST_HMAC_KEY).unwrap_err();
         assert!(
             err.contains("exactly 64 hex characters"),
             "should reject empty signature: {err}"
@@ -289,10 +292,10 @@ mod tests {
     // R259-ATT-2: Oversized signature must be rejected
     #[test]
     fn test_verify_rejects_oversized_signature() {
-        let key = b"test-key-for-attestation-verify!";
-        let mut token = mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        let mut token =
+            mint_attestation("abc123", true, true, true, "Verified", 5, TEST_HMAC_KEY).unwrap();
         token.signature = format!("{}aa", token.signature); // 66 hex chars
-        let err = verify_attestation(&token, key).unwrap_err();
+        let err = verify_attestation(&token, TEST_HMAC_KEY).unwrap_err();
         assert!(
             err.contains("exactly 64 hex characters"),
             "should reject oversized signature: {err}"

@@ -474,12 +474,16 @@ impl ProxyBridge {
     /// Panics at startup if `key` is shorter than 32 bytes — a weak HMAC key
     /// is a security misconfiguration that must not silently degrade.
     pub fn with_attestation_key(mut self, key: Vec<u8>) -> Self {
+        // SECURITY (R259-ATT-1): Validate key length before storing.
+        // Use a separate length variable so the key value never flows into
+        // the panic message (avoids CodeQL cleartext-logging alert).
+        let key_len = key.len();
         assert!(
-            key.len() >= Self::MIN_ATTESTATION_KEY_LEN,
+            key_len >= Self::MIN_ATTESTATION_KEY_LEN,
             "VELLAVETO_ATTESTATION_SECRET must be at least {} bytes, got {} \
              (R259-ATT-1: short HMAC keys are trivially brute-forceable)",
             Self::MIN_ATTESTATION_KEY_LEN,
-            key.len(),
+            key_len,
         );
         self.attestation_hmac_key = Some(key);
         self

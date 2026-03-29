@@ -92,3 +92,11 @@ mod verified_rotation_manifest;
 mod verified_sequence_analysis;
 #[path = "../verified_source_taint.rs"]
 mod verified_source_taint;
+#[path = "../verified_approval_drift.rs"]
+mod verified_approval_drift;
+#[path = "../verified_transitive_revoke.rs"]
+mod verified_transitive_revoke;
+#[path = "../verified_evidence_signing.rs"]
+mod verified_evidence_signing;
+#[path = "../verified_warm_restart.rs"]
+mod verified_warm_restart;

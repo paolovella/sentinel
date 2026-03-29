@@ -60,13 +60,31 @@ pub fn should_restore(state: SessionState) -> (result: bool)
     matches!(state, SessionState::Locked | SessionState::Suspicious)
 }
 
-/// Prove: all 5 session states are explicitly handled.
-pub proof fn lemma_should_restore_exhaustive(state: SessionState)
-    ensures
-        spec_should_restore(state)
-        || state == SessionState::Init
-        || state == SessionState::Active
-        || state == SessionState::Ended,
+/// Prove: each non-restorable state is explicitly excluded.
+/// This is stronger than an exhaustive disjunction — it proves the
+/// negative cases individually, not just that all states are covered.
+pub proof fn lemma_init_not_restored()
+    ensures !spec_should_restore(SessionState::Init),
+{
+}
+
+pub proof fn lemma_active_not_restored()
+    ensures !spec_should_restore(SessionState::Active),
+{
+}
+
+pub proof fn lemma_ended_not_restored()
+    ensures !spec_should_restore(SessionState::Ended),
+{
+}
+
+pub proof fn lemma_locked_is_restored()
+    ensures spec_should_restore(SessionState::Locked),
+{
+}
+
+pub proof fn lemma_suspicious_is_restored()
+    ensures spec_should_restore(SessionState::Suspicious),
 {
 }
 
@@ -116,16 +134,22 @@ pub open spec fn spec_saturating_add(a: usize, b: usize) -> usize {
 }
 
 /// Prove: saturating_add never wraps to zero.
+/// (Verus auto-discharges this from the spec definition, but we
+/// include the reasoning for documentation.)
 pub proof fn lemma_saturating_add_never_zero(a: usize, b: usize)
     requires a > 0 || b > 0,
     ensures spec_saturating_add(a, b) > 0,
 {
+    // Case 1: a + b <= usize::MAX → result = a + b > 0 (since a>0 or b>0)
+    // Case 2: a + b > usize::MAX → result = usize::MAX > 0
 }
 
 /// Prove: saturating_add never exceeds usize::MAX.
+/// (Trivially true from the spec definition's cap.)
 pub proof fn lemma_saturating_add_bounded(a: usize, b: usize)
     ensures spec_saturating_add(a, b) <= usize::MAX as usize,
 {
+    // Both branches of spec_saturating_add return <= usize::MAX by construction.
 }
 
 pub proof fn lemma_named_assumptions_registered_for_this_kernel()

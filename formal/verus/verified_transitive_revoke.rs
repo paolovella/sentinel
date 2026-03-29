@@ -100,15 +100,18 @@ pub fn depth_within_bound(depth: usize) -> (result: bool)
     depth <= MAX_TRANSITIVE_REVOKE_DEPTH
 }
 
-/// Prove: depth check is fail-safe (exceeding depth doesn't allow
-/// an active delegation to survive — resolve_delegation_chain catches it).
-pub proof fn lemma_depth_exceeded_is_safe()
-    ensures
-        // Even if BFS stops at depth 50, the remaining links are caught
-        // by the resolve_delegation_chain origin check (NHI-DEL-8).
-        // This is an inter-proof dependency documented in the ledger.
-        true,
-{
+/// ASSUMPTION (REVOKE-3-SAFETY): When BFS stops at MAX_TRANSITIVE_REVOKE_DEPTH,
+/// remaining undeactivated links beyond that depth are caught by
+/// resolve_delegation_chain's origin terminal-state check (NHI-DEL-8).
+///
+/// This is an inter-proof dependency, NOT a discharged proof. The
+/// resolve_delegation_chain function verifies the origin agent's status
+/// before returning a chain, so even if transitive_revoke missed some
+/// deep links, they cannot be used.
+///
+/// Documented in ASSUMPTION_REGISTRY.md as REVOKE-3-SAFETY.
+pub open spec fn assumption_depth_exceeded_caught_by_chain_resolution() -> bool {
+    true // Trusted assumption — see NHI-DEL-8
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -136,17 +139,20 @@ pub fn should_skip_link(
     !link_from_is_current && !link_to_is_current
 }
 
-/// Prove: links not touching the revoked agent or its transitive
-/// successors remain active (no collateral damage).
-pub proof fn lemma_unrelated_links_preserved(
-    link_touches_revoked_subtree: bool,
-    link_active_before: bool,
+/// Prove: the deactivation guard only fires when a link touches the
+/// current agent. If should_skip_link returns true, should_deactivate
+/// returns false — the link is preserved.
+pub proof fn lemma_skip_implies_no_deactivation(
+    link_from_is_current: bool,
+    link_to_is_current: bool,
+    link_active: bool,
 )
-    requires !link_touches_revoked_subtree,
-    ensures
-        // Link active state is unchanged
-        link_active_before == link_active_before,
+    requires spec_no_collateral(link_from_is_current, link_to_is_current),
+    ensures !spec_link_should_deactivate(link_from_is_current, link_to_is_current, link_active),
 {
+    // From requires: !link_from_is_current && !link_to_is_current
+    // Therefore (link_from_is_current || link_to_is_current) is false
+    // Therefore spec_link_should_deactivate = false regardless of link_active
 }
 
 // ═══════════════════════════════════════════════════════════════════

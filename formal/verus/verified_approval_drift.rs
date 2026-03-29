@@ -92,32 +92,35 @@ pub fn drift_detected(trust_down: bool, taint_up: bool) -> (result: bool)
     trust_down || taint_up
 }
 
-/// When drift is detected, the decision MUST be Block (never Forward).
-/// This is the critical safety property: drifted approvals are never consumed.
-pub proof fn lemma_drift_implies_not_forward(drift: bool)
-    requires drift,
-    ensures spec_drift_detected(drift, false) || spec_drift_detected(false, drift),
+/// When drift is detected via the combined gate, the result is always true.
+/// This proves that ANY cause of drift (trust OR taint OR store error)
+/// produces a true result from fail_closed_drift.
+pub proof fn lemma_any_drift_cause_triggers_gate(
+    trust_down: bool,
+    taint_up: bool,
+    store_error: bool,
+)
+    requires trust_down || taint_up || store_error,
+    ensures spec_fail_closed_drift(store_error, trust_down, taint_up),
 {
+    // spec_fail_closed_drift = store_error || trust_down || taint_up
+    // With at least one true input, the disjunction is true.
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // DRIFT-4: Store error → fail-closed (drift_detected = true)
 // ═══════════════════════════════════════════════════════════════════
 
-/// When the approval store returns an error, drift_detected MUST be
-/// set to true (fail-closed). This prevents store unavailability from
-/// bypassing drift enforcement.
-pub open spec fn spec_store_error_sets_drift(store_error: bool) -> bool {
-    store_error ==> true
-}
-
-pub fn store_error_sets_drift(store_error: bool) -> (result: bool)
-    ensures
-        result == true,
-        store_error ==> result,
-        // Key property: store errors are treated as drift
+/// When the approval store returns an error, the combined drift gate
+/// MUST return true regardless of trust/taint state. This is the
+/// fail-closed property: store unavailability cannot bypass drift
+/// enforcement.
+pub proof fn lemma_store_error_alone_triggers_drift()
+    ensures spec_fail_closed_drift(true, false, false),
 {
-    true
+    // spec_fail_closed_drift(true, false, false)
+    //   = true || false || false
+    //   = true
 }
 
 /// Prove: the combined decision gate is fail-closed.

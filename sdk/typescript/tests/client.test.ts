@@ -1438,3 +1438,69 @@ describe("Input validation hardening", () => {
     await expect(fcClient.evaluate({ tool: "fs" })).rejects.toThrow(VellavetoError);
   });
 });
+
+// ── R260 Attestation Verification Tests ─────────────────────────────────
+
+describe("verifyAttestation - R260 signature validation", () => {
+  const hmacKey = "k".repeat(32);
+
+  test("signature too short returns false", () => {
+    const resp = { _meta: { vellaveto_attestation: { signature: "abcd" } } };
+    expect(VellavetoClient.verifyAttestation(resp, hmacKey)).toBe(false);
+  });
+
+  test("signature too long returns false", () => {
+    const resp = { _meta: { vellaveto_attestation: { signature: "a".repeat(65) } } };
+    expect(VellavetoClient.verifyAttestation(resp, hmacKey)).toBe(false);
+  });
+
+  test("signature non-string returns false", () => {
+    const resp = { _meta: { vellaveto_attestation: { signature: 12345 } } };
+    expect(VellavetoClient.verifyAttestation(resp, hmacKey)).toBe(false);
+  });
+
+  test("signature null returns false", () => {
+    const resp = { _meta: { vellaveto_attestation: { signature: null } } };
+    expect(VellavetoClient.verifyAttestation(resp, hmacKey)).toBe(false);
+  });
+});
+
+describe("verifyAttestation - R260 type safety", () => {
+  const hmacKey = "k".repeat(32);
+
+  function makeAttestation(overrides: Record<string, unknown> = {}) {
+    return {
+      result: {},
+      _meta: {
+        vellaveto_attestation: {
+          version: 1,
+          timestamp: 1000,
+          content_hash: "a".repeat(64),
+          injection_clean: true,
+          dlp_clean: true,
+          schema_valid: true,
+          trust_tier: "Verified",
+          scan_passes: 5,
+          signature: "a".repeat(64),
+          ...overrides,
+        },
+      },
+    };
+  }
+
+  test("version as string returns false", () => {
+    expect(VellavetoClient.verifyAttestation(makeAttestation({ version: "bad" }), hmacKey)).toBe(false);
+  });
+
+  test("timestamp as string returns false", () => {
+    expect(VellavetoClient.verifyAttestation(makeAttestation({ timestamp: "bad" }), hmacKey)).toBe(false);
+  });
+
+  test("trust_tier as number returns false", () => {
+    expect(VellavetoClient.verifyAttestation(makeAttestation({ trust_tier: 42 }), hmacKey)).toBe(false);
+  });
+
+  test("scan_passes as string returns false", () => {
+    expect(VellavetoClient.verifyAttestation(makeAttestation({ scan_passes: "five" }), hmacKey)).toBe(false);
+  });
+});

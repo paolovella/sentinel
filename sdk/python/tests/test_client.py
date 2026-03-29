@@ -1396,3 +1396,95 @@ class TestAsyncTimeoutValidation:
     def test_async_timeout_exactly_maximum_accepted(self):
         client = AsyncVellavetoClient(url="http://localhost:3000", timeout=300.0)
         assert client.timeout == 300.0
+
+
+# ── R260 Attestation Verification Tests ──────────────────────────────────
+
+
+class TestVerifyAttestationSignatureValidation:
+    """R260-SDK-1: Signature must be exactly 64 hex characters."""
+
+    def test_signature_too_short_rejected(self):
+        response = {"_meta": {"vellaveto_attestation": {"signature": "abcd"}}}
+        assert VellavetoClient.verify_attestation(response, b"k" * 32) is False
+
+    def test_signature_too_long_rejected(self):
+        response = {"_meta": {"vellaveto_attestation": {"signature": "a" * 65}}}
+        assert VellavetoClient.verify_attestation(response, b"k" * 32) is False
+
+    def test_signature_empty_rejected(self):
+        response = {"_meta": {"vellaveto_attestation": {"signature": ""}}}
+        assert VellavetoClient.verify_attestation(response, b"k" * 32) is False
+
+    def test_signature_non_string_rejected(self):
+        response = {"_meta": {"vellaveto_attestation": {"signature": 12345}}}
+        assert VellavetoClient.verify_attestation(response, b"k" * 32) is False
+
+    def test_signature_none_rejected(self):
+        response = {"_meta": {"vellaveto_attestation": {"signature": None}}}
+        assert VellavetoClient.verify_attestation(response, b"k" * 32) is False
+
+
+class TestVerifyAttestationTypeSafety:
+    """R260-SDK-2: Attestation fields must have correct types."""
+
+    def _make_attestation(self, **overrides):
+        att = {
+            "version": 1,
+            "timestamp": 1000,
+            "content_hash": "a" * 64,
+            "injection_clean": True,
+            "dlp_clean": True,
+            "schema_valid": True,
+            "trust_tier": "Verified",
+            "scan_passes": 5,
+            "signature": "a" * 64,
+        }
+        att.update(overrides)
+        return {"result": {}, "_meta": {"vellaveto_attestation": att}}
+
+    def test_version_string_rejected(self):
+        assert VellavetoClient.verify_attestation(
+            self._make_attestation(version="bad"), b"k" * 32
+        ) is False
+
+    def test_timestamp_string_rejected(self):
+        assert VellavetoClient.verify_attestation(
+            self._make_attestation(timestamp="bad"), b"k" * 32
+        ) is False
+
+    def test_trust_tier_int_rejected(self):
+        assert VellavetoClient.verify_attestation(
+            self._make_attestation(trust_tier=42), b"k" * 32
+        ) is False
+
+    def test_scan_passes_string_rejected(self):
+        assert VellavetoClient.verify_attestation(
+            self._make_attestation(scan_passes="five"), b"k" * 32
+        ) is False
+
+
+class TestTenantCRLFValidation:
+    """R260-SDK-4: Tenant header must not contain CRLF.
+
+    The constructor validates tenant against ^[a-zA-Z0-9_-]+$ regex first,
+    which rejects CR/LF. The _headers() CRLF check is defense-in-depth.
+    """
+
+    def test_tenant_with_cr_raises(self):
+        with pytest.raises(VellavetoError):
+            VellavetoClient(tenant="acme\rcorp")
+
+    def test_tenant_with_lf_raises(self):
+        with pytest.raises(VellavetoError):
+            VellavetoClient(tenant="acme\ncorp")
+
+    def test_tenant_with_crlf_raises(self):
+        with pytest.raises(VellavetoError):
+            VellavetoClient(tenant="acme\r\ncorp")
+
+    def test_tenant_without_crlf_accepted(self):
+        client = VellavetoClient(tenant="acme-corp")
+        headers = client._headers()
+        assert headers["X-Tenant-ID"] == "acme-corp"
+        client.close()

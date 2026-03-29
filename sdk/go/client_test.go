@@ -2498,3 +2498,95 @@ func TestEvaluate_WithoutFailClosed_ConnectionRefused(t *testing.T) {
 		t.Fatal("Evaluate() should error when server unreachable without WithFailClosed()")
 	}
 }
+
+// ── R260 Attestation Verification Tests ─────────────────────────────────
+
+func TestVerifyAttestation_SignatureTooShort(t *testing.T) {
+	resp := map[string]interface{}{
+		"_meta": map[string]interface{}{
+			"vellaveto_attestation": map[string]interface{}{
+				"signature": "abcd",
+			},
+		},
+	}
+	if VerifyAttestation(resp, []byte("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")) {
+		t.Fatal("short signature should return false")
+	}
+}
+
+func TestVerifyAttestation_SignatureTooLong(t *testing.T) {
+	resp := map[string]interface{}{
+		"_meta": map[string]interface{}{
+			"vellaveto_attestation": map[string]interface{}{
+				"signature": strings.Repeat("a", 65),
+			},
+		},
+	}
+	if VerifyAttestation(resp, []byte("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")) {
+		t.Fatal("long signature should return false")
+	}
+}
+
+func TestVerifyAttestation_SignatureNonString(t *testing.T) {
+	resp := map[string]interface{}{
+		"_meta": map[string]interface{}{
+			"vellaveto_attestation": map[string]interface{}{
+				"signature": 12345,
+			},
+		},
+	}
+	if VerifyAttestation(resp, []byte("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")) {
+		t.Fatal("non-string signature should return false")
+	}
+}
+
+func makeTestAttestation(overrides map[string]interface{}) map[string]interface{} {
+	att := map[string]interface{}{
+		"version":         float64(1),
+		"timestamp":       float64(1000),
+		"content_hash":    strings.Repeat("a", 64),
+		"injection_clean": true,
+		"dlp_clean":       true,
+		"schema_valid":    true,
+		"trust_tier":      "Verified",
+		"scan_passes":     float64(5),
+		"signature":       strings.Repeat("a", 64),
+	}
+	for k, v := range overrides {
+		att[k] = v
+	}
+	return map[string]interface{}{
+		"result": map[string]interface{}{},
+		"_meta": map[string]interface{}{
+			"vellaveto_attestation": att,
+		},
+	}
+}
+
+func TestVerifyAttestation_VersionWrongType(t *testing.T) {
+	resp := makeTestAttestation(map[string]interface{}{"version": "bad"})
+	if VerifyAttestation(resp, []byte("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")) {
+		t.Fatal("version as string should return false")
+	}
+}
+
+func TestVerifyAttestation_TimestampWrongType(t *testing.T) {
+	resp := makeTestAttestation(map[string]interface{}{"timestamp": "bad"})
+	if VerifyAttestation(resp, []byte("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")) {
+		t.Fatal("timestamp as string should return false")
+	}
+}
+
+func TestVerifyAttestation_TrustTierWrongType(t *testing.T) {
+	resp := makeTestAttestation(map[string]interface{}{"trust_tier": float64(42)})
+	if VerifyAttestation(resp, []byte("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")) {
+		t.Fatal("trust_tier as number should return false")
+	}
+}
+
+func TestVerifyAttestation_ScanPassesWrongType(t *testing.T) {
+	resp := makeTestAttestation(map[string]interface{}{"scan_passes": "five"})
+	if VerifyAttestation(resp, []byte("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")) {
+		t.Fatal("scan_passes as string should return false")
+	}
+}

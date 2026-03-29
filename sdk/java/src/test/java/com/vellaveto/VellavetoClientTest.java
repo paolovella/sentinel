@@ -1059,4 +1059,77 @@ class VellavetoClientTest {
         assertEquals(Verdict.DENY, result.getVerdict());
         assertEquals("blocked", result.getReason());
     }
+
+    // ── R260 Attestation Verification Tests ─────────────────────────────
+
+    private Map<String, Object> makeAttestationResponse(Map<String, Object> overrides) {
+        Map<String, Object> att = new HashMap<>();
+        att.put("version", 1);
+        att.put("timestamp", 1000L);
+        att.put("content_hash", "a".repeat(64));
+        att.put("injection_clean", true);
+        att.put("dlp_clean", true);
+        att.put("schema_valid", true);
+        att.put("trust_tier", "Verified");
+        att.put("scan_passes", 5);
+        att.put("signature", "a".repeat(64));
+        att.putAll(overrides);
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("vellaveto_attestation", att);
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("result", new HashMap<>());
+        resp.put("_meta", meta);
+        return resp;
+    }
+
+    @Test
+    void test_verify_attestation_signature_too_short() {
+        Map<String, Object> resp = makeAttestationResponse(Map.of("signature", "abcd"));
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
+
+    @Test
+    void test_verify_attestation_signature_too_long() {
+        Map<String, Object> resp = makeAttestationResponse(Map.of("signature", "a".repeat(65)));
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
+
+    @Test
+    void test_verify_attestation_signature_non_string() {
+        Map<String, Object> resp = makeAttestationResponse(Map.of("signature", 12345));
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
+
+    @Test
+    void test_verify_attestation_signature_null() {
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("signature", null);
+        Map<String, Object> resp = makeAttestationResponse(overrides);
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
+
+    @Test
+    void test_verify_attestation_version_wrong_type() {
+        Map<String, Object> resp = makeAttestationResponse(Map.of("version", "bad"));
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
+
+    @Test
+    void test_verify_attestation_timestamp_wrong_type() {
+        Map<String, Object> resp = makeAttestationResponse(Map.of("timestamp", "bad"));
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
+
+    @Test
+    void test_verify_attestation_trust_tier_wrong_type() {
+        Map<String, Object> resp = makeAttestationResponse(Map.of("trust_tier", 42));
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
+
+    @Test
+    void test_verify_attestation_scan_passes_wrong_type() {
+        Map<String, Object> resp = makeAttestationResponse(Map.of("scan_passes", "five"));
+        assertFalse(VellavetoClient.verifyAttestation(resp, "k".repeat(32).getBytes()));
+    }
 }

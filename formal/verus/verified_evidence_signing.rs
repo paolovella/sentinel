@@ -157,4 +157,10 @@ pub fn requirement_count_consistent(
     covered + partial + uncovered <= total
 }
 
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::evidence_signing_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
+}
+
 } // verus!

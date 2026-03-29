@@ -145,4 +145,10 @@ pub fn fail_closed_drift(
     store_error || trust_down || taint_up
 }
 
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::approval_drift_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
+}
+
 } // verus!

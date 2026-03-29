@@ -128,4 +128,10 @@ pub proof fn lemma_saturating_add_bounded(a: usize, b: usize)
 {
 }
 
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::warm_restart_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
+}
+
 } // verus!

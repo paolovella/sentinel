@@ -172,4 +172,10 @@ pub fn is_outgoing_successor(
     link_from_is_current && link_active
 }
 
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::transitive_revoke_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
+}
+
 } // verus!

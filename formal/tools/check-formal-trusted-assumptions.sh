@@ -77,6 +77,10 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_rotation_manifest.rs"]="rotation_manifest_kernel_assumptions_registered"
         ["formal/verus/verified_sequence_analysis.rs"]="sequence_analysis_kernel_assumptions_registered"
         ["formal/verus/verified_source_taint.rs"]="source_taint_kernel_assumptions_registered"
+        ["formal/verus/verified_approval_drift.rs"]="approval_drift_kernel_assumptions_registered"
+        ["formal/verus/verified_transitive_revoke.rs"]="transitive_revoke_kernel_assumptions_registered"
+        ["formal/verus/verified_evidence_signing.rs"]="evidence_signing_kernel_assumptions_registered"
+        ["formal/verus/verified_warm_restart.rs"]="warm_restart_kernel_assumptions_registered"
     )
 
     while IFS= read -r file; do

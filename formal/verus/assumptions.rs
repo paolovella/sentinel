@@ -173,6 +173,22 @@ pub open spec fn server_approval_id_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn approval_drift_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn transitive_revoke_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn evidence_signing_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn warm_restart_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn capability_attenuation_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

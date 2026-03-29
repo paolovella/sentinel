@@ -53,6 +53,30 @@ pub struct PostureCategoryScore {
     pub inputs: usize,
 }
 
+impl PostureCategoryScore {
+    /// SECURITY (R260-TYP-1): Validate category score for NaN/Infinity, bounds, and
+    /// dangerous characters. Previously only validated transitively via SecurityPostureScore.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.score_percent.is_finite() || !(0.0..=100.0).contains(&self.score_percent) {
+            return Err(format!(
+                "category score_percent {} is not in [0.0, 100.0]",
+                self.score_percent
+            ));
+        }
+        if self.name.len() > MAX_POSTURE_STRING_LEN {
+            return Err(format!(
+                "category name too long ({} > {})",
+                self.name.len(),
+                MAX_POSTURE_STRING_LEN
+            ));
+        }
+        if crate::has_dangerous_chars(&self.name) {
+            return Err("category name contains dangerous characters".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Coverage or readiness score for a single framework in the posture view.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -63,6 +87,30 @@ pub struct PostureFrameworkScore {
     pub score_percent: f32,
     /// Whether the framework-specific reporting is enabled in the current config.
     pub enabled: bool,
+}
+
+impl PostureFrameworkScore {
+    /// SECURITY (R260-TYP-1): Validate framework score for NaN/Infinity, bounds, and
+    /// dangerous characters. Previously only validated transitively via SecurityPostureScore.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.score_percent.is_finite() || !(0.0..=100.0).contains(&self.score_percent) {
+            return Err(format!(
+                "framework score_percent {} is not in [0.0, 100.0]",
+                self.score_percent
+            ));
+        }
+        if self.name.len() > MAX_POSTURE_STRING_LEN {
+            return Err(format!(
+                "framework name too long ({} > {})",
+                self.name.len(),
+                MAX_POSTURE_STRING_LEN
+            ));
+        }
+        if crate::has_dangerous_chars(&self.name) {
+            return Err("framework name contains dangerous characters".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// High-level security posture score for the active Vellaveto deployment.

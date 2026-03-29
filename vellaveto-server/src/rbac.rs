@@ -523,8 +523,9 @@ pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleC
     use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
 
     // Extract Bearer token
+    // SECURITY (R259-SRV-1): Trim whitespace to prevent mismatch from "Bearer  token".
     let token = if auth_header.len() > 7 && auth_header[..7].eq_ignore_ascii_case("bearer ") {
-        &auth_header[7..]
+        auth_header[7..].trim()
     } else {
         return Err(JwtError::InvalidFormat);
     };

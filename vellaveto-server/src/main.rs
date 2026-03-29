@@ -922,6 +922,10 @@ async fn cmd_serve(
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(
+            std::time::Duration::from_secs(600), // 10-minute TTL
+        )),
 
         // Phase 1 & 2 Security Managers — initialized from PolicyConfig
         task_state: if policy_config.async_tasks.enabled {

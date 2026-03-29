@@ -72,6 +72,8 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -365,6 +367,8 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,

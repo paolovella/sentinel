@@ -8789,11 +8789,15 @@ impl ProxyBridge {
             crate::transparency::mark_ai_mediated(&mut msg);
         }
 
-        // Phase 24: Art 50(2) decision explanation injection
+        // Phase 24: Art 50(2) decision explanation injection.
+        // SECURITY: MCP relay serves agents (not admins), so is_admin=false.
+        // Full verbosity is downgraded to Summary to prevent policy structure leakage.
+        // Admin-level Full explanations are available via the server HTTP API.
         crate::transparency::inject_decision_explanation(
             &mut msg,
             response_trace.as_ref(),
             self.explanation_verbosity,
+            false, // is_admin — relay callers are agents, not admins
         );
 
         // Phase 19: Art 14 human oversight audit event

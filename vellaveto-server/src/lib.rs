@@ -861,6 +861,13 @@ pub struct AppState {
     pub tenant_rate_limiter: Arc<PerTenantRateLimiter>,
     /// Idempotency key store for at-most-once request semantics (Phase 5).
     pub idempotency: idempotency::IdempotencyStore,
+    /// SECURITY: Mutex serializing signup requests to prevent TOCTOU race
+    /// where concurrent signups all pass the capacity check and exceed
+    /// MAX_TOTAL_TENANTS.
+    pub signup_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Webhook event deduplication tracker (idempotency).
+    /// Prevents replayed Paddle/Stripe webhook events from being processed twice.
+    pub webhook_dedup: Arc<crate::routes::billing::WebhookDedup>,
 
     // ═══════════════════════════════════════════════════════════════════
     // Phase 1 & 2 Security Managers (Phase 3.1 Integration)

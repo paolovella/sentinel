@@ -898,11 +898,22 @@ async fn main() -> Result<()> {
             None
         },
 
-        // Content-bound attestation HMAC key
+        // Content-bound attestation HMAC key.
+        // SECURITY (R259-ATT-1): Enforce minimum 32-byte key length.
+        // Short HMAC keys are trivially brute-forceable.
         attestation_hmac_key: std::env::var("VELLAVETO_ATTESTATION_SECRET")
             .ok()
             .filter(|s| !s.is_empty())
-            .map(|s| s.into_bytes()),
+            .map(|s| {
+                if s.len() < 32 {
+                    panic!(
+                        "VELLAVETO_ATTESTATION_SECRET must be at least 32 bytes, got {} \
+                         (R259-ATT-1: short HMAC keys are trivially brute-forceable)",
+                        s.len()
+                    );
+                }
+                s.into_bytes()
+            }),
     };
 
     // Phase 20: Spawn gateway health checker if gateway is enabled

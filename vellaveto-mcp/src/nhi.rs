@@ -93,6 +93,58 @@ pub struct NhiManager {
 // and nhi.rs copies.
 use vellaveto_types::uri_util::normalize_dpop_htu;
 
+/// Transitively deactivate all delegations reachable from a revoked agent.
+///
+/// Uses BFS from the revoked agent through the delegation graph, deactivating
+/// every active edge encountered. Returns the list of deactivated (from, to) pairs.
+/// Bounded by MAX_TRANSITIVE_REVOKE_DEPTH to prevent runaway traversal.
+fn transitive_revoke(
+    delegations: &mut HashMap<(String, String), NhiDelegationLink>,
+    revoked_agent: &str,
+) -> Vec<(String, String)> {
+    const MAX_TRANSITIVE_REVOKE_DEPTH: usize = 50;
+
+    let mut deactivated = Vec::new();
+    let mut frontier = VecDeque::from([revoked_agent.to_string()]);
+    let mut visited = HashSet::from([revoked_agent.to_string()]);
+    let mut depth: usize = 0;
+
+    while let Some(current) = frontier.pop_front() {
+        depth = depth.saturating_add(1);
+        if depth > MAX_TRANSITIVE_REVOKE_DEPTH {
+            tracing::warn!(
+                agent = revoked_agent,
+                "transitive_revoke: hit depth limit {MAX_TRANSITIVE_REVOKE_DEPTH}, stopping"
+            );
+            break;
+        }
+
+        // Collect next-hop agents before mutating (avoids borrow conflict).
+        let next_hops: Vec<String> = delegations
+            .iter()
+            .filter(|((from, _), link)| *from == current && link.active)
+            .map(|((_, to), _)| to.clone())
+            .collect();
+
+        // Deactivate all active delegations FROM the current agent.
+        for link in delegations.values_mut() {
+            if (link.from_agent == current || link.to_agent == current) && link.active {
+                link.active = false;
+                deactivated.push((link.from_agent.clone(), link.to_agent.clone()));
+            }
+        }
+
+        // Enqueue downstream agents for transitive walk.
+        for next in next_hops {
+            if visited.insert(next.clone()) {
+                frontier.push_back(next);
+            }
+        }
+    }
+
+    deactivated
+}
+
 fn live_delegation_path_exists(
     delegations: &HashMap<(String, String), NhiDelegationLink>,
     start_agent: &str,
@@ -342,19 +394,24 @@ impl NhiManager {
             revoked.insert(id.to_string());
         }
 
-        // SECURITY (R250-NHI-1): Cascade terminal state to all delegations
-        // involving the agent. Without this, pre-existing delegations FROM/TO
-        // a revoked or expired agent remain active, allowing continued use of
-        // authority from a compromised or expired identity.
+        // SECURITY (R250-NHI-1 + transitive revocation): Cascade terminal state
+        // to all delegations transitively reachable from the revoked/expired agent.
+        // Previously only deactivated direct delegations — transitive chains
+        // (A→B→C, revoke A → B→C stayed active) were left live.
         if matches!(
             new_status,
             NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
         ) {
             let mut delegations = self.delegations.write().await;
-            for link in delegations.values_mut() {
-                if (link.from_agent == id || link.to_agent == id) && link.active {
-                    link.active = false;
-                }
+            let revoked = transitive_revoke(&mut delegations, id);
+            if !revoked.is_empty() {
+                tracing::warn!(
+                    agent_id = id,
+                    status = %new_status,
+                    direct_and_transitive_count = revoked.len(),
+                    "NHI: transitively revoked {} delegation(s)",
+                    revoked.len()
+                );
             }
         }
 
@@ -1176,6 +1233,19 @@ impl NhiManager {
         let identity = identities
             .get_mut(agent_id)
             .ok_or_else(|| NhiError::IdentityNotFound(agent_id.to_string()))?;
+
+        // SECURITY (R261-NHI-1): Reject rotation of revoked/expired identities.
+        // Previously, a revoked identity could receive a fresh credential via
+        // rotate_credentials(), bypassing the revocation enforcement.
+        if matches!(
+            identity.status,
+            NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
+        ) {
+            return Err(NhiError::InputValidation(format!(
+                "cannot rotate credentials for {} identity '{}'",
+                identity.status, agent_id
+            )));
+        }
 
         let previous_thumbprint = identity
             .public_key
@@ -3410,6 +3480,44 @@ mod tests {
         );
     }
 
+    // R261-NHI-1: Revoked/expired identities must not accept credential rotation
+    #[tokio::test]
+    async fn test_r261_rotate_credentials_rejects_revoked_identity() {
+        let config = enabled_config();
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Revoked Agent",
+                NhiAttestationType::Jwt,
+                None,
+                Some("old-key"),
+                Some("Ed25519"),
+                Some(3600),
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Revoke the identity
+        manager
+            .update_status(&id, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
+
+        // Attempt to rotate — must fail
+        let result = manager
+            .rotate_credentials(&id, "new-key", Some("Ed25519"), "scheduled", Some(3600))
+            .await;
+        assert!(result.is_err(), "rotate_credentials on revoked identity must fail");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Revoked") || err.contains("revoked"),
+            "Error should mention revoked status: {err}"
+        );
+    }
+
     // ═══════════════════════════════════════════════════════
     // FIND-R115-021: Self-delegation rejection in create_delegation
     // ═══════════════════════════════════════════════════════
@@ -5527,14 +5635,14 @@ mod tests {
             .await
             .unwrap();
 
-        // Chain should now only have B->C (A->B is deactivated)
+        // Transitive revocation: A revoked → A→B deactivated → B→C also deactivated.
+        // Chain is now empty (both links transitively revoked).
         let chain = manager.resolve_delegation_chain(&agent_c).await;
-        assert_eq!(
+        assert!(
+            chain.chain.is_empty(),
+            "chain should be empty after transitive revocation of origin (got {} links)",
             chain.chain.len(),
-            1,
-            "chain should be shortened after origin revocation"
         );
-        assert_eq!(chain.chain[0].from_agent, agent_b);
     }
 
     #[tokio::test]
@@ -5673,5 +5781,55 @@ mod tests {
         let parsed: IdentityInventorySummary = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.total, 100);
         assert_eq!(parsed.healthy, 80);
+    }
+
+    // ── Transitive revocation tests ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_transitive_revoke_deactivates_downstream_chain() {
+        // A→B→C: revoking A should deactivate both A→B and B→C.
+        let manager = NhiManager::new(enabled_config());
+        let a = register_test_agent(&manager, "A").await;
+        let b = register_test_agent(&manager, "B").await;
+        let c = register_test_agent(&manager, "C").await;
+
+        manager.create_delegation(&a, &b, vec!["r".into()], vec![], 3600, None).await.unwrap();
+        manager.create_delegation(&b, &c, vec!["r".into()], vec![], 3600, None).await.unwrap();
+
+        // Both delegations should be active before revocation
+        let chain_c = manager.resolve_delegation_chain(&c).await;
+        assert_eq!(chain_c.chain.len(), 2, "chain A→B→C should have 2 links");
+
+        // Revoke A — should transitively deactivate A→B and B→C
+        manager.update_status(&a, NhiIdentityStatus::Revoked).await.unwrap();
+
+        let chain_c = manager.resolve_delegation_chain(&c).await;
+        assert!(chain_c.chain.is_empty(), "chain must be empty after transitive revocation of A");
+    }
+
+    #[tokio::test]
+    async fn test_transitive_revoke_no_collateral_on_unrelated() {
+        // A→B, C→D: revoking A should NOT affect C→D.
+        let manager = NhiManager::new(enabled_config());
+        let a = register_test_agent(&manager, "A").await;
+        let b = register_test_agent(&manager, "B").await;
+        let c = register_test_agent(&manager, "C").await;
+        let d = register_test_agent(&manager, "D").await;
+
+        manager.create_delegation(&a, &b, vec!["r".into()], vec![], 3600, None).await.unwrap();
+        manager.create_delegation(&c, &d, vec!["r".into()], vec![], 3600, None).await.unwrap();
+
+        manager.update_status(&a, NhiIdentityStatus::Revoked).await.unwrap();
+
+        // C→D should still be active
+        let chain_d = manager.resolve_delegation_chain(&d).await;
+        assert_eq!(chain_d.chain.len(), 1, "C→D must survive revocation of A");
+    }
+
+    async fn register_test_agent(manager: &NhiManager, name: &str) -> String {
+        manager
+            .register_identity(name, NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .await
+            .unwrap()
     }
 }

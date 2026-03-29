@@ -71,6 +71,10 @@ func (r *PolicyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"content": schema.StringAttribute{
 				Description: "Policy definition in TOML format.",
 				Required:    true,
+				// R262-TF-1: Mark as sensitive to prevent leakage in state files
+				// and plan output. Policy definitions may contain security-critical
+				// path patterns, domain allowlists, and configuration details.
+				Sensitive: true,
 			},
 		},
 	}

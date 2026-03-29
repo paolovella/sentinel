@@ -117,6 +117,15 @@ pub enum PluginError {
         /// Which resource was exceeded (fuel, memory, timeout).
         resource: String,
     },
+
+    /// The plugin binary's SHA-256 hash does not match the configured content_hash.
+    #[error("plugin content hash mismatch: expected {expected}, got {actual}")]
+    ContentHashMismatch {
+        /// The hash declared in the plugin config.
+        expected: String,
+        /// The hash computed from the actual file on disk.
+        actual: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +210,13 @@ pub struct PluginVerdict {
 impl PluginVerdict {
     /// Validate the verdict, ensuring bounded reason length.
     pub fn validate(&self) -> Result<(), PluginError> {
+        // SECURITY (R261-WASM-1): Deny verdicts MUST include a reason.
+        // Without a reason, operators cannot diagnose why an action was blocked.
+        if !self.allow && self.reason.is_none() {
+            return Err(PluginError::ConfigValidation(
+                "deny verdict requires a reason".to_string(),
+            ));
+        }
         if let Some(ref reason) = self.reason {
             if reason.len() > MAX_REASON_LEN {
                 return Err(PluginError::ConfigValidation(format!(
@@ -254,6 +270,11 @@ pub struct PluginConfig {
     pub fuel_limit: u64,
     /// Maximum wall-clock time for a single evaluation call (milliseconds).
     pub timeout_ms: u64,
+    /// Optional SHA-256 content hash of the `.wasm` binary.
+    /// Format: `sha256:<64-hex-chars>`. When set, the plugin loader verifies
+    /// the file's hash matches before instantiation (TOCTOU defense).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
 }
 
 impl PluginConfig {
@@ -347,8 +368,46 @@ impl PluginConfig {
             )));
         }
 
+        // Content hash format validation (if provided).
+        // Expected format: sha256:<64-hex-chars> (total 71 chars).
+        if let Some(ref hash) = self.content_hash {
+            if hash.len() != 71 {
+                return Err(PluginError::ConfigValidation(format!(
+                    "content_hash must be exactly 71 chars (sha256:<64-hex>), got {}",
+                    hash.len()
+                )));
+            }
+            if !hash.starts_with("sha256:") {
+                return Err(PluginError::ConfigValidation(
+                    "content_hash must start with 'sha256:' prefix".to_string(),
+                ));
+            }
+            let hex_part = &hash[7..];
+            if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(PluginError::ConfigValidation(
+                    "content_hash hex portion contains non-hex characters".to_string(),
+                ));
+            }
+            if has_dangerous_chars(hash) {
+                return Err(PluginError::ConfigValidation(
+                    "content_hash contains control or format characters".to_string(),
+                ));
+            }
+        }
+
         Ok(())
     }
+}
+
+/// Compute the SHA-256 content hash of a file at the given path.
+/// Returns the hash in `sha256:<64-hex-chars>` format.
+fn compute_file_content_hash(path: &str) -> Result<String, PluginError> {
+    use sha2::{Digest, Sha256};
+    let data = std::fs::read(path).map_err(|e| {
+        PluginError::LoadFailed(format!("cannot read plugin file '{}': {}", path, e))
+    })?;
+    let hash = Sha256::digest(&data);
+    Ok(format!("sha256:{}", hex::encode(hash)))
 }
 
 /// Configuration for the plugin manager.
@@ -502,6 +561,17 @@ impl PluginManager {
         }
 
         config.validate()?;
+
+        // SECURITY: Verify content hash before instantiation (TOCTOU defense).
+        if let Some(ref expected) = config.content_hash {
+            let actual = compute_file_content_hash(&config.path)?;
+            if actual != *expected {
+                return Err(PluginError::ContentHashMismatch {
+                    expected: expected.clone(),
+                    actual,
+                });
+            }
+        }
 
         if self.plugins.len() >= self.config.max_plugins {
             return Err(PluginError::MaxPluginsExceeded);
@@ -702,6 +772,7 @@ mod tests {
             memory_limit_bytes: 16 * 1024 * 1024,
             fuel_limit: 100_000_000,
             timeout_ms: 5,
+            content_hash: None,
         }
     }
 
@@ -954,6 +1025,69 @@ mod tests {
             reason: Some("okay\x00not-okay".to_string()),
         };
         assert!(verdict.validate().is_err());
+    }
+
+    // ── Content hash validation tests ──────────────────────────────────
+
+    #[test]
+    fn test_plugin_config_content_hash_valid() {
+        let mut config = valid_plugin_config("my-plugin");
+        config.content_hash =
+            Some(format!("sha256:{}", "a".repeat(64)));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_plugin_config_content_hash_wrong_prefix_rejected() {
+        let mut config = valid_plugin_config("my-plugin");
+        config.content_hash = Some(format!("md5:{}", "a".repeat(64)));
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_plugin_config_content_hash_wrong_length_rejected() {
+        let mut config = valid_plugin_config("my-plugin");
+        config.content_hash = Some("sha256:abcd".to_string());
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_plugin_config_content_hash_non_hex_rejected() {
+        let mut config = valid_plugin_config("my-plugin");
+        config.content_hash =
+            Some(format!("sha256:{}", "g".repeat(64)));
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_plugin_config_content_hash_none_accepted() {
+        let config = valid_plugin_config("my-plugin");
+        assert!(config.content_hash.is_none());
+        assert!(config.validate().is_ok());
+    }
+
+    // R261-WASM-1: Deny verdict without reason must be rejected
+    #[test]
+    fn test_r261_plugin_verdict_deny_without_reason_rejected() {
+        let verdict = PluginVerdict {
+            allow: false,
+            reason: None,
+        };
+        let err = verdict.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("deny verdict requires a reason"),
+            "Error: {err}"
+        );
+    }
+
+    // R261-WASM-1: Allow verdict without reason is fine
+    #[test]
+    fn test_r261_plugin_verdict_allow_without_reason_ok() {
+        let verdict = PluginVerdict {
+            allow: true,
+            reason: None,
+        };
+        assert!(verdict.validate().is_ok());
     }
 
     // --- Plugin loading tests ---

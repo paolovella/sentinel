@@ -265,7 +265,7 @@ fn test_session_history_bounded() {
 fn test_crypto_encrypt_decrypt_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
-    let store = EncryptedAuditStore::new(path, "test-passphrase").unwrap();
+    let store = EncryptedAuditStore::new(path, "test-passphrase!").unwrap();
 
     let plaintext = b"sensitive audit data";
     let encrypted = store.encrypt(plaintext).unwrap();
@@ -278,10 +278,10 @@ fn test_crypto_wrong_passphrase_fails() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
 
-    let store1 = EncryptedAuditStore::new(path.clone(), "correct-passphrase").unwrap();
+    let store1 = EncryptedAuditStore::new(path.clone(), "correct-pass!!").unwrap();
     store1.write_encrypted_entry(b"secret data").unwrap();
 
-    let store2 = EncryptedAuditStore::new(path, "wrong-passphrase").unwrap();
+    let store2 = EncryptedAuditStore::new(path, "wrong-pass!!!!!").unwrap();
     let result = store2.read_all_entries();
     assert!(result.is_err());
 }
@@ -290,7 +290,7 @@ fn test_crypto_wrong_passphrase_fails() {
 fn test_crypto_empty_input() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
-    let store = EncryptedAuditStore::new(path, "test-passphrase").unwrap();
+    let store = EncryptedAuditStore::new(path, "test-passphrase!").unwrap();
 
     let encrypted = store.encrypt(b"").unwrap();
     let decrypted = store.decrypt(&encrypted).unwrap();
@@ -301,7 +301,7 @@ fn test_crypto_empty_input() {
 fn test_crypto_large_input() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
-    let store = EncryptedAuditStore::new(path, "test-passphrase").unwrap();
+    let store = EncryptedAuditStore::new(path, "test-passphrase!").unwrap();
 
     let large = vec![0xABu8; 1_000_000];
     let encrypted = store.encrypt(&large).unwrap();
@@ -314,11 +314,11 @@ fn test_crypto_salt_persistence() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
 
-    let store1 = EncryptedAuditStore::new(path.clone(), "passphrase").unwrap();
+    let store1 = EncryptedAuditStore::new(path.clone(), "passphrase!!").unwrap();
     store1.write_encrypted_entry(b"entry 1").unwrap();
 
     // Re-open with same passphrase — should read same salt
-    let store2 = EncryptedAuditStore::new(path, "passphrase").unwrap();
+    let store2 = EncryptedAuditStore::new(path, "passphrase!!").unwrap();
     let entries = store2.read_all_entries().unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0], b"entry 1");
@@ -333,7 +333,7 @@ async fn test_local_audit_encrypted_not_plaintext() {
     let dir = tempfile::tempdir().unwrap();
     let audit_path = dir.path().join("audit.log");
     let enc_path = dir.path().join("audit.enc");
-    let store = EncryptedAuditStore::new(enc_path.clone(), "secret").unwrap();
+    let store = EncryptedAuditStore::new(enc_path.clone(), "secret-phrase!").unwrap();
     let mut manager = LocalAuditManager::new(audit_path, store);
 
     manager
@@ -352,7 +352,7 @@ async fn test_local_audit_merkle_proof_valid() {
     let dir = tempfile::tempdir().unwrap();
     let audit_path = dir.path().join("audit.log");
     let enc_path = dir.path().join("audit.enc");
-    let store = EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let store = EncryptedAuditStore::new(enc_path, "secret-phrase!").unwrap();
     let mut manager = LocalAuditManager::new(audit_path, store).with_merkle();
 
     manager
@@ -374,7 +374,7 @@ async fn test_local_audit_read_decrypts() {
     let dir = tempfile::tempdir().unwrap();
     let audit_path = dir.path().join("audit.log");
     let enc_path = dir.path().join("audit.enc");
-    let store = EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let store = EncryptedAuditStore::new(enc_path, "secret-phrase!").unwrap();
     let mut manager = LocalAuditManager::new(audit_path, store);
 
     manager
@@ -514,7 +514,7 @@ fn test_blind_credential_deny_unknown_fields() {
 fn make_test_vault(pool_size: usize, threshold: usize) -> (CredentialVault, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("vault.enc");
-    let store = EncryptedAuditStore::new(path, "test-passphrase").unwrap();
+    let store = EncryptedAuditStore::new(path, "test-passphrase!").unwrap();
     let vault = CredentialVault::new(store, pool_size, threshold).unwrap();
     (vault, dir)
 }
@@ -615,7 +615,7 @@ fn test_vault_persistence_across_instances() {
 
     // Create vault and add credentials
     {
-        let store = EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+        let store = EncryptedAuditStore::new(path.clone(), "test-pass-long").unwrap();
         let vault = CredentialVault::new(store, 10, 3).unwrap();
         vault.add_credential(make_test_credential(1)).unwrap();
         vault.add_credential(make_test_credential(2)).unwrap();
@@ -623,7 +623,7 @@ fn test_vault_persistence_across_instances() {
 
     // Re-open with same passphrase — credentials should be loaded
     {
-        let store = EncryptedAuditStore::new(path, "test-pass").unwrap();
+        let store = EncryptedAuditStore::new(path, "test-pass-long").unwrap();
         let vault = CredentialVault::new(store, 10, 3).unwrap();
         assert_eq!(vault.status().total, 2);
         assert_eq!(vault.available_count(), 2);
@@ -1647,7 +1647,7 @@ async fn test_local_audit_zk_commitment_generated() {
     let dir = tempfile::tempdir().unwrap();
     let enc_path = dir.path().join("zk-test.enc");
     let audit_path = dir.path().join("zk-test.log");
-    let store = EncryptedAuditStore::new(enc_path, "test-pass").unwrap();
+    let store = EncryptedAuditStore::new(enc_path, "test-pass-long").unwrap();
     let mut manager = LocalAuditManager::new(audit_path, store).with_zk_commitments();
 
     // Log an event — ZK commitment should be generated without error
@@ -1692,7 +1692,7 @@ async fn test_merkle_chain_continuity_across_entries() {
     let dir = tempfile::tempdir().unwrap();
     let audit_path = dir.path().join("audit.log");
     let enc_path = dir.path().join("audit.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret-phrase!").unwrap();
     let mut manager = crate::local_audit::LocalAuditManager::new(audit_path, store).with_merkle();
 
     // Log 5 entries to build a Merkle tree
@@ -1720,7 +1720,7 @@ async fn test_merkle_root_changes_with_each_entry() {
     let dir = tempfile::tempdir().unwrap();
     let audit_path = dir.path().join("audit.log");
     let enc_path = dir.path().join("audit.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret-phrase!").unwrap();
     let mut manager = crate::local_audit::LocalAuditManager::new(audit_path, store).with_merkle();
 
     manager
@@ -1747,7 +1747,7 @@ async fn test_merkle_proof_invalid_index_fails() {
     let dir = tempfile::tempdir().unwrap();
     let audit_path = dir.path().join("audit.log");
     let enc_path = dir.path().join("audit.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret-phrase!").unwrap();
     let mut manager = crate::local_audit::LocalAuditManager::new(audit_path, store).with_merkle();
 
     manager
@@ -1765,7 +1765,7 @@ fn test_merkle_proof_without_merkle_enabled_fails() {
     let dir = tempfile::tempdir().unwrap();
     let audit_path = dir.path().join("audit.log");
     let enc_path = dir.path().join("audit.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(enc_path, "secret-phrase!").unwrap();
     // NOT calling .with_merkle()
     let manager = crate::local_audit::LocalAuditManager::new(audit_path, store);
 
@@ -1786,7 +1786,7 @@ fn test_merkle_proof_without_merkle_enabled_fails() {
 fn test_crypto_corrupted_ciphertext_detected() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
 
     let plaintext = b"audit entry data";
     let mut encrypted = store.encrypt(plaintext).unwrap();
@@ -1808,7 +1808,7 @@ fn test_crypto_corrupted_ciphertext_detected() {
 fn test_crypto_truncated_ciphertext_detected() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
 
     let plaintext = b"audit entry data";
     let encrypted = store.encrypt(plaintext).unwrap();
@@ -1829,7 +1829,7 @@ fn test_crypto_truncated_entry_in_store_detected() {
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass-long").unwrap();
 
     // Write a valid entry first
     store.write_encrypted_entry(b"valid entry").unwrap();
@@ -1856,7 +1856,7 @@ fn test_crypto_truncated_entry_in_store_detected() {
 fn test_crypto_nonce_too_short_detected() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
 
     // Data shorter than nonce (24 bytes)
     let result = store.decrypt(&[0u8; 10]);
@@ -1874,12 +1874,12 @@ fn test_crypto_wrong_key_fails_gracefully() {
     let path = dir.path().join("test.enc");
 
     // Write with one passphrase
-    let store1 = crate::crypto::EncryptedAuditStore::new(path.clone(), "correct-pass").unwrap();
+    let store1 = crate::crypto::EncryptedAuditStore::new(path.clone(), "correct-pass!").unwrap();
     store1.write_encrypted_entry(b"secret data").unwrap();
     store1.write_encrypted_entry(b"more secret data").unwrap();
 
     // Open with different passphrase — read should fail on decryption
-    let store2 = crate::crypto::EncryptedAuditStore::new(path, "wrong-pass").unwrap();
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "wrong-pass-!!").unwrap();
     let result = store2.read_all_entries();
     assert!(
         result.is_err(),
@@ -1913,6 +1913,21 @@ fn test_r234_shield3_whitespace_only_passphrase_rejected() {
     assert!(
         result.is_err(),
         "whitespace-only passphrase should be rejected"
+    );
+}
+
+// R259-SHLD-1: Minimum passphrase length enforcement
+#[test]
+fn test_r259_shld1_short_passphrase_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.enc");
+    // 11 chars — below the 12-char minimum
+    let result = crate::crypto::EncryptedAuditStore::new(path, "short-pass!");
+    assert!(result.is_err(), "short passphrase should be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("at least 12"),
+        "error should mention minimum length: {err}"
     );
 }
 
@@ -1975,7 +1990,7 @@ fn test_r234_shield4_context_get_recent_rejects_dangerous_id() {
 fn test_r234_shield1_consume_persists_status() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("creds.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass-long").unwrap();
     let vault = crate::credential_vault::CredentialVault::new(store, 10, 5).unwrap();
 
     // Add a credential
@@ -1987,7 +2002,7 @@ fn test_r234_shield1_consume_persists_status() {
     assert_eq!(idx, 0);
 
     // Reload vault from disk — credential should be Active, not Available
-    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
     let vault2 = crate::credential_vault::CredentialVault::new(store2, 10, 5).unwrap();
     let status = vault2.status();
     assert_eq!(
@@ -2004,7 +2019,7 @@ fn test_r234_shield1_consume_persists_status() {
 fn test_r234_shield1_mark_consumed_persists_status() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("creds.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass-long").unwrap();
     let vault = crate::credential_vault::CredentialVault::new(store, 10, 5).unwrap();
 
     let cred = crate::credential_vault::CredentialVault::generate_local_credential(1);
@@ -2013,7 +2028,7 @@ fn test_r234_shield1_mark_consumed_persists_status() {
     vault.mark_consumed(idx).unwrap();
 
     // Reload vault from disk — credential should be Consumed
-    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
     let vault2 = crate::credential_vault::CredentialVault::new(store2, 10, 5).unwrap();
     let status = vault2.status();
     assert_eq!(status.available, 0);
@@ -2029,7 +2044,7 @@ fn test_r234_shield1_mark_consumed_persists_status() {
 fn test_r234_shield5_encrypt_returns_bounded_length() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("len.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
 
     // Normal-sized entry should succeed
     let plaintext = vec![0u8; 1024];
@@ -2062,7 +2077,7 @@ fn test_r234_shield9_context_isolator_accepts_valid_roles() {
 fn test_r234_shield10_read_all_entries_returns_bounded() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("bounded.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
 
     // Write a few entries to verify reading works
     for i in 0..5u32 {
@@ -2089,7 +2104,7 @@ fn test_r234_shield12_sanitizer_clear_succeeds_normally() {
 fn test_r234_shield2_stored_vault_entry_rejects_unknown_fields() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("creds.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass-long").unwrap();
 
     // Manually write a stored entry with an extra field
     let bad_entry = serde_json::json!({
@@ -2107,7 +2122,7 @@ fn test_r234_shield2_stored_vault_entry_rejects_unknown_fields() {
     store.write_encrypted_entry(&serialized).unwrap();
 
     // Loading the vault should fail on the unknown field
-    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass-long").unwrap();
     let result = crate::credential_vault::CredentialVault::new(store2, 10, 5);
     assert!(
         result.is_err(),
@@ -2382,7 +2397,7 @@ fn test_r238_shld4_session_id_too_long_rejected() {
 fn test_r238_shld5_store_file_size_limit() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("huge.enc");
-    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass-long").unwrap();
 
     // Write a normal entry to create a valid store
     store.write_encrypted_entry(b"test").unwrap();
@@ -2412,7 +2427,7 @@ fn test_r238_shld5_store_file_size_limit() {
     drop(file);
 
     // Derive key with same passphrase and existing salt
-    let store2 = crate::crypto::EncryptedAuditStore::new(huge_path, "test-pass").unwrap();
+    let store2 = crate::crypto::EncryptedAuditStore::new(huge_path, "test-pass-long").unwrap();
     let result = store2.read_all_entries();
     assert!(result.is_err(), "should reject file larger than 256 MB");
     let msg = result.unwrap_err().to_string();

@@ -461,11 +461,26 @@ impl ProxyBridge {
         self
     }
 
+    /// Minimum attestation HMAC key length (bytes).
+    /// SECURITY (R259-ATT-1): Keys shorter than 32 bytes are trivially brute-forceable.
+    const MIN_ATTESTATION_KEY_LEN: usize = 32;
+
     /// Set the HMAC-SHA256 key for content-bound attestation.
     /// When set, every proxied response gets a `_meta.vellaveto_attestation`
     /// token binding scan results to the response content hash.
     /// Consumers verify with their SDK's `verify_attestation()` method.
+    ///
+    /// # Panics
+    /// Panics at startup if `key` is shorter than 32 bytes — a weak HMAC key
+    /// is a security misconfiguration that must not silently degrade.
     pub fn with_attestation_key(mut self, key: Vec<u8>) -> Self {
+        assert!(
+            key.len() >= Self::MIN_ATTESTATION_KEY_LEN,
+            "VELLAVETO_ATTESTATION_SECRET must be at least {} bytes, got {} \
+             (R259-ATT-1: short HMAC keys are trivially brute-forceable)",
+            Self::MIN_ATTESTATION_KEY_LEN,
+            key.len(),
+        );
         self.attestation_hmac_key = Some(key);
         self
     }

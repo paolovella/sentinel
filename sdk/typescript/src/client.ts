@@ -1486,6 +1486,16 @@ export class VellavetoClient {
       .digest("hex");
     if (attestation.content_hash !== expectedHash) return false;
 
+    // R260-SDK-1: Validate signature is exactly 64 hex characters (SHA-256 HMAC).
+    const sig = attestation.signature;
+    if (typeof sig !== "string" || sig.length !== 64) return false;
+
+    // R260-SDK-2: Validate field types before constructing signing content.
+    if (typeof attestation.version !== "number") return false;
+    if (typeof attestation.timestamp !== "number") return false;
+    if (typeof attestation.trust_tier !== "string") return false;
+    if (typeof attestation.scan_passes !== "number") return false;
+
     // Verify HMAC signature
     const signingContent = `v${attestation.version}:${attestation.timestamp}:${attestation.content_hash}:${attestation.injection_clean}:${attestation.dlp_clean}:${attestation.schema_valid}:${attestation.trust_tier}:${attestation.scan_passes}`;
     const expectedSig = crypto
@@ -1493,7 +1503,7 @@ export class VellavetoClient {
       .update(signingContent, "utf8")
       .digest("hex");
     return crypto.timingSafeEqual(
-      Buffer.from(attestation.signature as string, "utf8"),
+      Buffer.from(sig, "utf8"),
       Buffer.from(expectedSig, "utf8")
     );
   }

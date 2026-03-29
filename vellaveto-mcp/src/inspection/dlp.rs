@@ -160,6 +160,12 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
         r"(?:aws_secret_access_key|secret_key)\s*[=:]\s*[A-Za-z0-9/+=]{40}",
     ),
     ("github_token", r"gh[pousr]_[A-Za-z0-9_]{36,255}"),
+    // R261-DLP-1: GitHub fine-grained personal access tokens (introduced 2022)
+    // use a distinct prefix from classic tokens (ghp_, ghs_, etc.).
+    (
+        "github_fine_grained_pat",
+        r"github_pat_[A-Za-z0-9_]{22,255}",
+    ),
     (
         "generic_api_key",
         // Bounded quantifier {20,512} prevents ReDoS from unbounded backtracking.
@@ -1389,6 +1395,22 @@ mod tests {
             "Should detect AWS key with fullwidth Unicode after NFKC normalization"
         );
         assert!(findings.iter().any(|f| f.pattern_name == "aws_access_key"));
+    }
+
+    // R261-DLP-1: GitHub fine-grained PAT detection
+    #[test]
+    fn test_dlp_detects_github_fine_grained_pat() {
+        // github_pat_ prefix + 22-255 alphanumeric chars
+        let token = "github_pat_11ABCDEFGH0123456789abcdef";
+        let params = json!({ "auth": { "token": token } });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "github_fine_grained_pat"),
+            "Should detect GitHub fine-grained PAT, findings: {:?}",
+            findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -62,6 +62,17 @@ impl EncryptedAuditStore {
                 "passphrase must not be empty or whitespace-only".to_string(),
             ));
         }
+        // SECURITY (R259-SHLD-1): Enforce minimum passphrase length.
+        // Even with Argon2id, short passphrases (1-11 chars) are vulnerable to
+        // offline dictionary attacks if the encrypted store file is exfiltrated.
+        const MIN_PASSPHRASE_LEN: usize = 12;
+        if passphrase.len() < MIN_PASSPHRASE_LEN {
+            return Err(ShieldError::KeyDerivation(format!(
+                "passphrase must be at least {} characters, got {}",
+                MIN_PASSPHRASE_LEN,
+                passphrase.len()
+            )));
+        }
 
         let salt = if path.exists() {
             Self::read_salt(&path)?

@@ -728,6 +728,7 @@ async fn main() -> Result<()> {
     }
 
     // Wire content-bound attestation HMAC key from env var.
+    // SECURITY (R259-ATT-1): with_attestation_key() enforces >= 32 bytes.
     if let Ok(secret) = std::env::var("VELLAVETO_ATTESTATION_SECRET") {
         if !secret.is_empty() {
             bridge = bridge.with_attestation_key(secret.into_bytes());

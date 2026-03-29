@@ -59,6 +59,8 @@ pub fn generate_evidence_pack(
             uncovered_requirements: 0,
             critical_gaps: vec!["Unknown framework — no evidence available".to_string()],
             recommendations: vec!["Add support for this framework".to_string()],
+            signature: None,
+            verifying_key: None,
         },
     }
 }
@@ -566,7 +568,69 @@ fn build_pack(
         uncovered_requirements: uncovered,
         critical_gaps,
         recommendations,
+        signature: None,
+        verifying_key: None,
     }
+}
+
+/// Sign an evidence pack with Ed25519, setting `signature` and `verifying_key`.
+///
+/// The signature covers the canonical content hash produced by
+/// `EvidencePack::signing_content()`, providing non-repudiation and
+/// tamper detection for compliance artifacts.
+pub fn sign_evidence_pack(
+    pack: &mut EvidencePack,
+    signing_key: &ed25519_dalek::SigningKey,
+) {
+    use ed25519_dalek::Signer;
+    let content = pack.signing_content();
+    let sig = signing_key.sign(&content);
+    pack.signature = Some(hex::encode(sig.to_bytes()));
+    pack.verifying_key = Some(hex::encode(signing_key.verifying_key().to_bytes()));
+}
+
+/// Verify an evidence pack's Ed25519 signature.
+///
+/// Returns `Ok(true)` if valid, `Ok(false)` if the signature doesn't match,
+/// or `Err` if fields are malformed (missing, wrong length, bad hex).
+pub fn verify_evidence_pack_signature(pack: &EvidencePack) -> Result<bool, crate::AuditError> {
+    use ed25519_dalek::Verifier;
+    let sig_hex = pack.signature.as_deref().ok_or_else(|| {
+        crate::AuditError::Validation("evidence pack has no signature".to_string())
+    })?;
+    let vk_hex = pack.verifying_key.as_deref().ok_or_else(|| {
+        crate::AuditError::Validation("evidence pack has no verifying_key".to_string())
+    })?;
+
+    let sig_bytes = hex::decode(sig_hex)
+        .map_err(|_| crate::AuditError::Validation("invalid signature hex".to_string()))?;
+    if sig_bytes.len() != 64 {
+        return Err(crate::AuditError::Validation(format!(
+            "signature must be 64 bytes, got {}",
+            sig_bytes.len()
+        )));
+    }
+    let sig_array: [u8; 64] = sig_bytes
+        .try_into()
+        .map_err(|_| crate::AuditError::Validation("signature conversion failed".to_string()))?;
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
+
+    let vk_bytes = hex::decode(vk_hex)
+        .map_err(|_| crate::AuditError::Validation("invalid verifying_key hex".to_string()))?;
+    if vk_bytes.len() != 32 {
+        return Err(crate::AuditError::Validation(format!(
+            "verifying_key must be 32 bytes, got {}",
+            vk_bytes.len()
+        )));
+    }
+    let vk_array: [u8; 32] = vk_bytes
+        .try_into()
+        .map_err(|_| crate::AuditError::Validation("verifying_key conversion failed".to_string()))?;
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&vk_array)
+        .map_err(|e| crate::AuditError::Validation(format!("invalid verifying key: {e}")))?;
+
+    let content = pack.signing_content();
+    Ok(verifying_key.verify(&content, &signature).is_ok())
 }
 
 // ── HTML Renderer ────────────────────────────────────────────────────────────
@@ -841,5 +905,61 @@ mod tests {
         assert_eq!(extract_article_number("Art 21.2.a"), 21);
         assert_eq!(extract_article_number("Art 50(1)"), 50);
         assert_eq!(extract_article_number("unknown"), 0);
+    }
+
+    // ── Evidence Pack Signing Tests ──────────────────────────────────────
+
+    fn test_signing_key() -> ed25519_dalek::SigningKey {
+        ed25519_dalek::SigningKey::from_bytes(&[42u8; 32])
+    }
+
+    #[test]
+    fn test_sign_verify_evidence_pack_roundtrip() {
+        let mut pack = generate_evidence_pack(EvidenceFramework::Dora, "Bank", "bank-001");
+        sign_evidence_pack(&mut pack, &test_signing_key());
+        assert!(pack.signature.is_some());
+        assert!(pack.verifying_key.is_some());
+        assert!(pack.validate().is_ok());
+        let valid = verify_evidence_pack_signature(&pack).unwrap();
+        assert!(valid, "signed evidence pack should verify");
+    }
+
+    #[test]
+    fn test_verify_evidence_pack_tampered_returns_false() {
+        let mut pack = generate_evidence_pack(EvidenceFramework::Nis2, "Corp", "corp-001");
+        sign_evidence_pack(&mut pack, &test_signing_key());
+        // Tamper with the content
+        pack.overall_coverage_percent = 99.9;
+        let valid = verify_evidence_pack_signature(&pack).unwrap();
+        assert!(!valid, "tampered evidence pack should not verify");
+    }
+
+    #[test]
+    fn test_verify_evidence_pack_missing_signature_errors() {
+        let pack = generate_evidence_pack(EvidenceFramework::Dora, "Bank", "bank-001");
+        let result = verify_evidence_pack_signature(&pack);
+        assert!(result.is_err(), "missing signature should return error");
+    }
+
+    #[test]
+    fn test_sign_evidence_pack_sets_verifying_key() {
+        let mut pack = generate_evidence_pack(EvidenceFramework::EuAiAct, "AI", "ai-001");
+        sign_evidence_pack(&mut pack, &test_signing_key());
+        let vk = pack.verifying_key.as_ref().unwrap();
+        assert_eq!(vk.len(), 64, "verifying_key should be 64 hex chars");
+        let expected_vk = hex::encode(test_signing_key().verifying_key().to_bytes());
+        assert_eq!(*vk, expected_vk);
+    }
+
+    #[test]
+    fn test_evidence_pack_serde_roundtrip_with_signature() {
+        let mut pack = generate_evidence_pack(EvidenceFramework::Iso42001, "Acme", "acme-001");
+        sign_evidence_pack(&mut pack, &test_signing_key());
+        let json = serde_json::to_string(&pack).unwrap();
+        let deserialized: EvidencePack = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.signature, pack.signature);
+        assert_eq!(deserialized.verifying_key, pack.verifying_key);
+        let valid = verify_evidence_pack_signature(&deserialized).unwrap();
+        assert!(valid, "deserialized pack should still verify");
     }
 }

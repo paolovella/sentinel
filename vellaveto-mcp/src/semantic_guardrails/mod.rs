@@ -148,6 +148,11 @@ pub struct ServiceConfig {
     pub jailbreak_detection: bool,
     /// Confidence threshold for jailbreak detection.
     pub jailbreak_threshold: f64,
+    /// Explicit acknowledgment required when `fallback = Allow`.
+    /// SECURITY: `FallbackBehavior::Allow` makes the guardrail layer fail-open
+    /// on timeout or error. This must be explicitly acknowledged to prevent
+    /// accidental misconfiguration. Mirrors the OPA `fail_open_acknowledged` pattern.
+    pub dangerous_allow_fail_open_acknowledged: bool,
 }
 
 impl Default for ServiceConfig {
@@ -161,6 +166,7 @@ impl Default for ServiceConfig {
             max_chain_size: 50,
             jailbreak_detection: true,
             jailbreak_threshold: 0.7,
+            dangerous_allow_fail_open_acknowledged: false,
         }
     }
 }
@@ -207,6 +213,19 @@ impl ServiceConfig {
                 "max_chain_size must be in 1..=100, got {}",
                 self.max_chain_size
             ));
+        }
+        // SECURITY: FallbackBehavior::Allow is fail-open and must be explicitly
+        // acknowledged. Mirrors OPA fail_open_acknowledged pattern (vellaveto-config
+        // enterprise.rs). Without acknowledgment, misconfiguration silently makes
+        // the entire guardrail layer a no-op under load.
+        if self.fallback == FallbackBehavior::Allow
+            && !self.dangerous_allow_fail_open_acknowledged
+        {
+            return Err(
+                "fallback=Allow requires dangerous_allow_fail_open_acknowledged=true \
+                 (fail-open guardrails are a security risk)"
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -702,6 +721,7 @@ mod tests {
         let config = ServiceConfig {
             max_latency_ms: 1,
             fallback: FallbackBehavior::Allow,
+            dangerous_allow_fail_open_acknowledged: true,
             ..Default::default()
         };
         let service = SemanticGuardrailsService::new(evaluator, config);
@@ -711,5 +731,51 @@ mod tests {
 
         // Should allow on timeout with Allow fallback
         assert!(result.allow, "Timeout with Allow fallback should allow");
+    }
+
+    // ── FallbackBehavior::Allow acknowledgment gate tests ─────────────
+
+    #[test]
+    fn test_service_config_allow_without_ack_rejected() {
+        let config = ServiceConfig {
+            fallback: FallbackBehavior::Allow,
+            dangerous_allow_fail_open_acknowledged: false,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("dangerous_allow_fail_open_acknowledged"),
+            "Error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_service_config_allow_with_ack_accepted() {
+        let config = ServiceConfig {
+            fallback: FallbackBehavior::Allow,
+            dangerous_allow_fail_open_acknowledged: true,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_service_config_deny_no_ack_needed() {
+        let config = ServiceConfig {
+            fallback: FallbackBehavior::Deny,
+            dangerous_allow_fail_open_acknowledged: false,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_service_config_pattern_match_no_ack_needed() {
+        let config = ServiceConfig {
+            fallback: FallbackBehavior::PatternMatch,
+            dangerous_allow_fail_open_acknowledged: false,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
     }
 }

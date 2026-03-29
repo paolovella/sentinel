@@ -73,6 +73,8 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         // Phase 1 & 2 security managers — disabled in tests
         task_state: None,
         auth_level: None,

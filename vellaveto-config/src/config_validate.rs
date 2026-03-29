@@ -1726,6 +1726,31 @@ impl PolicyConfig {
         // ACIS decision envelope configuration
         self.acis.validate().map_err(|e| format!("acis: {e}"))?;
 
+        // SECURITY (R261-CFG-1): Channel separation configs were missing validate() calls.
+        // intent_scope, source_trust, and sink_classification all define validate() but
+        // PolicyConfig::validate() never called them — a modularization gap.
+        if let Some(ref scope) = self.intent_scope {
+            scope.validate().map_err(|e| format!("intent_scope: {e}"))?;
+        }
+        self.source_trust
+            .validate()
+            .map_err(|e| format!("source_trust: {e}"))?;
+        self.sink_classification
+            .validate()
+            .map_err(|e| format!("sink_classification: {e}"))?;
+
+        // SECURITY (R261-CFG-3): Bound max_path_decode_iterations to prevent DoS.
+        // u32::MAX causes excessive CPU consumption during path normalization.
+        const MAX_PATH_DECODE_ITERS: u32 = 1000;
+        if let Some(iters) = self.max_path_decode_iterations {
+            if iters > MAX_PATH_DECODE_ITERS {
+                return Err(format!(
+                    "max_path_decode_iterations {} exceeds maximum {}",
+                    iters, MAX_PATH_DECODE_ITERS
+                ));
+            }
+        }
+
         Ok(())
     }
 

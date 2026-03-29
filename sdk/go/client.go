@@ -1291,15 +1291,32 @@ func VerifyAttestation(response map[string]interface{}, hmacKey []byte) bool {
 		return false
 	}
 
-	// Extract attestation fields
-	version, _ := att["version"].(float64)
-	timestamp, _ := att["timestamp"].(float64)
+	// R260-SDK-1: Validate signature is exactly 64 hex characters (SHA-256 HMAC).
+	signature, _ := att["signature"].(string)
+	if len(signature) != 64 {
+		return false
+	}
+
+	// R260-SDK-3: Validate field types — silent zero-value on type mismatch is dangerous.
+	version, ok := att["version"].(float64)
+	if !ok {
+		return false
+	}
+	timestamp, ok := att["timestamp"].(float64)
+	if !ok {
+		return false
+	}
+	trustTier, ok := att["trust_tier"].(string)
+	if !ok {
+		return false
+	}
+	scanPasses, ok := att["scan_passes"].(float64)
+	if !ok {
+		return false
+	}
 	injClean, _ := att["injection_clean"].(bool)
 	dlpClean, _ := att["dlp_clean"].(bool)
 	schemaValid, _ := att["schema_valid"].(bool)
-	trustTier, _ := att["trust_tier"].(string)
-	scanPasses, _ := att["scan_passes"].(float64)
-	signature, _ := att["signature"].(string)
 
 	// Verify HMAC signature
 	signingContent := fmt.Sprintf("v%d:%d:%s:%t:%t:%t:%s:%d",

@@ -480,6 +480,11 @@ class VellavetoClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         if self.tenant:
+            # R260-SDK-4: Reject CRLF characters to prevent header injection.
+            if "\r" in self.tenant or "\n" in self.tenant:
+                raise ValueError(
+                    "tenant must not contain CR or LF characters (header injection)"
+                )
             headers["X-Tenant-ID"] = self.tenant
         return headers
 
@@ -1262,6 +1267,21 @@ class VellavetoClient:
         if attestation.get("content_hash") != expected_hash:
             return False
 
+        # R260-SDK-1: Validate signature is exactly 64 hex characters (SHA-256 HMAC).
+        sig = attestation.get("signature", "")
+        if not isinstance(sig, str) or len(sig) != 64:
+            return False
+
+        # R260-SDK-2: Validate field types before constructing signing content.
+        if not isinstance(attestation.get("version"), int):
+            return False
+        if not isinstance(attestation.get("timestamp"), (int, float)):
+            return False
+        if not isinstance(attestation.get("trust_tier"), str):
+            return False
+        if not isinstance(attestation.get("scan_passes"), int):
+            return False
+
         # Verify HMAC signature
         signing_content = (
             f"v{attestation['version']}:{attestation['timestamp']}"
@@ -1274,7 +1294,7 @@ class VellavetoClient:
         expected_sig = hmac_mod.new(
             hmac_key, signing_content.encode(), hashlib.sha256
         ).hexdigest()
-        return hmac_mod.compare_digest(attestation.get("signature", ""), expected_sig)
+        return hmac_mod.compare_digest(sig, expected_sig)
 
 
 class AsyncVellavetoClient:
@@ -1386,6 +1406,11 @@ class AsyncVellavetoClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         if self.tenant:
+            # R260-SDK-4: Reject CRLF characters to prevent header injection.
+            if "\r" in self.tenant or "\n" in self.tenant:
+                raise ValueError(
+                    "tenant must not contain CR or LF characters (header injection)"
+                )
             headers["X-Tenant-ID"] = self.tenant
         return headers
 

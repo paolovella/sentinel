@@ -56,6 +56,61 @@ const MAX_SIGNATURE_HEADER_LENGTH: usize = 512;
 /// Expected hex length of HMAC-SHA256 output (32 bytes = 64 hex chars).
 const HMAC_SHA256_HEX_LENGTH: usize = 64;
 
+/// Maximum event ID length for webhook dedup.
+const MAX_WEBHOOK_EVENT_ID_LEN: usize = 512;
+/// Maximum number of tracked webhook event IDs.
+const MAX_WEBHOOK_DEDUP_ENTRIES: usize = 100_000;
+
+/// Idempotency tracker for webhook events.
+///
+/// Stores recently seen event IDs with timestamps. Duplicate events within
+/// the TTL window are acknowledged without reprocessing.
+pub struct WebhookDedup {
+    seen: dashmap::DashMap<String, std::time::Instant>,
+    ttl: std::time::Duration,
+}
+
+impl WebhookDedup {
+    /// Create a new dedup tracker with the given TTL.
+    pub fn new(ttl: std::time::Duration) -> Self {
+        Self {
+            seen: dashmap::DashMap::new(),
+            ttl,
+        }
+    }
+
+    /// Returns `true` if this event ID has NOT been seen before (first occurrence).
+    /// Returns `false` if the event is a duplicate (already seen within TTL).
+    pub fn check_or_insert(&self, event_id: &str) -> bool {
+        // Validate the event ID
+        if event_id.is_empty()
+            || event_id.len() > MAX_WEBHOOK_EVENT_ID_LEN
+            || vellaveto_types::has_dangerous_chars(event_id)
+        {
+            // Reject malformed IDs — treat as duplicate to prevent processing.
+            return false;
+        }
+
+        let now = std::time::Instant::now();
+
+        // Evict expired entries periodically (every 1000 inserts).
+        if self.seen.len() > MAX_WEBHOOK_DEDUP_ENTRIES {
+            self.seen.retain(|_, ts| now.duration_since(*ts) < self.ttl);
+        }
+
+        // Check if already seen
+        if let Some(existing) = self.seen.get(event_id) {
+            if now.duration_since(*existing) < self.ttl {
+                return false; // duplicate
+            }
+        }
+
+        // Insert as first occurrence
+        self.seen.insert(event_id.to_string(), now);
+        true
+    }
+}
+
 /// Response returned to webhook callers.
 #[derive(Debug, Serialize)]
 pub struct WebhookResponse {
@@ -74,6 +129,9 @@ struct PaddleWebhookPayload {
     /// Event type (e.g., "subscription.created", "subscription.updated").
     #[serde(default)]
     event_type: String,
+    /// Unique event identifier for idempotency tracking.
+    #[serde(default)]
+    event_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +209,17 @@ pub async fn paddle_webhook(
             return (StatusCode::OK, Json(WebhookResponse { received: false }));
         }
     };
+
+    // SECURITY: Idempotency check — reject duplicate webhook events.
+    if let Some(ref event_id) = payload.event_id {
+        if !state.webhook_dedup.check_or_insert(event_id) {
+            tracing::debug!(
+                event_id = %event_id,
+                "Paddle webhook duplicate — acknowledging without reprocessing"
+            );
+            return (StatusCode::OK, Json(WebhookResponse { received: true }));
+        }
+    }
 
     // Log the event (no secrets)
     tracing::info!(
@@ -1026,5 +1095,42 @@ mod tests {
     #[test]
     fn test_hmac_sha256_hex_length_constant() {
         assert_eq!(HMAC_SHA256_HEX_LENGTH, 64);
+    }
+
+    // ── Webhook dedup tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_webhook_dedup_first_event_accepted() {
+        let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
+        assert!(dedup.check_or_insert("evt_001"), "first occurrence should be accepted");
+    }
+
+    #[test]
+    fn test_webhook_dedup_duplicate_rejected() {
+        let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
+        assert!(dedup.check_or_insert("evt_002"));
+        assert!(!dedup.check_or_insert("evt_002"), "duplicate should be rejected");
+    }
+
+    #[test]
+    fn test_webhook_dedup_different_ids_accepted() {
+        let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
+        assert!(dedup.check_or_insert("evt_a"));
+        assert!(dedup.check_or_insert("evt_b"));
+    }
+
+    #[test]
+    fn test_webhook_dedup_empty_id_rejected() {
+        let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
+        assert!(!dedup.check_or_insert(""), "empty event ID should be rejected");
+    }
+
+    #[test]
+    fn test_webhook_dedup_dangerous_chars_rejected() {
+        let dedup = WebhookDedup::new(std::time::Duration::from_secs(60));
+        assert!(
+            !dedup.check_or_insert("evt\x00bad"),
+            "event ID with control chars should be rejected"
+        );
     }
 }

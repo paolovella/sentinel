@@ -284,9 +284,13 @@ impl Default for IntentScopeConfig {
             allowed_sink_classes: Vec::new(), // empty = all allowed
             allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
-            out_of_scope_action: OutOfScopeAction::AuditOnly,
+            // SECURITY (R261-CFG-2): Default to Deny (fail-closed).
+            // Previously AuditOnly, which silently passed out-of-scope calls.
+            out_of_scope_action: OutOfScopeAction::Deny,
             max_distinct_tools: None,
-            allow_scope_expansion: true,
+            // SECURITY (R261-CFG-2): Default to false (fail-closed).
+            // Previously true, allowing privilege escalation via scope expansion.
+            allow_scope_expansion: false,
         }
     }
 }

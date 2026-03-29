@@ -174,6 +174,10 @@ pub struct A2aMessage {
 impl A2aMessage {
     /// Validate A2A message bounds.
     pub fn validate(&self) -> Result<(), String> {
+        // R262-A2A-1: Validate role for dangerous characters (bidi, zero-width, etc.).
+        if vellaveto_types::has_dangerous_chars(&self.role) {
+            return Err("message.role contains dangerous characters".to_string());
+        }
         if self.parts.len() > MAX_A2A_MESSAGE_PARTS {
             return Err(format!(
                 "message.parts count {} exceeds maximum {}",
@@ -200,8 +204,26 @@ impl A2aMessage {
                     ));
                 }
             }
-            if let PartContent::File { ref file } = part.content {
-                file.validate()?;
+            // R262-A2A-1: Validate part content for dangerous characters.
+            match &part.content {
+                PartContent::File { ref file } => {
+                    file.validate()?;
+                    if let Some(ref name) = file.name {
+                        if vellaveto_types::has_dangerous_chars(name) {
+                            return Err(
+                                "file.name contains dangerous characters".to_string(),
+                            );
+                        }
+                    }
+                    if let Some(ref mime) = file.mime_type {
+                        if vellaveto_types::has_dangerous_chars(mime) {
+                            return Err(
+                                "file.mime_type contains dangerous characters".to_string(),
+                            );
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -831,6 +853,42 @@ mod tests {
             metadata: None,
         };
         assert!(msg.validate().is_ok());
+    }
+
+    // R262-A2A-1: Dangerous chars in role must be rejected
+    #[test]
+    fn test_r262_a2a_message_rejects_dangerous_role() {
+        let msg = A2aMessage {
+            role: "user\u{200B}".to_string(), // zero-width space
+            parts: vec![],
+            metadata: None,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(
+            err.contains("role") && err.contains("dangerous"),
+            "Error: {err}"
+        );
+    }
+
+    // R262-A2A-1: Dangerous chars in file name must be rejected
+    #[test]
+    fn test_r262_a2a_message_rejects_dangerous_file_name() {
+        let msg = A2aMessage {
+            role: "user".to_string(),
+            parts: vec![MessagePart {
+                content: PartContent::File {
+                    file: FileContent {
+                        name: Some("test\x00.txt".to_string()),
+                        mime_type: None,
+                        bytes: None,
+                        uri: None,
+                    },
+                },
+                metadata: None,
+            }],
+            metadata: None,
+        };
+        assert!(msg.validate().is_err());
     }
 
     #[test]

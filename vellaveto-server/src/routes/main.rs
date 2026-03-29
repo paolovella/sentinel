@@ -1169,7 +1169,9 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
     match auth_header {
         // RFC 7235: Authorization scheme comparison is case-insensitive.
         Some(ref h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => {
-            let token = &h[7..];
+            // SECURITY (R259-SRV-1): Trim whitespace from token to prevent
+            // hash mismatch when "Bearer  token" has extra spaces.
+            let token = h[7..].trim();
             // SECURITY (R34-SRV-8): Hash before comparing to prevent length oracle.
             // ct_eq short-circuits on length mismatch; hashing normalizes to 32 bytes.
             use sha2::{Digest, Sha256};
@@ -3561,6 +3563,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
     {
         if let Some(token) = auth
             .get(7..)
+            .map(|t| t.trim())
             .filter(|_| auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer "))
         {
             if !token.is_empty() {
@@ -3854,6 +3857,19 @@ mod tests {
         let k1 = extract_principal_key(&r1, &[]);
         let k2 = extract_principal_key(&r2, &[]);
         assert_ne!(k1, k2, "Different tokens should produce different keys");
+    }
+
+    // R259-SRV-1: Bearer token with extra whitespace should produce same hash
+    #[test]
+    fn test_principal_key_bearer_whitespace_trimmed() {
+        let r1 = build_request(&[("authorization", "Bearer token-abc")]);
+        let r2 = build_request(&[("authorization", "Bearer  token-abc")]);
+        let r3 = build_request(&[("authorization", "Bearer token-abc ")]);
+        let k1 = extract_principal_key(&r1, &[]);
+        let k2 = extract_principal_key(&r2, &[]);
+        let k3 = extract_principal_key(&r3, &[]);
+        assert_eq!(k1, k2, "Leading whitespace after Bearer should be trimmed");
+        assert_eq!(k1, k3, "Trailing whitespace should be trimmed");
     }
 
     // --- KL1: IP fallback ---

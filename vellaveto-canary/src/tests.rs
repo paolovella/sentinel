@@ -40,7 +40,8 @@ fn test_expired_canary_detected() {
     let key = test_signing_key();
     let mut canary = create_canary("Test statement.", 90, &key).expect("create should succeed");
 
-    // Manually set expires_date to the past
+    // Manually set dates to the past (signed before expires for R259-CAN-1)
+    canary.signed_date = "2019-06-01".to_string();
     canary.expires_date = "2020-01-01".to_string();
     // Re-sign with correct payload (otherwise signature will be invalid too)
     let key_bytes = hex::decode(&key).unwrap();
@@ -112,4 +113,37 @@ fn test_dangerous_chars_rejected() {
     let result = create_canary("test\u{200B}statement", 90, &key);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("dangerous"));
+}
+
+// R259-CAN-1: Reject canaries where signed_date > expires_date
+#[test]
+fn test_r259_can1_verify_rejects_reversed_dates() {
+    let key = test_signing_key();
+    let mut canary = create_canary("Test canary statement.", 90, &key).unwrap();
+
+    // Forge a canary with signed_date in the future of expires_date.
+    // Re-sign so the signature is valid — the check must still reject.
+    canary.signed_date = "2026-12-31".to_string();
+    canary.expires_date = "2026-01-01".to_string();
+
+    let key_bytes = hex::decode(&key).unwrap();
+    let key_array: [u8; 32] = key_bytes.try_into().unwrap();
+    let signing_key = SigningKey::from_bytes(&key_array);
+    let payload = canonical_payload(
+        canary.version,
+        &canary.signed_date,
+        &canary.expires_date,
+        &canary.statement,
+    )
+    .unwrap();
+    let sig = signing_key.sign(&payload);
+    canary.signature = hex::encode(sig.to_bytes());
+
+    let result = verify_canary(&canary);
+    assert!(result.is_err(), "reversed dates should be rejected");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("must not be after"),
+        "error should mention date ordering: {err}"
+    );
 }

@@ -61,10 +61,15 @@ pub fn mark_ai_mediated(msg: &mut serde_json::Value) {
 ///
 /// Adds `result._meta.vellaveto_decision_explanation` when a trace is available
 /// and verbosity is not `None`. Same `result._meta` pattern as `mark_ai_mediated`.
+///
+/// `is_admin`: when false, `Full` verbosity is downgraded to `Summary` to prevent
+/// leaking internal policy structure (names, priorities, constraint details) to
+/// unauthorized agents.
 pub fn inject_decision_explanation(
     msg: &mut serde_json::Value,
     trace: Option<&vellaveto_types::EvaluationTrace>,
     verbosity: vellaveto_types::ExplanationVerbosity,
+    is_admin: bool,
 ) {
     use vellaveto_types::ExplanationVerbosity;
 
@@ -77,7 +82,16 @@ pub fn inject_decision_explanation(
         return;
     }
 
-    let explanation = match verbosity {
+    // SECURITY: Downgrade Full → Summary for non-admin callers to prevent
+    // leaking policy names, types, priorities, and constraint details.
+    let effective_verbosity = if verbosity == ExplanationVerbosity::Full && !is_admin {
+        tracing::debug!("transparency: downgrading Full verbosity to Summary for non-admin caller");
+        ExplanationVerbosity::Summary
+    } else {
+        verbosity
+    };
+
+    let explanation = match effective_verbosity {
         ExplanationVerbosity::Summary => vellaveto_types::VerdictExplanation::summary(trace),
         ExplanationVerbosity::Full => vellaveto_types::VerdictExplanation::full(trace),
         ExplanationVerbosity::None => return, // already handled above
@@ -299,6 +313,7 @@ mod tests {
             &mut msg,
             Some(&trace),
             vellaveto_types::ExplanationVerbosity::Summary,
+            true, // is_admin
         );
         let explanation = &msg["result"]["_meta"]["vellaveto_decision_explanation"];
         assert_eq!(explanation["verdict"], "Allow");
@@ -318,12 +333,36 @@ mod tests {
             &mut msg,
             Some(&trace),
             vellaveto_types::ExplanationVerbosity::Full,
+            true, // is_admin
         );
         let explanation = &msg["result"]["_meta"]["vellaveto_decision_explanation"];
         assert_eq!(explanation["verdict"], "Allow");
         let details = explanation["policy_details"].as_array().unwrap();
         assert_eq!(details.len(), 1);
         assert_eq!(details[0]["policy_id"], "p1");
+    }
+
+    #[test]
+    fn test_inject_decision_explanation_full_non_admin_downgrades_to_summary() {
+        let trace = make_test_trace();
+        let mut msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": "data"}
+        });
+        inject_decision_explanation(
+            &mut msg,
+            Some(&trace),
+            vellaveto_types::ExplanationVerbosity::Full,
+            false, // NOT admin — should downgrade to Summary
+        );
+        let explanation = &msg["result"]["_meta"]["vellaveto_decision_explanation"];
+        assert_eq!(explanation["verdict"], "Allow");
+        // Summary does not include policy_details
+        assert!(
+            explanation.get("policy_details").is_none(),
+            "non-admin Full should be downgraded to Summary (no policy_details)"
+        );
     }
 
     #[test]
@@ -339,6 +378,7 @@ mod tests {
             &mut msg,
             Some(&trace),
             vellaveto_types::ExplanationVerbosity::None,
+            true,
         );
         assert_eq!(
             msg, original,
@@ -358,6 +398,7 @@ mod tests {
             &mut msg,
             None,
             vellaveto_types::ExplanationVerbosity::Summary,
+            true,
         );
         assert_eq!(msg, original, "No trace should not modify the message");
     }
@@ -375,6 +416,7 @@ mod tests {
             &mut msg,
             Some(&trace),
             vellaveto_types::ExplanationVerbosity::Full,
+            true,
         );
         assert_eq!(msg, original, "Error responses should not be modified");
     }
@@ -394,6 +436,7 @@ mod tests {
             &mut msg,
             Some(&trace),
             vellaveto_types::ExplanationVerbosity::Summary,
+            true,
         );
         // Both keys should be present
         assert_eq!(

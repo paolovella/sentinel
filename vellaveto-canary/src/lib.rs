@@ -262,10 +262,28 @@ pub fn verify_canary(canary: &WarrantCanary) -> Result<CanaryVerification, Strin
     }
     // SECURITY (R239-CAN-3): Also validate expires_date format early (previously only
     // validated late at line 271 — fail-fast is more defensive).
-    if NaiveDate::parse_from_str(&canary.expires_date, "%Y-%m-%d").is_err() {
+    let parsed_expires = NaiveDate::parse_from_str(&canary.expires_date, "%Y-%m-%d")
+        .map_err(|_| {
+            format!(
+                "expires_date '{}' is not a valid YYYY-MM-DD date",
+                canary.expires_date
+            )
+        })?;
+    // SECURITY (R259-CAN-1): Validate chronological ordering. A canary with
+    // signed_date > expires_date is semantically invalid — it was "born expired".
+    // While create_canary() guarantees this by construction, verify_canary() must
+    // also check because it processes untrusted input (attacker-crafted canaries).
+    let parsed_signed =
+        NaiveDate::parse_from_str(&canary.signed_date, "%Y-%m-%d").map_err(|_| {
+            format!(
+                "signed_date '{}' parse failed unexpectedly",
+                canary.signed_date
+            )
+        })?;
+    if parsed_signed > parsed_expires {
         return Err(format!(
-            "expires_date '{}' is not a valid YYYY-MM-DD date",
-            canary.expires_date
+            "signed_date ({}) must not be after expires_date ({})",
+            canary.signed_date, canary.expires_date
         ));
     }
 

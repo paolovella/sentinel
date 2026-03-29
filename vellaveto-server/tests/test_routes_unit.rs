@@ -176,6 +176,8 @@ fn test_state() -> (AppState, TempDir) {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -596,6 +598,8 @@ async fn health_not_rate_limited() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -717,6 +721,8 @@ async fn rate_limit_429_includes_retry_after() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -932,6 +938,8 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1095,6 +1103,8 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1231,6 +1241,8 @@ async fn per_ip_health_exempt_from_rate_limit() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1359,6 +1371,8 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1522,6 +1536,8 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1669,6 +1685,8 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1815,6 +1833,8 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1959,6 +1979,8 @@ async fn per_ip_rate_limit_429_response_body_format() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -2117,6 +2139,8 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,

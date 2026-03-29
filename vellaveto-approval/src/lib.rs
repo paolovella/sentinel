@@ -1632,6 +1632,17 @@ impl ApprovalStore {
             .get_mut(id)
             .ok_or_else(|| ApprovalError::NotFound(id.to_string()))?;
 
+        // SECURITY (R260-APPR-1): Check expiration BEFORE consuming.
+        // Previously, expired approvals could be consumed if their status
+        // was still Approved (expiration only checked in approve/deny paths).
+        if Utc::now() > approval.expires_at {
+            approval.status = ApprovalStatus::Expired;
+            if let Err(e) = self.persist_approval(approval).await {
+                tracing::warn!("Failed to persist expired approval during consume: {e}");
+            }
+            return Ok(false);
+        }
+
         let scope_matches = approval.scope_matches(session_id, action_fingerprint);
         if !verified_approval_consumption::approval_consumption_permitted(
             approval.status == ApprovalStatus::Approved,
@@ -4496,6 +4507,53 @@ mod tests {
         let approval = store.get(&id).await.unwrap();
         assert_eq!(approval.status, ApprovalStatus::Approved);
         assert!(approval.consumed_at.is_none());
+    }
+
+    // R260-APPR-1: Expired approvals must not be consumable
+    #[tokio::test]
+    async fn test_r260_consume_rejects_expired_approval() {
+        let dir = TempDir::new().unwrap();
+        // TTL of 1 second so it expires quickly
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(1),
+        );
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(sample_session_id()),
+                Some(sample_action_fingerprint()),
+            )
+            .await
+            .unwrap();
+        store.approve(&id, "reviewer").await.unwrap();
+
+        // Wait for the approval to expire
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Consumption must fail because the approval has expired
+        let consumed = store
+            .consume_approved(
+                &id,
+                Some(sample_session_id().as_str()),
+                Some(sample_action_fingerprint().as_str()),
+            )
+            .await
+            .unwrap();
+        assert!(
+            !consumed,
+            "expired approval should not be consumable"
+        );
+
+        let approval = store.get(&id).await.unwrap();
+        assert_eq!(
+            approval.status,
+            ApprovalStatus::Expired,
+            "status should be Expired after failed consume"
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────

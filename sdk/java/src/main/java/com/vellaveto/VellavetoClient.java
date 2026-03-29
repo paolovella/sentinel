@@ -548,15 +548,25 @@ public class VellavetoClient implements AutoCloseable {
             String contentHash = String.valueOf(att.get("content_hash"));
             if (!expectedHash.equals(contentHash)) return false;
 
-            // Extract attestation fields
+            // R260-SDK-1: Validate signature is exactly 64 hex characters (SHA-256 HMAC).
+            Object sigRaw = att.get("signature");
+            if (!(sigRaw instanceof String) || ((String) sigRaw).length() != 64) return false;
+            String signature = (String) sigRaw;
+
+            // R260-SDK-2: Validate field types before constructing signing content.
+            // String.valueOf(null) returns "null" string — must check instanceof first.
+            if (!(att.get("version") instanceof Number)) return false;
+            if (!(att.get("timestamp") instanceof Number)) return false;
+            if (!(att.get("trust_tier") instanceof String)) return false;
+            if (!(att.get("scan_passes") instanceof Number)) return false;
+
             int version = ((Number) att.get("version")).intValue();
             long timestamp = ((Number) att.get("timestamp")).longValue();
             boolean injClean = Boolean.TRUE.equals(att.get("injection_clean"));
             boolean dlpClean = Boolean.TRUE.equals(att.get("dlp_clean"));
             boolean schemaValid = Boolean.TRUE.equals(att.get("schema_valid"));
-            String trustTier = String.valueOf(att.get("trust_tier"));
+            String trustTier = (String) att.get("trust_tier");
             int scanPasses = ((Number) att.get("scan_passes")).intValue();
-            String signature = String.valueOf(att.get("signature"));
 
             // Verify HMAC signature
             String signingContent = String.format("v%d:%d:%s:%s:%s:%s:%s:%d",

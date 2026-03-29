@@ -71,6 +71,8 @@ fn make_state() -> (AppState, TempDir) {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -171,6 +173,8 @@ fn make_empty_state() -> (AppState, TempDir) {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -652,6 +656,8 @@ priority = 1
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -819,6 +825,8 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1103,6 +1111,8 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,
@@ -1214,6 +1224,8 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
             vellaveto_server::idempotency::IdempotencyConfig::default(),
         ),
+        signup_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        webhook_dedup: std::sync::Arc::new(vellaveto_server::routes::billing::WebhookDedup::new(std::time::Duration::from_secs(600))),
         task_state: None,
         auth_level: None,
         iam_state: None,

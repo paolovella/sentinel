@@ -364,7 +364,8 @@ const MAX_COMPUTE_TRANSITION_DEPTH: u8 = 2;
 /// permanently ending the session. Prevents brute-force token guessing.
 const MAX_FAILED_UNLOCK_ATTEMPTS: u32 = 5;
 
-struct SessionContext {
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SessionContext {
     state: SessionState,
     anomaly_count: u32,
     violation_count: u32,
@@ -405,13 +406,42 @@ impl SessionContext {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Session Backend Trait
+// ═══════════════════════════════════════════════════════════════════
+
+/// Durable persistence backend for session state.
+///
+/// Implementations store session contexts to a durable store (Redis, RocksDB,
+/// filesystem) so that security-critical states (Locked, Suspicious) survive
+/// process restarts via [`SessionGuard::warm_restart`].
+///
+/// All methods are synchronous and must be `Send + Sync`. Implementations
+/// should be fast (< 5ms) since they are called within the SessionGuard
+/// write lock. Failures are non-blocking — logged and ignored.
+pub(crate) trait SessionBackend: Send + Sync {
+    /// Persist a session context.
+    fn store(&self, session_id: &str, ctx: &SessionContext) -> Result<(), String>;
+    /// Remove a session from the durable store.
+    #[allow(dead_code)]
+    fn remove(&self, session_id: &str) -> Result<(), String>;
+    /// Load all persisted sessions (for warm restart).
+    fn load_all(&self) -> Result<Vec<(String, SessionContext)>, String>;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Session Guard
 // ═══════════════════════════════════════════════════════════════════
 
 /// Session guard with formal state machine and configurable transitions.
+///
+/// Optionally backed by a durable [`SessionBackend`] for persistence across
+/// process restarts. When a backend is configured, every state transition
+/// is written through to the backend. Backend failures are non-blocking
+/// (logged, but the in-memory state remains authoritative).
 pub struct SessionGuard {
     config: SessionGuardConfig,
     sessions: RwLock<HashMap<String, SessionContext>>,
+    backend: Option<Box<dyn SessionBackend>>,
 }
 
 impl SessionGuard {
@@ -420,7 +450,18 @@ impl SessionGuard {
         Self {
             config,
             sessions: RwLock::new(HashMap::new()),
+            backend: None,
         }
+    }
+
+    /// Attach a durable persistence backend.
+    ///
+    /// When set, every state transition is written through to the backend.
+    /// Backend failures are non-blocking (logged at warn level).
+    #[allow(dead_code)]
+    pub(crate) fn with_backend(mut self, backend: Box<dyn SessionBackend>) -> Self {
+        self.backend = Some(backend);
+        self
     }
 
     /// Get the current timestamp (Unix seconds).
@@ -548,6 +589,7 @@ impl SessionGuard {
             let previous = ctx.state;
             ctx.state = SessionState::Ended;
             ctx.record_transition(previous, SessionState::Ended, now);
+            self.persist_session(session_id, ctx);
             return Ok(TransitionResult {
                 previous,
                 current: SessionState::Ended,
@@ -570,11 +612,74 @@ impl SessionGuard {
             ctx.last_action_at = now;
         }
 
+        // Write-through to durable backend (non-blocking on failure).
+        self.persist_session(session_id, ctx);
+
         Ok(TransitionResult {
             previous,
             current: new_state,
             action,
         })
+    }
+
+    /// Restore security-critical sessions from the durable backend.
+    ///
+    /// Called once at startup to recover Locked and Suspicious sessions that
+    /// would otherwise be lost on process restart. Active and Init sessions
+    /// are NOT restored (they are transient). Ended sessions are skipped
+    /// (terminal, no further transitions possible).
+    ///
+    /// Returns the number of sessions restored, or an error if the backend
+    /// is not configured or fails to load.
+    pub fn warm_restart(&self) -> Result<usize, SessionGuardError> {
+        let backend = self
+            .backend
+            .as_ref()
+            .ok_or_else(|| SessionGuardError::SessionNotFound("no backend configured".to_string()))?;
+
+        let persisted = backend.load_all().map_err(|e| {
+            SessionGuardError::SessionNotFound(format!("backend load failed: {e}"))
+        })?;
+
+        let mut sessions = self.sessions.write().map_err(|_| {
+            tracing::error!("SessionGuard write lock poisoned during warm_restart");
+            SessionGuardError::LockPoisoned
+        })?;
+
+        let mut restored = 0usize;
+        for (id, ctx) in persisted {
+            // Only restore security-critical states.
+            if !matches!(ctx.state, SessionState::Locked | SessionState::Suspicious) {
+                continue;
+            }
+            // Respect max_sessions bound.
+            if sessions.len() >= self.config.max_sessions {
+                tracing::warn!(
+                    "warm_restart: hit max_sessions ({}) — stopping restoration",
+                    self.config.max_sessions
+                );
+                break;
+            }
+            sessions.insert(id, ctx);
+            restored = restored.saturating_add(1);
+        }
+
+        tracing::info!("warm_restart: restored {} security-critical sessions", restored);
+        Ok(restored)
+    }
+
+    /// Persist a session to the durable backend if configured.
+    /// Failures are logged at warn level but never block the caller.
+    fn persist_session(&self, session_id: &str, ctx: &SessionContext) {
+        if let Some(ref backend) = self.backend {
+            if let Err(e) = backend.store(session_id, ctx) {
+                tracing::warn!(
+                    session_id = session_id,
+                    error = %e,
+                    "Failed to persist session to backend (non-blocking)"
+                );
+            }
+        }
     }
 
     fn compute_transition(
@@ -2128,5 +2233,109 @@ mod tests {
     fn test_should_deny_unknown_session_returns_none() {
         let guard = default_guard();
         assert!(guard.should_deny("nonexistent").is_none());
+    }
+
+    // ── Session persistence backend tests ────────────────────────────────
+
+    /// Test backend that records persisted sessions in a shared map.
+    struct MockBackend {
+        store: std::sync::Mutex<HashMap<String, SessionContext>>,
+    }
+
+    impl MockBackend {
+        fn new() -> Self {
+            Self {
+                store: std::sync::Mutex::new(HashMap::new()),
+            }
+        }
+    }
+
+    impl SessionBackend for MockBackend {
+        fn store(&self, session_id: &str, ctx: &SessionContext) -> Result<(), String> {
+            self.store
+                .lock()
+                .map_err(|_| "lock".to_string())?
+                .insert(session_id.to_string(), ctx.clone());
+            Ok(())
+        }
+
+        fn remove(&self, session_id: &str) -> Result<(), String> {
+            self.store
+                .lock()
+                .map_err(|_| "lock".to_string())?
+                .remove(session_id);
+            Ok(())
+        }
+
+        fn load_all(&self) -> Result<Vec<(String, SessionContext)>, String> {
+            Ok(self
+                .store
+                .lock()
+                .map_err(|_| "lock".to_string())?
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect())
+        }
+    }
+
+    #[test]
+    fn test_session_backend_write_through_on_transition() {
+        let backend = std::sync::Arc::new(MockBackend::new());
+        let guard = SessionGuard::new(SessionGuardConfig::default())
+            .with_backend(Box::new(MockBackendRef(backend.clone())));
+        guard.process_event("sess-1", SessionEvent::NormalAction).unwrap();
+        let store = backend.store.lock().unwrap();
+        assert!(store.contains_key("sess-1"), "session should be persisted after transition");
+    }
+
+    #[test]
+    fn test_warm_restart_restores_locked_sessions() {
+        let backend = std::sync::Arc::new(MockBackend::new());
+        // Pre-populate the backend with a Locked session
+        {
+            let mut ctx = SessionContext::new(1000);
+            ctx.state = SessionState::Locked;
+            ctx.locked_at = Some(1000);
+            backend.store.lock().unwrap().insert("locked-1".to_string(), ctx);
+        }
+        let guard = SessionGuard::new(SessionGuardConfig::default())
+            .with_backend(Box::new(MockBackendRef(backend.clone())));
+        let count = guard.warm_restart().unwrap();
+        assert_eq!(count, 1, "should restore 1 Locked session");
+        assert!(guard.should_deny("locked-1").is_some(), "restored Locked session should deny");
+    }
+
+    #[test]
+    fn test_warm_restart_skips_active_sessions() {
+        let backend = std::sync::Arc::new(MockBackend::new());
+        {
+            let ctx = SessionContext::new(1000); // state = Init
+            backend.store.lock().unwrap().insert("init-1".to_string(), ctx);
+        }
+        let guard = SessionGuard::new(SessionGuardConfig::default())
+            .with_backend(Box::new(MockBackendRef(backend.clone())));
+        let count = guard.warm_restart().unwrap();
+        assert_eq!(count, 0, "should not restore Init sessions");
+    }
+
+    #[test]
+    fn test_warm_restart_no_backend_returns_error() {
+        let guard = SessionGuard::new(SessionGuardConfig::default());
+        assert!(guard.warm_restart().is_err(), "no backend should return error");
+    }
+
+    /// Wrapper to make Arc<MockBackend> implement SessionBackend.
+    struct MockBackendRef(std::sync::Arc<MockBackend>);
+
+    impl SessionBackend for MockBackendRef {
+        fn store(&self, session_id: &str, ctx: &SessionContext) -> Result<(), String> {
+            self.0.store(session_id, ctx)
+        }
+        fn remove(&self, session_id: &str) -> Result<(), String> {
+            self.0.remove(session_id)
+        }
+        fn load_all(&self) -> Result<Vec<(String, SessionContext)>, String> {
+            self.0.load_all()
+        }
     }
 }

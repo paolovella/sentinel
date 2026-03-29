@@ -806,6 +806,65 @@ pub async fn tenant_middleware(
     }
 }
 
+/// Verify a Bearer token against the tenant's stored API key hash.
+///
+/// Returns `Ok(())` if verification passes, `Err(status)` if it fails.
+/// Gracefully passes (returns `Ok(())`) when:
+/// - No tenant store is configured (single-tenant mode)
+/// - The tenant has no `api_key_hash` in metadata (legacy tenant)
+/// - The request has no Authorization header (unauthenticated — other middleware handles this)
+/// - The tenant context is the default tenant (admin)
+///
+/// SECURITY: Uses constant-time comparison via `subtle::ConstantTimeEq` to prevent
+/// timing attacks on key hash verification.
+pub fn verify_tenant_api_key(
+    tenant_ctx: &TenantContext,
+    auth_header: Option<&str>,
+    tenant_store: Option<&dyn TenantStore>,
+) -> Result<(), StatusCode> {
+    // Skip for default tenant (admin) or if no auth header
+    if tenant_ctx.is_default() {
+        return Ok(());
+    }
+    let auth = match auth_header {
+        Some(h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => h[7..].trim(),
+        _ => return Ok(()), // No Bearer token — let other auth middleware handle
+    };
+    if auth.is_empty() {
+        return Ok(());
+    }
+
+    // Look up tenant to get api_key_hash from metadata
+    let store = match tenant_store {
+        Some(s) => s,
+        None => return Ok(()), // No store — single-tenant mode
+    };
+    let tenant = match store.get_tenant(&tenant_ctx.tenant_id) {
+        Some(t) => t,
+        None => return Ok(()), // Tenant not found in store — let tenant middleware handle
+    };
+
+    let stored_hash = match tenant.metadata.get("api_key_hash") {
+        Some(h) => h,
+        None => return Ok(()), // No hash stored — legacy tenant, skip verification
+    };
+
+    // Compute SHA-256 of the presented token and constant-time compare.
+    use sha2::{Digest, Sha256};
+    use subtle::ConstantTimeEq;
+    let token_hash = hex::encode(Sha256::digest(auth.as_bytes()));
+
+    if token_hash.as_bytes().ct_eq(stored_hash.as_bytes()).into() {
+        Ok(())
+    } else {
+        tracing::warn!(
+            tenant_id = %tenant_ctx.tenant_id,
+            "Per-tenant API key verification failed"
+        );
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1397,5 +1456,90 @@ mod tests {
         assert!(config.base_domain.is_none());
         assert_eq!(config.default_tenant_id, DEFAULT_TENANT_ID);
         assert!(!config.require_tenant);
+    }
+
+    // ── Per-tenant API key verification tests ────────────────────────────
+
+    fn make_tenant_with_key_hash(id: &str, api_key: &str) -> Tenant {
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(Sha256::digest(api_key.as_bytes()));
+        let mut t = Tenant::new(id, id);
+        t.metadata.insert("api_key_hash".to_string(), hash);
+        t
+    }
+
+    #[test]
+    fn test_verify_tenant_key_valid_passes() {
+        let store = InMemoryTenantStore::new();
+        store
+            .create_tenant(make_tenant_with_key_hash("t1", "vvt_correct_key"))
+            .unwrap();
+        let ctx = TenantContext {
+            tenant_id: "t1".to_string(),
+            source: TenantSource::Header,
+            quotas: None,
+        };
+        let result =
+            verify_tenant_api_key(&ctx, Some("Bearer vvt_correct_key"), Some(&store));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_tenant_key_invalid_rejected() {
+        let store = InMemoryTenantStore::new();
+        store
+            .create_tenant(make_tenant_with_key_hash("t1", "vvt_correct_key"))
+            .unwrap();
+        let ctx = TenantContext {
+            tenant_id: "t1".to_string(),
+            source: TenantSource::Header,
+            quotas: None,
+        };
+        let result =
+            verify_tenant_api_key(&ctx, Some("Bearer vvt_wrong_key"), Some(&store));
+        assert_eq!(result, Err(StatusCode::UNAUTHORIZED));
+    }
+
+    #[test]
+    fn test_verify_tenant_key_default_tenant_passes() {
+        let ctx = TenantContext::default_tenant();
+        let result = verify_tenant_api_key(&ctx, Some("Bearer anything"), None);
+        assert!(result.is_ok(), "default tenant should bypass verification");
+    }
+
+    #[test]
+    fn test_verify_tenant_key_no_store_passes() {
+        let ctx = TenantContext {
+            tenant_id: "t1".to_string(),
+            source: TenantSource::Header,
+            quotas: None,
+        };
+        let result = verify_tenant_api_key(&ctx, Some("Bearer key"), None);
+        assert!(result.is_ok(), "no tenant store should pass gracefully");
+    }
+
+    #[test]
+    fn test_verify_tenant_key_no_hash_in_metadata_passes() {
+        let store = InMemoryTenantStore::new();
+        store.create_tenant(Tenant::new("t1", "T1")).unwrap(); // No api_key_hash
+        let ctx = TenantContext {
+            tenant_id: "t1".to_string(),
+            source: TenantSource::Header,
+            quotas: None,
+        };
+        let result =
+            verify_tenant_api_key(&ctx, Some("Bearer key"), Some(&store));
+        assert!(result.is_ok(), "tenant without hash should pass (legacy)");
+    }
+
+    #[test]
+    fn test_verify_tenant_key_no_auth_header_passes() {
+        let ctx = TenantContext {
+            tenant_id: "t1".to_string(),
+            source: TenantSource::Header,
+            quotas: None,
+        };
+        let result = verify_tenant_api_key(&ctx, None, None);
+        assert!(result.is_ok(), "no auth header should pass to other middleware");
     }
 }

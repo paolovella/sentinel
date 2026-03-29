@@ -192,7 +192,12 @@ pub async fn signup(
         ));
     }
 
-    // ─── Check capacity ─────────────────────────────────────────────────
+    // ─── Check capacity (atomic with creation) ───────────────────────────
+    // SECURITY: Acquire signup mutex so capacity check + tenant creation is
+    // atomic. Without this, N concurrent requests could all pass the check
+    // and exceed MAX_TOTAL_TENANTS (TOCTOU race).
+    let _signup_guard = state.signup_lock.lock().await;
+
     let tenant_count = state
         .tenant_store
         .as_ref()
@@ -375,6 +380,15 @@ fn is_valid_email_format(email: &str) -> bool {
         return false;
     }
 
+    // R262-SRV-1: Reject control characters, angle brackets, and other characters
+    // that could enable log injection or header injection in confirmation emails.
+    if email
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '<' | '>' | '"' | '\'' | '\\' | '`'))
+    {
+        return false;
+    }
+
     true
 }
 
@@ -436,6 +450,17 @@ mod tests {
         assert!(!is_valid_email_format("user@.com"));
         assert!(!is_valid_email_format("user@example."));
         assert!(!is_valid_email_format("user@exam..ple.com"));
+    }
+
+    // R262-SRV-1: Reject injection characters in email
+    #[test]
+    fn test_email_rejects_injection_chars() {
+        assert!(!is_valid_email_format("test<script>@example.com"));
+        assert!(!is_valid_email_format("test>@example.com"));
+        assert!(!is_valid_email_format("test\"@example.com"));
+        assert!(!is_valid_email_format("test\\@example.com"));
+        assert!(!is_valid_email_format("test\x00@example.com"));
+        assert!(!is_valid_email_format("test\n@example.com"));
     }
 
     #[test]

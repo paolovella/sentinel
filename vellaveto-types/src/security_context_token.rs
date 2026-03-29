@@ -144,6 +144,16 @@ pub fn mint_attestation(
 ///
 /// Returns Ok(()) if the signature is valid, Err with reason otherwise.
 pub fn verify_attestation(token: &SecurityContextToken, hmac_key: &[u8]) -> Result<(), String> {
+    // SECURITY (R259-ATT-2): Validate signature hex length before verification.
+    // HMAC-SHA256 produces exactly 32 bytes = 64 hex chars. Truncated or
+    // oversized signatures indicate tampering or format confusion.
+    if token.signature.len() != 64 {
+        return Err(format!(
+            "signature must be exactly 64 hex characters, got {}",
+            token.signature.len()
+        ));
+    }
+
     let signing_content = token.signing_content();
     let mut mac =
         HmacSha256::new_from_slice(hmac_key).map_err(|e| format!("HMAC key error: {}", e))?;
@@ -246,6 +256,49 @@ mod tests {
         assert_eq!(
             token.signing_content(),
             "v1:12345:deadbeef:true:false:true:Trusted:3"
+        );
+    }
+
+    // R259-ATT-2: Truncated signatures must be rejected
+    #[test]
+    fn test_verify_rejects_truncated_signature() {
+        let key = b"test-key-for-attestation-verify!";
+        let mut token =
+            mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        // Truncate to 32 hex chars (half of correct 64)
+        token.signature = token.signature[..32].to_string();
+        let err = verify_attestation(&token, key).unwrap_err();
+        assert!(
+            err.contains("exactly 64 hex characters"),
+            "should reject truncated signature: {err}"
+        );
+    }
+
+    // R259-ATT-2: Empty signature must be rejected
+    #[test]
+    fn test_verify_rejects_empty_signature() {
+        let key = b"test-key-for-attestation-verify!";
+        let mut token =
+            mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        token.signature = String::new();
+        let err = verify_attestation(&token, key).unwrap_err();
+        assert!(
+            err.contains("exactly 64 hex characters"),
+            "should reject empty signature: {err}"
+        );
+    }
+
+    // R259-ATT-2: Oversized signature must be rejected
+    #[test]
+    fn test_verify_rejects_oversized_signature() {
+        let key = b"test-key-for-attestation-verify!";
+        let mut token =
+            mint_attestation("abc123", true, true, true, "Verified", 5, key).unwrap();
+        token.signature = format!("{}aa", token.signature); // 66 hex chars
+        let err = verify_attestation(&token, key).unwrap_err();
+        assert!(
+            err.contains("exactly 64 hex characters"),
+            "should reject oversized signature: {err}"
         );
     }
 }

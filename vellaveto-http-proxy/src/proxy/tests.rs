@@ -5689,6 +5689,44 @@ fn test_extract_call_chain_stale_timestamp_marked_unverified() {
     );
 }
 
+// R260-PROXY-1: Future timestamps must be rejected (clock skew > 5 min)
+#[test]
+fn test_r260_call_chain_future_timestamp_marked_unverified() {
+    let future_time = Utc::now() + chrono::Duration::seconds(600); // 10 minutes in future
+    let mut entry = vellaveto_types::CallChainEntry {
+        agent_id: "future-agent".to_string(),
+        tool: "read_file".to_string(),
+        function: "execute".to_string(),
+        timestamp: future_time.to_rfc3339(),
+        hmac: None,
+        verified: None,
+    };
+    let content = call_chain_entry_signing_content(&entry);
+    entry.hmac = Some(compute_call_chain_hmac(&TEST_HMAC_KEY, &content).unwrap());
+
+    let chain_json = serde_json::to_string(&[&entry]).unwrap();
+
+    let mut headers = HeaderMap::new();
+    headers.insert(X_UPSTREAM_AGENTS, chain_json.parse().unwrap());
+
+    let result = extract_call_chain_from_headers(
+        &headers,
+        Some(&TEST_HMAC_KEY),
+        &vellaveto_config::LimitsConfig::default(),
+    );
+    assert_eq!(result.len(), 1);
+    assert!(
+        result[0].agent_id.starts_with("[stale]"),
+        "Future timestamp entry should be marked stale, got: {}",
+        result[0].agent_id
+    );
+    assert_eq!(
+        result[0].verified,
+        Some(false),
+        "Future timestamp entries should be marked unverified"
+    );
+}
+
 #[test]
 fn test_call_chain_entry_signing_content_deterministic() {
     let entry = vellaveto_types::CallChainEntry {

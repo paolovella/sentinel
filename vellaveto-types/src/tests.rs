@@ -9987,6 +9987,8 @@ fn test_evidence_pack_serde_roundtrip() {
         uncovered_requirements: 1,
         critical_gaps: vec!["Gap 1".to_string()],
         recommendations: vec!["Rec 1".to_string()],
+        signature: None,
+        verifying_key: None,
     };
     assert!(pack.validate().is_ok());
     let json = serde_json::to_string(&pack).unwrap();
@@ -10014,6 +10016,8 @@ fn test_evidence_pack_validate_too_many_gaps() {
         uncovered_requirements: 1,
         critical_gaps: (0..501).map(|i| format!("gap_{i}")).collect(),
         recommendations: vec![],
+        signature: None,
+        verifying_key: None,
     };
     let err = pack.validate().unwrap_err();
     assert!(err.contains("critical_gaps"));
@@ -10058,6 +10062,8 @@ fn test_evidence_pack_validate_generated_at_control_chars() {
         uncovered_requirements: 0,
         critical_gaps: vec![],
         recommendations: vec![],
+        signature: None,
+        verifying_key: None,
     };
     let err = pack.validate().unwrap_err();
     assert!(
@@ -10084,6 +10090,8 @@ fn test_evidence_pack_validate_period_start_control_chars() {
         uncovered_requirements: 0,
         critical_gaps: vec![],
         recommendations: vec![],
+        signature: None,
+        verifying_key: None,
     };
     let err = pack.validate().unwrap_err();
     assert!(
@@ -10126,6 +10134,8 @@ fn test_evidence_pack_validate_recommendation_control_chars() {
         uncovered_requirements: 1,
         critical_gaps: vec![],
         recommendations: vec!["Do \x08this".to_string()],
+        signature: None,
+        verifying_key: None,
     };
     let err = pack.validate().unwrap_err();
     assert!(
@@ -10152,6 +10162,8 @@ fn test_evidence_pack_validate_critical_gap_control_chars() {
         uncovered_requirements: 1,
         critical_gaps: vec!["Gap\x1binjection".to_string()],
         recommendations: vec![],
+        signature: None,
+        verifying_key: None,
     };
     let err = pack.validate().unwrap_err();
     assert!(
@@ -10978,6 +10990,48 @@ fn test_security_posture_score_validate_dangerous_category_name() {
     };
     let err = score.validate().unwrap_err();
     assert!(err.contains("category name"), "Error: {err}");
+}
+
+// R260-TYP-1: PostureCategoryScore standalone validation
+#[test]
+fn test_r260_posture_category_score_rejects_nan() {
+    let score = crate::posture::PostureCategoryScore {
+        name: "governance".to_string(),
+        score_percent: f32::NAN,
+        inputs: 3,
+    };
+    assert!(score.validate().is_err());
+}
+
+#[test]
+fn test_r260_posture_category_score_rejects_negative() {
+    let score = crate::posture::PostureCategoryScore {
+        name: "governance".to_string(),
+        score_percent: -1.0,
+        inputs: 3,
+    };
+    assert!(score.validate().is_err());
+}
+
+#[test]
+fn test_r260_posture_category_score_rejects_dangerous_name() {
+    let score = crate::posture::PostureCategoryScore {
+        name: "gov\u{200B}ernance".to_string(),
+        score_percent: 50.0,
+        inputs: 3,
+    };
+    let err = score.validate().unwrap_err();
+    assert!(err.contains("dangerous"), "Error: {err}");
+}
+
+#[test]
+fn test_r260_posture_framework_score_rejects_infinity() {
+    let score = crate::posture::PostureFrameworkScore {
+        name: "SOC2".to_string(),
+        score_percent: f32::INFINITY,
+        enabled: true,
+    };
+    assert!(score.validate().is_err());
 }
 
 #[test]

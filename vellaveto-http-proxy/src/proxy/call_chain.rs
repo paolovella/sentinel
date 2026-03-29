@@ -269,9 +269,15 @@ pub fn extract_call_chain_from_headers(
     let now = Utc::now();
     if let Some(key) = hmac_key {
         for entry in &mut entries {
-            // First check timestamp freshness
+            // First check timestamp freshness.
+            // SECURITY (R260-PROXY-1): Also reject future timestamps (> 5 min clock skew).
+            // Previously only checked staleness, allowing forged future timestamps.
+            const MAX_CLOCK_SKEW_SECS: i64 = 300;
             let timestamp_valid = chrono::DateTime::parse_from_rfc3339(&entry.timestamp)
-                .map(|ts| (now - ts.with_timezone(&Utc)).num_seconds() <= max_age_secs)
+                .map(|ts| {
+                    let age = (now - ts.with_timezone(&Utc)).num_seconds();
+                    age >= -MAX_CLOCK_SKEW_SECS && age <= max_age_secs
+                })
                 .unwrap_or(false);
 
             if !timestamp_valid {

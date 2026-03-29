@@ -251,6 +251,7 @@ impl SemanticGuardrailsService {
     }
 
     /// Creates a service with a mock backend for testing.
+    #[cfg(test)]
     pub fn mock() -> Self {
         Self::new(Arc::new(MockEvaluator::new()), ServiceConfig::default())
             .expect("default config is valid")

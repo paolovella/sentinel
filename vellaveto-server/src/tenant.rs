@@ -822,19 +822,12 @@ pub fn verify_tenant_api_key(
     auth_header: Option<&str>,
     tenant_store: Option<&dyn TenantStore>,
 ) -> Result<(), StatusCode> {
-    // Skip for default tenant (admin) or if no auth header
+    // Skip for default tenant (admin)
     if tenant_ctx.is_default() {
         return Ok(());
     }
-    let auth = match auth_header {
-        Some(h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => h[7..].trim(),
-        _ => return Ok(()), // No Bearer token — let other auth middleware handle
-    };
-    if auth.is_empty() {
-        return Ok(());
-    }
 
-    // Look up tenant to get api_key_hash from metadata
+    // Look up tenant to check if it has an api_key_hash
     let store = match tenant_store {
         Some(s) => s,
         None => return Ok(()), // No store — single-tenant mode
@@ -848,6 +841,23 @@ pub fn verify_tenant_api_key(
         Some(h) => h,
         None => return Ok(()), // No hash stored — legacy tenant, skip verification
     };
+
+    // SECURITY (R263-TEN-1): If the tenant HAS a stored api_key_hash, a valid
+    // Bearer token is REQUIRED. Previously returned Ok(()) when no auth header
+    // was present, allowing complete bypass of per-tenant key verification.
+    let auth = match auth_header {
+        Some(h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => h[7..].trim(),
+        _ => {
+            tracing::warn!(
+                tenant_id = %tenant_ctx.tenant_id,
+                "Per-tenant API key required but no Bearer token provided"
+            );
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
+    if auth.is_empty() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     // Compute SHA-256 of the presented token and constant-time compare.
     use sha2::{Digest, Sha256};
@@ -1530,16 +1540,35 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_tenant_key_no_auth_header_passes() {
+    fn test_verify_tenant_key_no_auth_header_no_store_passes() {
         let ctx = TenantContext {
             tenant_id: "t1".to_string(),
             source: TenantSource::Header,
             quotas: None,
         };
+        // No store → no hash to check → pass (single-tenant mode)
         let result = verify_tenant_api_key(&ctx, None, None);
-        assert!(
-            result.is_ok(),
-            "no auth header should pass to other middleware"
+        assert!(result.is_ok(), "no store means no hash to verify");
+    }
+
+    // R263-TEN-1: Tenant with stored hash MUST reject missing auth header
+    #[test]
+    fn test_verify_tenant_key_with_hash_no_auth_rejected() {
+        let store = InMemoryTenantStore::new();
+        store
+            .create_tenant(make_tenant_with_key_hash("t1", "vvt_the_key"))
+            .unwrap();
+        let ctx = TenantContext {
+            tenant_id: "t1".to_string(),
+            source: TenantSource::Header,
+            quotas: None,
+        };
+        // Tenant has api_key_hash but request has no Authorization header
+        let result = verify_tenant_api_key(&ctx, None, Some(&store));
+        assert_eq!(
+            result,
+            Err(StatusCode::UNAUTHORIZED),
+            "tenant with stored hash must reject missing auth"
         );
     }
 }

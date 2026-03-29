@@ -93,8 +93,9 @@ impl WebhookDedup {
 
         let now = std::time::Instant::now();
 
-        // Evict expired entries periodically (every 1000 inserts).
-        if self.seen.len() > MAX_WEBHOOK_DEDUP_ENTRIES {
+        // R263-DEDUP-1: Evict expired entries when AT capacity (was > instead of >=,
+        // allowing the map to exceed MAX by 1 before triggering eviction).
+        if self.seen.len() >= MAX_WEBHOOK_DEDUP_ENTRIES {
             self.seen.retain(|_, ts| now.duration_since(*ts) < self.ttl);
         }
 

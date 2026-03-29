@@ -324,13 +324,41 @@ impl EvidencePack {
             &mut hasher,
             &(self.uncovered_requirements as u64).to_le_bytes(),
         );
-        // Include critical gaps content so tampering is detected.
+        // R263-EP-1: Include ALL tamper-detectable fields. Previously excluded
+        // sections, recommendations, and period bounds — allowing an attacker to
+        // strip evidence items or alter the audit period without invalidating the
+        // signature.
+        hash_field(
+            &mut hasher,
+            self.period_start.as_deref().unwrap_or("").as_bytes(),
+        );
+        hash_field(
+            &mut hasher,
+            self.period_end.as_deref().unwrap_or("").as_bytes(),
+        );
+        // Sections (the core evidence items)
+        hash_field(&mut hasher, &(self.sections.len() as u64).to_le_bytes());
+        for section in &self.sections {
+            hash_field(&mut hasher, section.section_id.as_bytes());
+            hash_field(&mut hasher, section.title.as_bytes());
+            hash_field(&mut hasher, &(section.items.len() as u64).to_le_bytes());
+            hash_field(&mut hasher, &section.section_coverage_percent.to_le_bytes());
+        }
+        // Critical gaps
         hash_field(
             &mut hasher,
             &(self.critical_gaps.len() as u64).to_le_bytes(),
         );
         for gap in &self.critical_gaps {
             hash_field(&mut hasher, gap.as_bytes());
+        }
+        // Recommendations
+        hash_field(
+            &mut hasher,
+            &(self.recommendations.len() as u64).to_le_bytes(),
+        );
+        for rec in &self.recommendations {
+            hash_field(&mut hasher, rec.as_bytes());
         }
         hasher.finalize().to_vec()
     }

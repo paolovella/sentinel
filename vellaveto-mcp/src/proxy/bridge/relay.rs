@@ -2029,18 +2029,48 @@ impl ProxyBridge {
         }
 
         // Denial-of-wallet detection — rate spikes, recursive loops, token exhaustion.
+        // SECURITY (R264-RELAY-2): Now produces ACIS audit entries, not just warnings.
         {
             let dow = state.dow_tracker.record_call(&tool_name, 0);
-            for finding in &dow {
-                tracing::warn!(
-                    "SECURITY: Denial-of-wallet pattern for tool '{}': {:?}",
-                    tool_name,
-                    finding.finding_type
+            if !dow.is_empty() {
+                for finding in &dow {
+                    tracing::warn!(
+                        "SECURITY: Denial-of-wallet pattern for tool '{}': {:?}",
+                        tool_name,
+                        finding.finding_type
+                    );
+                }
+                let action = extract_action(&tool_name, &arguments);
+                let verdict = Verdict::Allow; // Log-only detection
+                let envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::RateLimiter,
+                    "stdio",
+                    state.agent_id.as_deref(),
                 );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "denial_of_wallet_detected",
+                            "tool": tool_name,
+                            "finding_count": dow.len(),
+                        }),
+                        envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit DoW finding: {}", e);
+                }
             }
         }
 
         // Jailbreak pattern detection in tool call parameters (MITRE AML.T0054).
+        // SECURITY (R264-RELAY-2): Now produces ACIS audit entries.
         {
             let jb = crate::jailbreak_patterns::scan_params_for_jailbreak(&arguments);
             if !jb.is_empty() {
@@ -2049,10 +2079,37 @@ impl ProxyBridge {
                     tool_name,
                     jb.len()
                 );
+                let action = extract_action(&tool_name, &arguments);
+                let verdict = Verdict::Allow; // Log-only detection
+                let envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::InjectionScanner,
+                    "stdio",
+                    state.agent_id.as_deref(),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "jailbreak_patterns_detected",
+                            "tool": tool_name,
+                            "finding_count": jb.len(),
+                        }),
+                        envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit jailbreak finding: {}", e);
+                }
             }
         }
 
         // Token/credential leakage detection in tool call parameters.
+        // SECURITY (R264-RELAY-2): Now produces ACIS audit entries.
         {
             let tl = crate::token_leakage::scan_params_for_tokens(&arguments);
             if !tl.is_empty() {
@@ -2061,10 +2118,37 @@ impl ProxyBridge {
                     tool_name,
                     tl.len()
                 );
+                let action = extract_action(&tool_name, &arguments);
+                let verdict = Verdict::Allow; // Log-only detection
+                let envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::Dlp,
+                    "stdio",
+                    state.agent_id.as_deref(),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "token_leakage_detected",
+                            "tool": tool_name,
+                            "finding_count": tl.len(),
+                        }),
+                        envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit token leakage finding: {}", e);
+                }
             }
         }
 
         // Memory query poisoning detection (MINJA, NeurIPS 2025).
+        // SECURITY (R264-RELAY-2): Now produces ACIS audit entries.
         {
             let mp = crate::memory_query_poisoning::scan_params_for_memory_poisoning(&arguments);
             if !mp.is_empty() {
@@ -2073,6 +2157,32 @@ impl ProxyBridge {
                     tool_name,
                     mp.len()
                 );
+                let action = extract_action(&tool_name, &arguments);
+                let verdict = Verdict::Allow; // Log-only detection
+                let envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::MemoryPoisoning,
+                    "stdio",
+                    state.agent_id.as_deref(),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "memory_query_poisoning_detected",
+                            "tool": tool_name,
+                            "finding_count": mp.len(),
+                        }),
+                        envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit memory query poisoning finding: {}", e);
+                }
             }
         }
 
@@ -2826,48 +2936,81 @@ impl ProxyBridge {
                 Ok(Some(approval_id)) => {
                     // Phase 3: Approval lineage drift check — invalidate if session
                     // trust has dropped or new taint accumulated since creation.
+                    // SECURITY (R264-RELAY-1): Drift MUST produce a denial, not just
+                    // a warning. Previously the code logged but fell through to consume.
+                    let mut drift_detected = false;
                     if let Some(ref store) = self.approval_store {
-                        if let Ok(pending) = store.get(approval_id.as_str()).await {
-                            let current_trust = state.min_session_trust_tier();
-                            let current_taint = state.session_semantics.taint.len();
-                            if let Some(drift_reason) =
-                                vellaveto_approval::check_approval_lineage_drift(
-                                    &pending,
-                                    current_trust,
-                                    current_taint,
-                                )
-                            {
+                        match store.get(approval_id.as_str()).await {
+                            Ok(pending) => {
+                                let current_trust = state.min_session_trust_tier();
+                                let current_taint = state.session_semantics.taint.len();
+                                if let Some(drift_reason) =
+                                    vellaveto_approval::check_approval_lineage_drift(
+                                        &pending,
+                                        current_trust,
+                                        current_taint,
+                                    )
+                                {
+                                    tracing::warn!(
+                                        "SECURITY: Approval '{}' invalidated due to lineage drift: {}",
+                                        &approval_id[..approval_id.len().min(32)],
+                                        drift_reason
+                                    );
+                                    drift_detected = true;
+                                }
+                            }
+                            Err(e) => {
+                                // SECURITY (R265-RELAY-3): Fail-closed on store error.
+                                // Previously, store.get() errors left drift_detected=false,
+                                // allowing the approval to be consumed without drift
+                                // verification — a fail-open bypass.
                                 tracing::warn!(
-                                    "SECURITY: Approval '{}' invalidated due to lineage drift: {}",
-                                    &approval_id[..approval_id.len().min(32)],
-                                    drift_reason
+                                    "SECURITY: Approval store error during drift check — denying (fail-closed): {}",
+                                    e
                                 );
-                                // Fall through to deny — don't consume the drifted approval
+                                drift_detected = true;
                             }
                         }
                     }
 
-                    // SECURITY (R244-TOCTOU-1): Consume the approval atomically
-                    // after matching.
-                    if let Err(()) = self
-                        .consume_presented_approval(
-                            Some(approval_id.as_str()),
-                            &action,
-                            Some(state.session_scope_binding.as_str()),
-                        )
-                        .await
-                    {
+                    if drift_detected {
+                        // SECURITY (R264-RELAY-1): Deny the request — do NOT consume
+                        // the drifted approval. Trust degradation since approval creation
+                        // means the security context has changed.
+                        final_origin = DecisionOrigin::ApprovalGate;
+                        refresh_envelope = true;
                         ProxyDecision::Block(
-                            make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
+                            make_denial_response(
+                                &id,
+                                "Approval invalidated: session lineage drift",
+                            ),
                             Verdict::Deny {
-                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                reason: "Approval invalidated: session lineage drift".to_string(),
                             },
                         )
                     } else {
-                        matched_approval_id = Some(approval_id);
-                        final_origin = DecisionOrigin::PolicyEngine;
-                        refresh_envelope = true;
-                        ProxyDecision::Forward
+                        // SECURITY (R244-TOCTOU-1): Consume the approval atomically
+                        // after matching (no drift detected).
+                        if let Err(()) = self
+                            .consume_presented_approval(
+                                Some(approval_id.as_str()),
+                                &action,
+                                Some(state.session_scope_binding.as_str()),
+                            )
+                            .await
+                        {
+                            ProxyDecision::Block(
+                                make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
+                                Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                },
+                            )
+                        } else {
+                            matched_approval_id = Some(approval_id);
+                            final_origin = DecisionOrigin::PolicyEngine;
+                            refresh_envelope = true;
+                            ProxyDecision::Forward
+                        }
                     }
                 }
                 Err(()) => {

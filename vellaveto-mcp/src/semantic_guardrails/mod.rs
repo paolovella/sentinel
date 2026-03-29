@@ -232,19 +232,28 @@ impl ServiceConfig {
 
 impl SemanticGuardrailsService {
     /// Creates a new service with the given evaluator and configuration.
-    pub fn new(evaluator: Arc<dyn LlmEvaluator>, config: ServiceConfig) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// Returns an error if the configuration is invalid (e.g., `FallbackBehavior::Allow`
+    /// without `dangerous_allow_fail_open_acknowledged`).
+    ///
+    /// SECURITY (R263-SG-1): Validates config at construction time so that invalid
+    /// configurations cannot bypass the fallback gate.
+    pub fn new(evaluator: Arc<dyn LlmEvaluator>, config: ServiceConfig) -> Result<Self, String> {
+        config.validate()?;
+        Ok(Self {
             evaluator,
             cache: EvaluationCache::new(CacheConfig::default()),
             intent_chains: Arc::new(RwLock::new(std::collections::HashMap::new())),
             nl_compiler: NlPolicyCompiler::new(),
             config,
-        }
+        })
     }
 
     /// Creates a service with a mock backend for testing.
     pub fn mock() -> Self {
         Self::new(Arc::new(MockEvaluator::new()), ServiceConfig::default())
+            .expect("default config is valid")
     }
 
     /// Creates a disabled service that passes all requests through.
@@ -703,7 +712,7 @@ mod tests {
             fallback: FallbackBehavior::Deny,
             ..Default::default()
         };
-        let service = SemanticGuardrailsService::new(evaluator, config);
+        let service = SemanticGuardrailsService::new(evaluator, config).unwrap();
 
         let input = LlmEvalInput::new("test", "func");
         let result = service.evaluate(&input).await.unwrap();
@@ -723,7 +732,7 @@ mod tests {
             dangerous_allow_fail_open_acknowledged: true,
             ..Default::default()
         };
-        let service = SemanticGuardrailsService::new(evaluator, config);
+        let service = SemanticGuardrailsService::new(evaluator, config).unwrap();
 
         let input = LlmEvalInput::new("test", "func");
         let result = service.evaluate(&input).await.unwrap();

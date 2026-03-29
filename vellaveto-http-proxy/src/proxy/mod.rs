@@ -314,6 +314,15 @@ pub struct ProxyState {
     /// When `Some`, tool schemas can be projected to model-specific formats.
     #[cfg(feature = "projector")]
     pub projector_registry: Option<std::sync::Arc<vellaveto_mcp::projector::ProjectorRegistry>>,
+
+    // =========================================================================
+    // Content-Bound Attestation (SecurityContextToken HMAC)
+    // =========================================================================
+    /// Optional HMAC-SHA256 key for content-bound attestation.
+    /// When set, `vellaveto_attestation` is attached to `_meta` on every
+    /// JSON response, binding scan results to the response content hash.
+    /// Read from `VELLAVETO_ATTESTATION_SECRET` env var at startup.
+    pub attestation_hmac_key: Option<Vec<u8>>,
 }
 
 /// Per-request trust signal for forwarded-header handling.

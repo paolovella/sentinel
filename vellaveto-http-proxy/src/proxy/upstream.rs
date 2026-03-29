@@ -1145,13 +1145,67 @@ pub(super) async fn forward_to_upstream_url(
                             }
                         }
 
+                        // SECURITY: Content-bound attestation — sign scan results + content hash.
+                        // Attached AFTER all scanning but BEFORE forwarding to the client.
+                        let final_body = if let Some(ref hmac_key) = state.attestation_hmac_key {
+                            if let Ok(mut response_json) =
+                                serde_json::from_slice::<Value>(&body_bytes)
+                            {
+                                use vellaveto_types::security_context_token::{
+                                    hash_content, mint_attestation,
+                                };
+
+                                let content_to_hash = response_json
+                                    .get("result")
+                                    .or_else(|| response_json.get("error"))
+                                    .cloned()
+                                    .unwrap_or(Value::Null);
+                                let content_hash = hash_content(&content_to_hash);
+
+                                let trust_tier = "Untrusted";
+
+                                if let Ok(token) = mint_attestation(
+                                    &content_hash,
+                                    !injection_detected,
+                                    !dlp_detected,
+                                    true, // schema_valid — no schema violation survived to here
+                                    trust_tier,
+                                    5, // scan_passes
+                                    hmac_key,
+                                ) {
+                                    if let Some(obj) = response_json.as_object_mut() {
+                                        let meta = obj
+                                            .entry("_meta")
+                                            .or_insert_with(|| serde_json::json!({}));
+                                        if let Some(meta_obj) = meta.as_object_mut() {
+                                            if let Ok(token_val) = serde_json::to_value(&token) {
+                                                meta_obj.insert(
+                                                    "vellaveto_attestation".to_string(),
+                                                    token_val,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+
+                                match serde_json::to_vec(&response_json) {
+                                    Ok(bytes) => Bytes::from(bytes),
+                                    Err(_) => body_bytes,
+                                }
+                            } else {
+                                body_bytes
+                            }
+                        } else {
+                            body_bytes
+                        };
+
                         // Forward the raw bytes (no injection/DLP blocking triggered)
                         // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
                         // The proxy is the session authority — see SSE path comment above.
                         Response::builder()
                             .status(status)
                             .header("content-type", "application/json")
-                            .body(Body::from(body_bytes))
+                            .body(Body::from(final_body))
                             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
                     }
                     Err(e) => {

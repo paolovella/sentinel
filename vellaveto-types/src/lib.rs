@@ -40,6 +40,7 @@ pub mod policy_lifecycle;
 pub mod posture;
 pub mod projector;
 pub mod provenance;
+pub mod security_context_token;
 pub mod shield;
 pub mod task;
 pub mod threat;

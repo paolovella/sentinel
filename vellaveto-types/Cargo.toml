@@ -14,6 +14,9 @@ readme = "README.md"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.4"

@@ -1228,6 +1228,54 @@ class VellavetoClient:
         if self._use_httpx and hasattr(self, "_client"):
             self._client.close()
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # Content-Bound Attestation Verification
+    # ═══════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def verify_attestation(response: Dict[str, Any], hmac_key: bytes) -> bool:
+        """Verify the proxy's content attestation on a response.
+
+        Returns True if the attestation HMAC is valid and the content hash
+        matches the response body. Returns False if verification fails or
+        no attestation is present.
+
+        Args:
+            response: The JSON-RPC response dict from the proxy.
+            hmac_key: The shared HMAC secret (same as VELLAVETO_ATTESTATION_SECRET).
+
+        Returns:
+            True if attestation is present and valid, False otherwise.
+        """
+        import hashlib
+        import hmac as hmac_mod
+
+        meta = response.get("_meta", {})
+        attestation = meta.get("vellaveto_attestation")
+        if not attestation:
+            return False
+
+        # Verify content hash matches
+        content = response.get("result") or response.get("error")
+        canonical = json.dumps(content, sort_keys=False, separators=(",", ":"))
+        expected_hash = hashlib.sha256(canonical.encode()).hexdigest()
+        if attestation.get("content_hash") != expected_hash:
+            return False
+
+        # Verify HMAC signature
+        signing_content = (
+            f"v{attestation['version']}:{attestation['timestamp']}"
+            f":{attestation['content_hash']}"
+            f":{str(attestation['injection_clean']).lower()}"
+            f":{str(attestation['dlp_clean']).lower()}"
+            f":{str(attestation['schema_valid']).lower()}"
+            f":{attestation['trust_tier']}:{attestation['scan_passes']}"
+        )
+        expected_sig = hmac_mod.new(
+            hmac_key, signing_content.encode(), hashlib.sha256
+        ).hexdigest()
+        return hmac_mod.compare_digest(attestation.get("signature", ""), expected_sig)
+
 
 class AsyncVellavetoClient:
     """
@@ -1860,3 +1908,15 @@ class AsyncVellavetoClient:
             f"/api/billing/usage/{quote(tenant_id, safe='')}/history",
             params=params,
         )
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Content-Bound Attestation Verification
+    # ═══════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def verify_attestation(response: Dict[str, Any], hmac_key: bytes) -> bool:
+        """Verify the proxy's content attestation on a response.
+
+        Delegates to VellavetoClient.verify_attestation (same logic).
+        """
+        return VellavetoClient.verify_attestation(response, hmac_key)

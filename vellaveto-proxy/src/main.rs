@@ -727,6 +727,14 @@ async fn main() -> Result<()> {
         bridge = bridge.with_intent_scope_config(scope.clone());
     }
 
+    // Wire content-bound attestation HMAC key from env var.
+    if let Ok(secret) = std::env::var("VELLAVETO_ATTESTATION_SECRET") {
+        if !secret.is_empty() {
+            bridge = bridge.with_attestation_key(secret.into_bytes());
+            tracing::info!("Content-bound attestation: ENABLED");
+        }
+    }
+
     // Wire notification writer for desktop app integration (--notification-file).
     if let Some(ref nf_path) = cli.notification_file {
         let writer = Arc::new(

@@ -1449,6 +1449,54 @@ export class VellavetoClient {
       `/api/billing/usage/${encodeURIComponent(tenantId)}/history?periods=${periods}`
     );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Content-Bound Attestation Verification
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Verify the proxy's content attestation on a response.
+   *
+   * Returns true if the attestation HMAC is valid and the content hash
+   * matches the response body. Returns false if verification fails or
+   * no attestation is present.
+   *
+   * @param response - The JSON-RPC response object from the proxy.
+   * @param hmacKey - The shared HMAC secret (same as VELLAVETO_ATTESTATION_SECRET).
+   * @returns true if attestation is present and valid, false otherwise.
+   */
+  static verifyAttestation(
+    response: Record<string, unknown>,
+    hmacKey: string
+  ): boolean {
+    const crypto = require("crypto");
+    const meta = response._meta as Record<string, unknown> | undefined;
+    if (!meta) return false;
+    const attestation = meta.vellaveto_attestation as
+      | Record<string, unknown>
+      | undefined;
+    if (!attestation) return false;
+
+    // Verify content hash matches
+    const content = response.result ?? response.error ?? null;
+    const canonical = JSON.stringify(content);
+    const expectedHash = crypto
+      .createHash("sha256")
+      .update(canonical, "utf8")
+      .digest("hex");
+    if (attestation.content_hash !== expectedHash) return false;
+
+    // Verify HMAC signature
+    const signingContent = `v${attestation.version}:${attestation.timestamp}:${attestation.content_hash}:${attestation.injection_clean}:${attestation.dlp_clean}:${attestation.schema_valid}:${attestation.trust_tier}:${attestation.scan_passes}`;
+    const expectedSig = crypto
+      .createHmac("sha256", hmacKey)
+      .update(signingContent, "utf8")
+      .digest("hex");
+    return crypto.timingSafeEqual(
+      Buffer.from(attestation.signature as string, "utf8"),
+      Buffer.from(expectedSig, "utf8")
+    );
+  }
 }
 
 /**

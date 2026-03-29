@@ -60,7 +60,7 @@ http = "1"
 tower = "0.5"
 sha2 = { workspace = true }
 metrics = { workspace = true }
-hmac = "0.12"
+hmac = { workspace = true }
 hex = { workspace = true }
 subtle = "2"
 governor = "0.10"

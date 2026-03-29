@@ -1593,6 +1593,7 @@ fn make_test_state() -> ProxyState {
         discovery_engine: None,
         #[cfg(feature = "projector")]
         projector_registry: None,
+        attestation_hmac_key: None,
     }
 }
 

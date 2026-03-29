@@ -8870,6 +8870,46 @@ impl ProxyBridge {
             }
         }
 
+        // SECURITY: Content-bound attestation — sign scan results + content hash.
+        // Attached AFTER all scanning is complete but BEFORE forwarding to agent.
+        // Consumers verify with their SDK's verify_attestation() method.
+        if let Some(ref hmac_key) = self.attestation_hmac_key {
+            use vellaveto_types::security_context_token::{hash_content, mint_attestation};
+
+            // Hash the response content (result or error)
+            let content_to_hash = msg
+                .get("result")
+                .or_else(|| msg.get("error"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let content_hash = hash_content(&content_to_hash);
+
+            // Determine trust tier from session state
+            let trust_tier = state
+                .min_session_trust_tier()
+                .map(|t| format!("{t:?}"))
+                .unwrap_or_else(|| "Untrusted".to_string());
+
+            if let Ok(token) = mint_attestation(
+                &content_hash,
+                !injection_found,
+                !dlp_found,
+                !schema_violation_found,
+                &trust_tier,
+                5, // scan_passes: injection, DLP, schema, memory poisoning, rug-pull
+                hmac_key,
+            ) {
+                if let Some(obj) = msg.as_object_mut() {
+                    let meta = obj.entry("_meta").or_insert_with(|| serde_json::json!({}));
+                    if let Some(meta_obj) = meta.as_object_mut() {
+                        if let Ok(token_val) = serde_json::to_value(&token) {
+                            meta_obj.insert("vellaveto_attestation".to_string(), token_val);
+                        }
+                    }
+                }
+            }
+        }
+
         // Relay child response to agent
         write_message(agent_writer, &msg)
             .await

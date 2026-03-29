@@ -461,6 +461,15 @@ impl ProxyBridge {
         self
     }
 
+    /// Set the HMAC-SHA256 key for content-bound attestation.
+    /// When set, every proxied response gets a `_meta.vellaveto_attestation`
+    /// token binding scan results to the response content hash.
+    /// Consumers verify with their SDK's `verify_attestation()` method.
+    pub fn with_attestation_key(mut self, key: Vec<u8>) -> Self {
+        self.attestation_hmac_key = Some(key);
+        self
+    }
+
     // Phase 6: Channel Separation
 
     /// Set source trust classification for auto-tainting.

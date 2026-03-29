@@ -290,6 +290,17 @@ pub struct ProxyBridge {
     /// Called on every tools/call verdict with (tool, method, verdict, reason).
     /// The callback must be non-blocking — file I/O is acceptable but not network.
     verdict_notify: Option<Arc<VerdictNotifyFn>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Content-Bound Attestation (SecurityContextToken HMAC)
+    // ═══════════════════════════════════════════════════════════════════
+    /// Optional HMAC-SHA256 key for content-bound attestation.
+    /// When set, `vellaveto_attestation` is attached to `_meta` on every
+    /// proxied response, binding scan results (injection, DLP, schema) to
+    /// the SHA-256 hash of the response content. Consumers verify with
+    /// their SDK's `verify_attestation()` method.
+    /// Read from `VELLAVETO_ATTESTATION_SECRET` env var at startup.
+    attestation_hmac_key: Option<Vec<u8>>,
 }
 
 impl ProxyBridge {
@@ -380,6 +391,8 @@ impl ProxyBridge {
             shield_desanitize_responses: true,
             // Desktop notification (default: disabled)
             verdict_notify: None,
+            // Content-bound attestation (default: disabled)
+            attestation_hmac_key: None,
         }
     }
 }

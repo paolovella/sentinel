@@ -3,6 +3,8 @@ package vellaveto
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -1249,4 +1251,62 @@ func (c *Client) UsageHistory(ctx context.Context, tenantID string, periods int)
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// VerifyAttestation verifies the proxy's content-bound attestation on a response.
+//
+// Returns true if the attestation HMAC is valid and the content hash matches
+// the response body. Returns false if verification fails or no attestation is present.
+func VerifyAttestation(response map[string]interface{}, hmacKey []byte) bool {
+	metaRaw, ok := response["_meta"]
+	if !ok {
+		return false
+	}
+	meta, ok := metaRaw.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	attRaw, ok := meta["vellaveto_attestation"]
+	if !ok {
+		return false
+	}
+	att, ok := attRaw.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	// Verify content hash matches
+	content := response["result"]
+	if content == nil {
+		content = response["error"]
+	}
+	canonical, err := json.Marshal(content)
+	if err != nil {
+		return false
+	}
+	h := sha256.Sum256(canonical)
+	expectedHash := fmt.Sprintf("%x", h[:])
+	contentHash, _ := att["content_hash"].(string)
+	if contentHash != expectedHash {
+		return false
+	}
+
+	// Extract attestation fields
+	version, _ := att["version"].(float64)
+	timestamp, _ := att["timestamp"].(float64)
+	injClean, _ := att["injection_clean"].(bool)
+	dlpClean, _ := att["dlp_clean"].(bool)
+	schemaValid, _ := att["schema_valid"].(bool)
+	trustTier, _ := att["trust_tier"].(string)
+	scanPasses, _ := att["scan_passes"].(float64)
+	signature, _ := att["signature"].(string)
+
+	// Verify HMAC signature
+	signingContent := fmt.Sprintf("v%d:%d:%s:%t:%t:%t:%s:%d",
+		int(version), int(timestamp), contentHash,
+		injClean, dlpClean, schemaValid, trustTier, int(scanPasses))
+	mac := hmac.New(sha256.New, hmacKey)
+	mac.Write([]byte(signingContent))
+	expectedSig := fmt.Sprintf("%x", mac.Sum(nil))
+	return hmac.Equal([]byte(signature), []byte(expectedSig))
 }

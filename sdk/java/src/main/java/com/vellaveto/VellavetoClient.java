@@ -509,6 +509,78 @@ public class VellavetoClient implements AutoCloseable {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // Content-Bound Attestation Verification
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Verifies the proxy's content-bound attestation on a response.
+     *
+     * <p>Returns {@code true} if the attestation HMAC is valid and the content hash
+     * matches the response body. Returns {@code false} if verification fails or
+     * no attestation is present.</p>
+     *
+     * @param response the JSON-RPC response map from the proxy
+     * @param hmacKey  the shared HMAC secret (same as VELLAVETO_ATTESTATION_SECRET)
+     * @return true if attestation is present and valid, false otherwise
+     */
+    @SuppressWarnings("unchecked")
+    public static boolean verifyAttestation(Map<String, Object> response, byte[] hmacKey) {
+        Object metaRaw = response.get("_meta");
+        if (!(metaRaw instanceof Map)) return false;
+        Map<String, Object> meta = (Map<String, Object>) metaRaw;
+
+        Object attRaw = meta.get("vellaveto_attestation");
+        if (!(attRaw instanceof Map)) return false;
+        Map<String, Object> att = (Map<String, Object>) attRaw;
+
+        try {
+            // Verify content hash matches
+            Object content = response.containsKey("result") ? response.get("result") : response.get("error");
+            ObjectMapper m = new ObjectMapper();
+            String canonical = m.writeValueAsString(content);
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(canonical.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            String expectedHash = sb.toString();
+            String contentHash = String.valueOf(att.get("content_hash"));
+            if (!expectedHash.equals(contentHash)) return false;
+
+            // Extract attestation fields
+            int version = ((Number) att.get("version")).intValue();
+            long timestamp = ((Number) att.get("timestamp")).longValue();
+            boolean injClean = Boolean.TRUE.equals(att.get("injection_clean"));
+            boolean dlpClean = Boolean.TRUE.equals(att.get("dlp_clean"));
+            boolean schemaValid = Boolean.TRUE.equals(att.get("schema_valid"));
+            String trustTier = String.valueOf(att.get("trust_tier"));
+            int scanPasses = ((Number) att.get("scan_passes")).intValue();
+            String signature = String.valueOf(att.get("signature"));
+
+            // Verify HMAC signature
+            String signingContent = String.format("v%d:%d:%s:%s:%s:%s:%s:%d",
+                    version, timestamp, contentHash,
+                    String.valueOf(injClean).toLowerCase(),
+                    String.valueOf(dlpClean).toLowerCase(),
+                    String.valueOf(schemaValid).toLowerCase(),
+                    trustTier, scanPasses);
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(hmacKey, "HmacSHA256"));
+            byte[] sigBytes = mac.doFinal(signingContent.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sigHex = new StringBuilder();
+            for (byte b : sigBytes) {
+                sigHex.append(String.format("%02x", b));
+            }
+            return java.security.MessageDigest.isEqual(
+                    signature.getBytes(StandardCharsets.UTF_8),
+                    sigHex.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // HTTP Infrastructure
     // ═══════════════════════════════════════════════════════════════════════
 

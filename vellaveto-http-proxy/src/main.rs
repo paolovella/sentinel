@@ -897,6 +897,12 @@ async fn main() -> Result<()> {
         } else {
             None
         },
+
+        // Content-bound attestation HMAC key
+        attestation_hmac_key: std::env::var("VELLAVETO_ATTESTATION_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.into_bytes()),
     };
 
     // Phase 20: Spawn gateway health checker if gateway is enabled

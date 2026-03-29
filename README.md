@@ -108,6 +108,7 @@ These invariants are enforced by concrete runtime capabilities:
 - **Complete mediation** — request and response paths evaluated before tool execution and before model return
 - **Fail-closed** — errors, missing policies, and unresolved context all produce `Deny`
 - **Tamper-evident audit** — SHA-256 hash chain + Merkle proofs + Ed25519 signed checkpoints, with structured ACIS decision envelopes on every verdict
+- **Content-bound attestation** — HMAC-SHA256 signed scan results on every response, cryptographically binding injection/DLP/schema verdicts to the response content hash. Consumers verify with `SDK.verify_attestation()`. Set `VELLAVETO_ATTESTATION_SECRET` to enable.
 - **Public security contract** — [Security Guarantees](docs/SECURITY_GUARANTEES.md) + [Assurance Case](docs/ASSURANCE_CASE.md) with reproducible evidence
 
 ## Quick Start
@@ -439,6 +440,7 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Channel separation** | Source-class tainting, intent scope, behavioral sequence analysis | None | None | None |
 | **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | None | None | PII scanning (Presidio) |
 | **Enterprise IAM** | OIDC, SAML, RBAC, SCIM, DPoP | None | None | None |
+| **Response attestation** | HMAC-SHA256 content-bound scan results | None | None | None |
 | **MCPSEC score** | 100/100 (Tier 5, reference run) | Not tested | Not applicable | Not tested |
 | **Ease of setup** | `--protect shield` (one flag) / Docker / Helm | Docker / binary | `pip install` | `pip install` |
 | **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | Apache-2.0 | Apache-2.0 | MIT |

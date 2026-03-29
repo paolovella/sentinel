@@ -342,6 +342,17 @@ agent = Agent(
 )
 ```
 
+## Response Attestation
+
+Verify that proxied responses haven't been tampered with:
+
+```python
+import os
+key = os.environ["VELLAVETO_ATTESTATION_SECRET"].encode()
+result = client.evaluate(action)
+is_valid = VellavetoClient.verify_attestation(result.raw_response, key)
+```
+
 ## Parameter Redaction
 
 Strip sensitive parameter values before they transit the network to Vellaveto:

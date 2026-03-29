@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Content-bound response attestation (Mar 2026):**
+  HMAC-SHA256 signed attestation on every proxied response, binding security
+  scan results to the exact response content. When `VELLAVETO_ATTESTATION_SECRET`
+  is set, responses include `_meta.vellaveto_attestation` with content hash,
+  injection/DLP/schema scan results, trust tier, and HMAC signature. Downstream
+  consumers verify with SDK `verify_attestation()` methods (Python, TypeScript,
+  Go, Java). Even if injection detection misses a payload, the attestation
+  creates an auditable cryptographic record of what the proxy assessed.
+
 ## [6.1.1] - 2026-03-27
 
 ## [6.1.0] - 2026-03-27

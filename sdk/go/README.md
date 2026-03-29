@@ -107,6 +107,12 @@ func main() {
 | `QuotaStatus(ctx, tenantID)` | Get quota status (usage vs limits) for a tenant |
 | `UsageHistory(ctx, tenantID, periods)` | Retrieve usage history across billing periods |
 
+## Response Attestation
+
+```go
+valid := vellaveto.VerifyAttestation(response, []byte(os.Getenv("VELLAVETO_ATTESTATION_SECRET")))
+```
+
 ## Client Options
 
 ```go

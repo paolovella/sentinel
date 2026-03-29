@@ -191,6 +191,12 @@ app.use('/api/tools/:tool', async (req, res, next) => {
 });
 ```
 
+## Response Attestation
+
+```typescript
+const valid = VellavetoClient.verifyAttestation(response, process.env.VELLAVETO_ATTESTATION_SECRET!);
+```
+
 ## API Reference
 
 | Method | Description |

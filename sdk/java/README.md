@@ -166,6 +166,13 @@ try {
 | `quotaStatus(tenantId)` | Retrieve quota status (usage vs limits) for a tenant |
 | `usageHistory(tenantId, periods)` | Retrieve usage history across billing periods |
 
+## Response Attestation
+
+```java
+byte[] key = System.getenv("VELLAVETO_ATTESTATION_SECRET").getBytes();
+boolean valid = VellavetoClient.verifyAttestation(response, key);
+```
+
 ## Client Options
 
 ```java

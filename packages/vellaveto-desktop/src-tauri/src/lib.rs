@@ -1,3 +1,10 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
+
 //! VellaVeto Desktop — Tauri v2 backend.
 //!
 //! Exposes IPC commands to the frontend for:
@@ -42,9 +49,28 @@ fn detect_tools() -> Vec<DetectedTool> {
     config_manager::detect_tools()
 }
 
+/// Validate that a config path is safe (no traversal, within home directory).
+fn validate_config_path(path: &str) -> Result<(), String> {
+    if path.contains("..") {
+        return Err("Config path must not contain '..' (path traversal)".to_string());
+    }
+    if path.contains('\0') {
+        return Err("Config path must not contain null bytes".to_string());
+    }
+    // Must be within the user's home directory
+    if let Some(home) = dirs::home_dir() {
+        let canonical = std::path::Path::new(path);
+        if !canonical.starts_with(&home) {
+            return Err("Config path must be within the home directory".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// IPC: Protect a specific tool.
 #[tauri::command]
 fn protect_tool(config_path: String, level: String) -> Result<(), String> {
+    validate_config_path(&config_path)?;
     let level = match level.as_str() {
         "fortress" => ProtectionLevel::Fortress,
         "vault" => ProtectionLevel::Vault,
@@ -61,6 +87,7 @@ fn protect_tool(config_path: String, level: String) -> Result<(), String> {
 /// IPC: Unprotect a specific tool.
 #[tauri::command]
 fn unprotect_tool(config_path: String) -> Result<(), String> {
+    validate_config_path(&config_path)?;
     config_manager::unprotect_tool(std::path::Path::new(&config_path))
 }
 
@@ -161,7 +188,7 @@ fn find_proxy_binary() -> String {
     "vellaveto-proxy".to_string()
 }
 
-/// Build the Tauri application.
+/// Build and run the Tauri application.
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
@@ -175,5 +202,8 @@ pub fn run() {
             get_protection_levels,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running VellaVeto Desktop");
+        .unwrap_or_else(|e| {
+            eprintln!("VellaVeto Desktop failed to start: {e}");
+            std::process::exit(1);
+        });
 }

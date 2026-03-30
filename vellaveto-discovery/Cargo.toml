@@ -26,4 +26,4 @@ async-trait = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
-proptest = "1.4"
+proptest = "1.11"

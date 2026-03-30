@@ -39,7 +39,7 @@ serde_json = "1.0"
 # async runtime behavior. The 1.x series has LTS guarantees through 2026+.
 tokio = { version = "1.50", features = ["full"] }
 thiserror = "2.0"
-uuid = { version = "1.22", features = ["v4"] }
+uuid = { version = "1.23", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 tracing = "0.1"
@@ -67,17 +67,17 @@ password-hash = "0.6"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "chrono", "uuid"] }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 rand_core_06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
-sha2 = "0.10"
-hmac = "0.12"
+sha2 = "0.11"
+hmac = "0.13"
 hex = "0.4"
-rand = "0.9"
+rand = "0.10"
 regex = "1"
 unicode-normalization = "0.1"
 percent-encoding = "2.3"
 base64 = "0.22"
 flate2 = "1.1"
 url = "2"
-toml = "1.0"
+toml = "1.1"
 
 [profile.release]
 lto = "thin"

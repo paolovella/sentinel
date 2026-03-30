@@ -81,7 +81,7 @@ p256 = { version = "0.13", features = ["ecdsa"], optional = true }
 vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", version = "6.0.9", optional = true }
 
 [dev-dependencies]
-proptest = "1.4"
+proptest = "1.11"
 tempfile = "3.27"
 criterion = { version = "0.8", features = ["html_reports"] }
 

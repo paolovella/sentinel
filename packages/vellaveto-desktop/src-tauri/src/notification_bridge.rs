@@ -75,6 +75,10 @@ impl NotificationWatcher {
     }
 
     /// Poll for new notifications since last check.
+    ///
+    /// SECURITY: Handles file rotation (truncation) gracefully by resetting
+    /// position when the file shrinks. Validates UTF-8 slice boundaries to
+    /// prevent panics on corrupted files.
     pub fn poll(&mut self) -> Vec<ProxyNotification> {
         let content = match std::fs::read_to_string(&self.path) {
             Ok(c) => c,
@@ -82,11 +86,26 @@ impl NotificationWatcher {
         };
 
         let current_len = content.len() as u64;
+
+        // Detect file rotation/truncation: if the file is shorter than our
+        // last position, the file was rotated. Reset and read from start.
+        if current_len < self.last_position {
+            self.last_position = 0;
+        }
+
         if current_len <= self.last_position {
             return Vec::new();
         }
 
-        let new_content = &content[self.last_position as usize..];
+        let start = self.last_position as usize;
+        // Validate the slice boundary is within the string and on a char boundary.
+        if start > content.len() || !content.is_char_boundary(start) {
+            // Corrupted position — reset and skip this poll.
+            self.last_position = current_len;
+            return Vec::new();
+        }
+
+        let new_content = &content[start..];
         self.last_position = current_len;
 
         new_content

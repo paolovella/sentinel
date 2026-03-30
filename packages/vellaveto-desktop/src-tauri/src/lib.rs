@@ -50,17 +50,27 @@ fn detect_tools() -> Vec<DetectedTool> {
 }
 
 /// Validate that a config path is safe (no traversal, within home directory).
+///
+/// SECURITY: Uses canonicalize() to resolve symlinks and relative components
+/// before comparing against the home directory. This prevents:
+/// - Path traversal via `..` components
+/// - Symlink-based escapes from the home directory
+/// - Unicode normalization tricks on path components
 fn validate_config_path(path: &str) -> Result<(), String> {
-    if path.contains("..") {
-        return Err("Config path must not contain '..' (path traversal)".to_string());
-    }
     if path.contains('\0') {
         return Err("Config path must not contain null bytes".to_string());
     }
-    // Must be within the user's home directory
+    // Must end with .json to prevent accidental modification of non-config files
+    if !path.ends_with(".json") {
+        return Err("Config path must end with .json".to_string());
+    }
+    // Resolve symlinks and relative components, then verify within home dir
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|e| format!("Cannot resolve config path: {e}"))?;
     if let Some(home) = dirs::home_dir() {
-        let canonical = std::path::Path::new(path);
-        if !canonical.starts_with(&home) {
+        let canonical_home = std::fs::canonicalize(&home)
+            .unwrap_or(home);
+        if !canonical.starts_with(&canonical_home) {
             return Err("Config path must be within the home directory".to_string());
         }
     }

@@ -116,12 +116,14 @@ volumes:
 }
 
 function generateDotEnv(state: WizardState): string {
+  // SECURITY: Quote values to prevent shell expansion if the .env is sourced.
+  const quote = (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
   let env = "";
   env += "# Vellaveto environment variables\n";
   env += "# IMPORTANT: Do not commit this file to version control\n\n";
-  env += `VELLAVETO_API_KEY=${state.apiKey}\n`;
+  env += `VELLAVETO_API_KEY=${quote(state.apiKey)}\n`;
   if (state.corsOrigins.length > 0) {
-    env += `VELLAVETO_CORS_ORIGINS=${state.corsOrigins.join(",")}\n`;
+    env += `VELLAVETO_CORS_ORIGINS=${quote(state.corsOrigins.join(","))}\n`;
   }
   if (state.checkpointInterval > 0) {
     env += `VELLAVETO_CHECKPOINT_INTERVAL=${state.checkpointInterval}\n`;

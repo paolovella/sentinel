@@ -40,7 +40,7 @@
   ],
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "typescript": "^6.0.2",
     "jest": "^30.2.0",
     "ts-jest": "^29.0.0",
     "@types/jest": "^30.0.0"

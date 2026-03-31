@@ -82,16 +82,18 @@ autoscaling:
   # targetMemoryUtilizationPercentage: 80
 
 # Network policy (restricts pod traffic)
+# SECURITY: Enabled by default to enforce pod-level network segmentation.
 networkPolicy:
-  enabled: false
-  # Namespaces allowed to reach Vellaveto (empty = all)
+  enabled: true
+  # Namespaces allowed to reach Vellaveto (empty = own namespace only)
   allowedNamespaces: []
   # CIDRs allowed for egress (e.g., external APIs)
   allowedEgressCIDRs: []
 
 # Pod disruption budget (availability during upgrades)
+# SECURITY: Enabled to prevent audit log gaps during rolling updates.
 podDisruptionBudget:
-  enabled: false
+  enabled: true
   minAvailable: 1
   # maxUnavailable: 1  # alternative to minAvailable
 
@@ -113,23 +115,26 @@ vellaveto:
   strictMode: true
 
   # Injection scanning configuration
+  # SECURITY: blocking=true by default — detected injections are denied, not just logged.
   injection:
     enabled: true
-    blocking: false
+    blocking: true
     # Extra patterns to detect
     extraPatterns: []
     # Patterns to disable from defaults
     disabledPatterns: []
 
   # DLP (Data Loss Prevention) configuration
+  # SECURITY: blocking=true by default — detected secrets are denied, not just logged.
   dlp:
     enabled: true
-    blocking: false
+    blocking: true
 
   # Audit logging configuration
   audit:
-    # Redaction level: Off, Low, High
-    redactionLevel: "Low"
+    # Redaction level: Off, Low, KeysAndPatterns, High
+    # SECURITY: KeysAndPatterns redacts API keys and secret patterns from audit logs.
+    redactionLevel: "KeysAndPatterns"
     # Path for audit logs (relative to /var/lib/vellaveto)
     logPath: "audit.log"
 

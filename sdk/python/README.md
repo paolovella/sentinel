@@ -353,6 +353,12 @@ result = client.evaluate(action)
 is_valid = VellavetoClient.verify_attestation(result.raw_response, key)
 ```
 
+**Security guarantees** (R260): `verify_attestation()` validates that the signature
+is exactly 64 hex characters (SHA-256 HMAC), rejects non-integer `version`/`scan_passes`,
+non-string `trust_tier`, and non-numeric `timestamp` fields before constructing the
+signing content. This prevents type coercion attacks where malformed fields produce
+incorrect HMAC inputs.
+
 ## Parameter Redaction
 
 Strip sensitive parameter values before they transit the network to Vellaveto:

@@ -197,6 +197,10 @@ app.use('/api/tools/:tool', async (req, res, next) => {
 const valid = VellavetoClient.verifyAttestation(response, process.env.VELLAVETO_ATTESTATION_SECRET!);
 ```
 
+**Security guarantees** (R260): `verifyAttestation()` validates that the signature
+is exactly 64 hex characters, rejects non-number `version`/`timestamp`/`scan_passes`,
+and non-string `trust_tier` fields before constructing the signing content.
+
 ## API Reference
 
 | Method | Description |

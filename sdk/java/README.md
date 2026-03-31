@@ -173,6 +173,11 @@ byte[] key = System.getenv("VELLAVETO_ATTESTATION_SECRET").getBytes();
 boolean valid = VellavetoClient.verifyAttestation(response, key);
 ```
 
+**Security guarantees** (R260): `verifyAttestation()` validates signature is exactly
+64 hex characters, checks `instanceof` before casting `version`, `timestamp`,
+`trust_tier`, and `scan_passes` fields (prevents `String.valueOf(null)` → `"null"`
+string poisoning of the HMAC signing content).
+
 ## Client Options
 
 ```java

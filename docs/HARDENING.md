@@ -184,3 +184,44 @@ securityContext:
 ```
 
 See `docs/SECURITY.md` for full container and systemd hardening guidance.
+
+---
+
+## R259-R270 Hardening Campaign (March 2026)
+
+12-round adversarial audit campaign with 35 security findings fixed and 11 architectural hardening changes. Key additions:
+
+### Cryptographic Integrity
+- **Ed25519 evidence pack signing** — compliance artifacts (EvidencePack) are now signed with Ed25519, providing non-repudiation and tamper detection. `signing_content()` covers all fields including sections, recommendations, and period bounds.
+- **SHA-256 plugin content-hash verification** — Wasm plugin binaries are verified against a declared hash before instantiation (TOCTOU defense).
+- **HMAC key minimum 32 bytes** — attestation keys shorter than 32 bytes are rejected at startup (fail-closed).
+
+### Authentication & Authorization
+- **Per-tenant API key verification** — tenants with stored `api_key_hash` require a matching Bearer token (SHA-256 + constant-time comparison via `subtle::ConstantTimeEq`).
+- **FallbackBehavior::Allow gated** — semantic guardrails fail-open mode requires explicit `dangerous_allow_fail_open_acknowledged=true` (mirrors OPA pattern).
+- **Transparency Full verbosity gated** — `inject_decision_explanation()` downgrades Full to Summary for non-admin callers to prevent policy structure leakage.
+
+### NHI & Delegation
+- **Eager transitive NHI revocation** — BFS-based revocation deactivates all reachable delegations from a revoked agent (depth-bounded to 50).
+- **Rotation terminal state check** — `rotate_credentials()` rejects revoked/expired identities.
+
+### Relay Hot-Path
+- **Approval lineage drift enforcement** — drift detection now produces `ProxyDecision::Block` (previously logged but fell through to consume the approval).
+- **ACIS audit entries** — DoW, jailbreak, token leakage, and memory query poisoning detections now produce audit entries via `log_entry_with_acis()`.
+- **Store error fail-closed** — approval store errors during drift check set `drift_detected=true`.
+
+### Infrastructure
+- **Atomic signup** — `tokio::sync::Mutex` serializes tenant capacity check + creation (TOCTOU fix).
+- **Webhook idempotency** — `WebhookDedup` with DashMap + TTL tracks event IDs; duplicate webhooks acknowledged without reprocessing.
+- **Session persistence** — `SessionBackend` trait with write-through on every state transition; `warm_restart()` restores only Locked/Suspicious sessions.
+- **Cross-tenant integration tests** — 4 tests verifying policy, approval, audit, and concurrent evaluation isolation.
+
+### SDK Hardening (Python, TypeScript, Go, Java)
+- Attestation signature must be exactly 64 hex characters
+- Field type validation before HMAC construction (prevents type coercion attacks)
+- Python tenant header CRLF injection prevention
+
+### Formal Verification
+- 4 new Verus kernels: DRIFT-1–4, REVOKE-1–4, EVIDENCE-SIGN-1–3, WARM-1–3
+- 8 new Kani harnesses: K133-K140
+- Total: 910+ verification instances (682 Verus, 116 Kani, 14 TLA+, 45 Coq, 32 Lean, 10 Alloy)

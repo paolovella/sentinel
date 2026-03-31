@@ -113,6 +113,10 @@ func main() {
 valid := vellaveto.VerifyAttestation(response, []byte(os.Getenv("VELLAVETO_ATTESTATION_SECRET")))
 ```
 
+**Security guarantees** (R260): `VerifyAttestation()` validates signature length (64
+hex chars), rejects type assertion failures on `version`, `timestamp`, `trust_tier`,
+and `scan_passes` fields (returns `false` instead of silently defaulting to zero values).
+
 ## Client Options
 
 ```go

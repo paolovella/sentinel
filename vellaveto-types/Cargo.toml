@@ -19,4 +19,4 @@ hmac = { workspace = true }
 hex = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.4"
+proptest = "1.11"

@@ -20,4 +20,4 @@ hex = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.4"
+proptest = "1.11"

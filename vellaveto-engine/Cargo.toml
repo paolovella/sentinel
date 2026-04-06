@@ -38,7 +38,7 @@ hex = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
-proptest = "1.4"
+proptest = "1.11"
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]

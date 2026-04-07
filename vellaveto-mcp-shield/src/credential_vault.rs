@@ -369,7 +369,7 @@ impl CredentialVault {
     /// These are locally generated (not from a blind signature issuer), so
     /// `provider_key_id` is set to `"self-generated"`.
     pub fn generate_local_credential(epoch: u64) -> BlindCredential {
-        use rand::RngCore;
+        use rand::Rng;
         let mut rng = rand::rng();
 
         let mut credential = vec![0u8; 32];

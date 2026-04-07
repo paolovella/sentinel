@@ -588,7 +588,7 @@ fn fingerprint_review_value(prefix: &str, domain: &str, value: &str) -> String {
     hasher.update(domain.as_bytes());
     hasher.update(b":");
     hasher.update(value.as_bytes());
-    let digest = format!("{:x}", hasher.finalize());
+    let digest: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
     format!("{prefix}{}", &digest[..16])
 }
 
@@ -666,7 +666,8 @@ pub fn bind_session_scope(session_id: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"vellaveto:approval:session_scope:v1:");
     hasher.update(session_id.as_bytes());
-    format!("{SESSION_BINDING_PREFIX}{:x}", hasher.finalize())
+    let hex: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    format!("{SESSION_BINDING_PREFIX}{hex}")
 }
 
 fn is_false(value: &bool) -> bool {
@@ -816,7 +817,8 @@ fn compute_dedup_key_with_context(
         "{canonical_str}||{reason}||{rb_component}||{sess_component}||{containment_component}"
     );
     let hash = Sha256::digest(input.as_bytes());
-    Ok(format!("{hash:x}"))
+    let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(hex)
 }
 
 /// In-memory approval store with file-based persistence.

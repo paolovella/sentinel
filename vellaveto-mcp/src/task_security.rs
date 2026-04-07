@@ -46,7 +46,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
 };
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fmt;
@@ -628,7 +628,7 @@ impl SecureTaskManager {
 
     fn generate_resume_token(&self, task_id: &str) -> Result<String, TaskSecurityError> {
         // HMAC-SHA256 accepts any key length, but we propagate errors per no-panic policy.
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.hmac_key)
+        let mut mac = <HmacSha256 as HmacKeyInit>::new_from_slice(&self.hmac_key)
             .map_err(|e| TaskSecurityError::InvalidKey(e.to_string()))?;
         mac.update(task_id.as_bytes());
         mac.update(b"|resume|");

@@ -519,7 +519,11 @@ impl OpaClient {
             Err(_) => hasher.update(b"<serde-json-error:context>"),
         }
 
-        hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 
     /// Check if fail-open mode is enabled.

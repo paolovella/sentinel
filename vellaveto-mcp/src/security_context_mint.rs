@@ -40,7 +40,10 @@ pub fn mint_token(
     for label in &taint_labels {
         data.extend_from_slice(label.as_bytes());
     }
-    let hmac: String = Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect();
+    let hmac: String = Sha256::digest(&data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
 
     SecurityContextToken {
         session_scope_binding: session_scope_binding.to_string(),
@@ -62,7 +65,10 @@ pub fn verify_token(token: &SecurityContextToken, secret: &[u8]) -> bool {
     for label in &token.taint_labels {
         data.extend_from_slice(label.as_bytes());
     }
-    let expected: String = Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect();
+    let expected: String = Sha256::digest(&data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     expected == token.hmac_sha256
 }
 

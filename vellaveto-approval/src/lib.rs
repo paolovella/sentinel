@@ -588,7 +588,11 @@ fn fingerprint_review_value(prefix: &str, domain: &str, value: &str) -> String {
     hasher.update(domain.as_bytes());
     hasher.update(b":");
     hasher.update(value.as_bytes());
-    let digest: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let digest: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     format!("{prefix}{}", &digest[..16])
 }
 
@@ -666,7 +670,11 @@ pub fn bind_session_scope(session_id: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"vellaveto:approval:session_scope:v1:");
     hasher.update(session_id.as_bytes());
-    let hex: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let hex: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     format!("{SESSION_BINDING_PREFIX}{hex}")
 }
 

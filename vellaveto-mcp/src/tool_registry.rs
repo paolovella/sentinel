@@ -747,7 +747,11 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
         // Hash of empty string for null schemas
         let mut hasher = Sha256::new();
         hasher.update(b"");
-        let hex: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        let hex: String = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         return hex;
     }
 
@@ -768,14 +772,22 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
                 let mut hasher = Sha256::new();
                 hasher.update(b"__SERIALIZATION_FAILED__");
                 hasher.update(debug_repr.as_bytes());
-                let hex: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+                let hex: String = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
                 return hex;
             }
         },
     };
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[cfg(test)]

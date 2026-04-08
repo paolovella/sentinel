@@ -30,7 +30,7 @@
 //! existing entries are loaded and trust scores recomputed from current timestamps.
 
 use chrono::{DateTime, Duration, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -747,7 +747,12 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
         // Hash of empty string for null schemas
         let mut hasher = Sha256::new();
         hasher.update(b"");
-        return format!("{:x}", hasher.finalize());
+        let hex: String = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        return hex;
     }
 
     // Use canonical JSON serialization (RFC 8785).
@@ -767,13 +772,22 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
                 let mut hasher = Sha256::new();
                 hasher.update(b"__SERIALIZATION_FAILED__");
                 hasher.update(debug_repr.as_bytes());
-                return format!("{:x}", hasher.finalize());
+                let hex: String = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                return hex;
             }
         },
     };
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     XChaCha20Poly1305, XNonce,
 };
-use rand::RngCore;
+use rand::Rng;
 use std::path::PathBuf;
 
 /// File format version byte.

@@ -8756,7 +8756,12 @@ impl ProxyBridge {
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(&serialized.as_bytes()[..serialized.len().min(4096)]);
-                Some(format!("sha256:{:x}", hasher.finalize()))
+                let hex: String = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                Some(format!("sha256:{hex}"))
             });
             state.record_semantic_output_with_hash(
                 tool_name,

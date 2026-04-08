@@ -23,7 +23,7 @@
 // - Org name max 200 chars, reject control/format characters
 
 use axum::{extract::State, http::StatusCode, Json};
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::routes::ErrorResponse;

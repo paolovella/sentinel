@@ -234,7 +234,8 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> Option<String> {
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
     let digest = hasher.finalize();
-    Some(format!("{digest:x}"))
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    Some(hex)
 }
 
 /// Analyze a `tools/list` response for rug-pull indicators.

@@ -68,7 +68,7 @@ pqc-hybrid = ["fips204"]
 
 [dev-dependencies]
 tempfile = "3.27"
-proptest = "1.4"
+proptest = "1.11"
 criterion = { version = "0.8", features = ["html_reports"] }
 filetime = "0.2"
 

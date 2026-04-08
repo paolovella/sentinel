@@ -8,7 +8,7 @@
 //! Bidirectional PII sanitization using vellaveto-audit's PiiScanner.
 
 use crate::error::ShieldError;
-use rand::Rng;
+use rand::RngExt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use vellaveto_audit::PiiScanner;

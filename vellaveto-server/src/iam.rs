@@ -24,7 +24,7 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
 use percent_encoding::percent_decode_str;
-use rand::RngCore;
+use rand::Rng;
 use reqwest::{header as reqwest_header, Client};
 use ring::{digest, signature};
 use roxmltree::{Document, Node, NodeType};

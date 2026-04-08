@@ -13,7 +13,7 @@
 //! HMAC-SHA256. Downstream consumers verify the signature to confirm the
 //! proxy genuinely assessed this exact content.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 

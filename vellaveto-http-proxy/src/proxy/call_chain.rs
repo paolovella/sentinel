@@ -18,7 +18,7 @@ use super::auth::OAuthValidationEvidence;
 use super::{HmacSha256, X_UPSTREAM_AGENTS};
 use crate::oauth::OAuthClaims;
 use crate::session::SessionStore;
-use hmac::Mac;
+use hmac::{KeyInit, Mac};
 
 use axum::http::HeaderMap;
 

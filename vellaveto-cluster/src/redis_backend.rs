@@ -375,7 +375,8 @@ impl RedisBackend {
             canonical_str, reason, rb_component, sess_component, containment_component
         );
         let hash = Sha256::digest(input.as_bytes());
-        Ok(format!("{:x}", hash))
+        let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+        Ok(hex)
     }
 }
 

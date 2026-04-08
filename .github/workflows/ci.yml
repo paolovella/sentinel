@@ -563,7 +563,7 @@ jobs:
         if: steps.semver_changes.outputs.run_semver == 'true'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends protobuf-compiler
+          sudo apt-get install -y --no-install-recommends protobuf-compiler libprotobuf-dev
 
       - name: Install cargo-semver-checks
         if: steps.semver_changes.outputs.run_semver == 'true'

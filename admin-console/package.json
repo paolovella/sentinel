@@ -20,7 +20,7 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-oidc-context": "^3.3.1",
-    "react-router-dom": "^7.14.0",
+    "react-router-dom": "^7.14.1",
     "recharts": "^3.8.1"
   },
   "devDependencies": {
@@ -38,7 +38,7 @@
     "globals": "^17.5.0",
     "jsdom": "^29.0.2",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.58.1",
+    "typescript-eslint": "^8.58.2",
     "vite": "^8.0.8",
     "vitest": "^4.1.4"
   }

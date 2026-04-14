@@ -22,8 +22,8 @@ RUN case "${TARGETARCH}" in \
     esac \
     && rustup target add "$(cat /tmp/rust-target)"
 
-# Install build dependencies
-RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
+# Upgrade base packages for security patches, then install build dependencies
+RUN apk upgrade --no-cache && apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
 
 # Create a non-root user for the build
 WORKDIR /build
@@ -146,6 +146,9 @@ LABEL org.opencontainers.image.title="Vellaveto" \
 
 # Security: Run as non-root user
 RUN addgroup -S vellaveto && adduser -S vellaveto -G vellaveto
+
+# Upgrade base packages to pick up security patches (musl, openssl)
+RUN apk upgrade --no-cache
 
 # Install runtime dependencies (CA certs for HTTPS)
 RUN apk add --no-cache ca-certificates tzdata

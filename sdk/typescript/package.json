@@ -44,7 +44,7 @@
     "jest": "^30.2.0",
     "ts-jest": "^29.0.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^25.6.0"
   },
   "engines": {
     "node": ">=18.0.0"

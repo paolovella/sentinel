@@ -89,7 +89,7 @@ rand = { workspace = true }
 flate2 = { workspace = true, features = ["zlib"] }
 roxmltree = "0.21"
 # SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)
-lru = "0.16"
+lru = "0.17"
 # Phase 43: Centralized Audit Store (PostgreSQL backend)
 sqlx = { workspace = true, optional = true }
 

@@ -24,6 +24,6 @@ clap = { version = "4.6", features = ["derive"] }
 chrono = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1.51", features = ["full", "test-util"] }
+tokio = { version = "1.52", features = ["full", "test-util"] }
 axum = "0.8"
 hyper = "1.9"

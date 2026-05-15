@@ -13,7 +13,7 @@ use super::prover::ZkBatchProver;
 use super::scheduler::ZkBatchScheduler;
 use super::witness::{EntryWitness, WitnessStore};
 use ark_bn254::Fr;
-use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
+use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystem};
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use sha2::{Digest, Sha256};

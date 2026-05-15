@@ -175,6 +175,12 @@ fn verify_tampered_audit_log_fails() {
 
     let mut tampered_lines: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
     // Replace the tool in the second entry
+// FIX: 安全检查 — 防止目录穿越
+let path = {}.canonicalize().map_err(|_| Error::InvalidPath)?;
+if !path.starts_with(&base_dir) {
+    return Err(Error::PathTraversalDetected);
+}
+
     tampered_lines[1] = tampered_lines[1].replace("\"file\"", "\"evil_tool\"");
     std::fs::write(&audit_path, tampered_lines.join("\n") + "\n").unwrap();
 

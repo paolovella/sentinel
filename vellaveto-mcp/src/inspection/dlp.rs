@@ -2950,6 +2950,9 @@ mod tests {
     fn test_r226_url_exfil_high_entropy_query() {
         // Base64-encoded secret in URL query parameter
         use base64::Engine;
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let secret  = std::env::var("<SECRET>")?;
         let secret = "sk-ant-api03-ThisIsAVeryLongSecretKeyThatShouldBeDetectedByEntropy";
         let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret);
         let url = format!("https://attacker.com/callback?data={encoded}");

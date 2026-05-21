@@ -176,6 +176,8 @@ VERUS_AUDIT_APPEND="$PROJECT_DIR/formal/verus/verified_audit_append.rs"
 VERUS_MERKLE="$PROJECT_DIR/formal/verus/verified_merkle.rs"
 VERUS_MERKLE_FOLD="$PROJECT_DIR/formal/verus/verified_merkle_fold.rs"
 VERUS_MERKLE_PATH="$PROJECT_DIR/formal/verus/verified_merkle_path.rs"
+VERUS_MERKLE_INTEGRITY="$PROJECT_DIR/formal/verus/verified_merkle_integrity.rs"
+VERUS_AUDIT_INTEGRITY="$PROJECT_DIR/formal/verus/verified_audit_integrity.rs"
 VERUS_ROTATION_MANIFEST="$PROJECT_DIR/formal/verus/verified_rotation_manifest.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_COVERAGE="$PROJECT_DIR/formal/verus/verified_capability_coverage.rs"
@@ -1659,6 +1661,56 @@ check_symbol_parity \
     'should_alert_on_high_entropy_count' \
     "$VERUS_ENTROPY_PIPELINE" \
     'pub[[:space:]]+fn[[:space:]]+should_alert'
+echo ""
+
+echo "--- Merkle Integrity Composition Kernel (P4) ---"
+check_file_pair \
+    "verified_merkle_integrity.rs exists (MERKL-INT-1 through MERKL-INT-5)" \
+    "$PROD_MERKLE_WRAPPER" \
+    "$VERUS_MERKLE_INTEGRITY"
+check_symbol_parity \
+    "merkle leaf second-preimage axiom used in integrity kernel (MERKL-INT-1)" \
+    "$VERUS_MERKLE_INTEGRITY" \
+    'axiom_merkle_leaf_second_preimage_resistance' \
+    "$VERUS_MERKLE_INTEGRITY" \
+    'lemma_leaf_hash_unique'
+check_symbol_parity \
+    "domain separation axiom used in integrity kernel (MERKL-INT-3)" \
+    "$VERUS_MERKLE_INTEGRITY" \
+    'axiom_merkle_rfc6962_domain_separation' \
+    "$VERUS_MERKLE_INTEGRITY" \
+    'lemma_leaf_and_internal_hash_never_equal'
+check_symbol_parity \
+    "depth-2 tamper evidence lemma present (MERKL-INT-5 extension)" \
+    "$PROD_MERKLE_WRAPPER" \
+    'pub fn append' \
+    "$VERUS_MERKLE_INTEGRITY" \
+    'lemma_different_leaf_means_different_grandparent'
+echo ""
+
+echo "--- Audit Chain Integrity Composition Kernel (P4) ---"
+check_file_pair \
+    "verified_audit_integrity.rs exists (AUDIT-INT-1 through AUDIT-INT-4)" \
+    "$PROD_AUDIT_WRAPPER" \
+    "$VERUS_AUDIT_INTEGRITY"
+check_symbol_parity \
+    "global sequence monotone growth proven (AUDIT-INT-1)" \
+    "$PROD_AUDIT_APPEND_WRAPPER" \
+    'global_sequence' \
+    "$VERUS_AUDIT_INTEGRITY" \
+    'lemma_global_seq_increases_by_n'
+check_symbol_parity \
+    "rotation resets entry count (AUDIT-INT-2)" \
+    "$PROD_AUDIT_APPEND_WRAPPER" \
+    'rotation' \
+    "$VERUS_AUDIT_INTEGRITY" \
+    'lemma_rotation_resets_entry_count'
+check_symbol_parity \
+    "hash-latch monotonicity proven (AUDIT-INT-3)" \
+    "$PROD_AUDIT_CHAIN" \
+    'next_seen_hashed_entry' \
+    "$VERUS_AUDIT_INTEGRITY" \
+    'lemma_seen_hashed_latches_true'
 echo ""
 
 echo "--- Capability Chain Composition Kernel ---"

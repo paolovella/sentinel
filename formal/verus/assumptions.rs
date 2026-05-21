@@ -280,6 +280,14 @@ pub open spec fn audit_chain_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn audit_integrity_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered() && audit_filesystem_trust_boundary_registered()
+}
+
+pub open spec fn merkle_integrity_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered() && merkle_trust_boundary_registered()
+}
+
 pub open spec fn audit_filesystem_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered() && audit_filesystem_trust_boundary_registered()
 }

@@ -6,6 +6,8 @@ mod verified_acis_action_summary;
 mod verified_audit_append;
 #[path = "../verified_audit_chain.rs"]
 mod verified_audit_chain;
+#[path = "../verified_audit_integrity.rs"]
+mod verified_audit_integrity;
 #[path = "../verified_bridge_principal.rs"]
 mod verified_bridge_principal;
 #[path = "../verified_capability_attenuation.rs"]
@@ -78,6 +80,8 @@ mod verified_transport_context;
 mod verified_merkle;
 #[path = "../verified_merkle_fold.rs"]
 mod verified_merkle_fold;
+#[path = "../verified_merkle_integrity.rs"]
+mod verified_merkle_integrity;
 #[path = "../verified_merkle_path.rs"]
 mod verified_merkle_path;
 #[path = "../verified_nhi_delegation.rs"]

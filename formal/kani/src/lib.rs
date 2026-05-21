@@ -207,6 +207,7 @@ pub mod credential_vault;
 pub mod tls_spiffe;
 pub mod merkle_sanity;
 pub mod evidence_signing;
+pub mod merkle_codec;
 pub mod transitive_revoke;
 pub mod webhook_dedup;
 pub mod approval_drift;

@@ -81,6 +81,12 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_transitive_revoke.rs"]="transitive_revoke_kernel_assumptions_registered"
         ["formal/verus/verified_evidence_signing.rs"]="evidence_signing_kernel_assumptions_registered"
         ["formal/verus/verified_warm_restart.rs"]="warm_restart_kernel_assumptions_registered"
+        ["formal/verus/verified_audit_integrity.rs"]="audit_integrity_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_chain.rs"]="capability_chain_kernel_assumptions_registered"
+        ["formal/verus/verified_cross_call_split.rs"]="cross_call_split_kernel_assumptions_registered"
+        ["formal/verus/verified_entropy_fixed_point.rs"]="entropy_fixed_point_kernel_assumptions_registered"
+        ["formal/verus/verified_merkle_integrity.rs"]="merkle_integrity_kernel_assumptions_registered"
+        ["formal/verus/verified_refinement_sort_stutter.rs"]="refinement_sort_stutter_kernel_assumptions_registered"
     )
 
     while IFS= read -r file; do

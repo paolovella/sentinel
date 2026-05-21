@@ -58,24 +58,21 @@ and rotation continuity are now centralized in
 
 What is proved in Verus:
 
-- `formal/verus/verified_merkle.rs`
-- `formal/verus/verified_merkle_fold.rs`
-- `formal/verus/verified_merkle_path.rs`
+- `formal/verus/verified_merkle.rs` — append/init/proof-shape guards
+- `formal/verus/verified_merkle_fold.rs` — fold structure
+- `formal/verus/verified_merkle_path.rs` — proof-path structure
+- `formal/verus/verified_merkle_integrity.rs` — first active use of hash axioms:
+  leaf/internal uniqueness, domain separation, codec injectivity, depth-2 tamper evidence
 
-What remains outside Verus:
+What is Kani-checked (partial discharge):
 
-- the concrete SHA-256 primitive
-- the concrete hex codec
-- filesystem durability and rename semantics described in
-  `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md`
+- `formal/kani/src/merkle_codec.rs` — **MERKLE-CODEC-1 partially discharged**:
+  - K141: `hex::decode(hex::encode([byte]))` == Ok([byte]) for all 256 byte values
+    (Kani CBMC symbolic proof)
+  - K142: `hex::encode([b0, b1])` always produces 4 hex chars (length invariant)
+  - Unit test: compositional 32-byte roundtrip verified
 
-## Next Step
+What remains outside Verus and Kani:
 
-If we want to push Phase 4 further, the next decision is explicit:
-
-1. keep `MERKLE-HASH-*` as a documented trust boundary and stop there, or
-2. introduce a small axiomatized hash abstraction in Verus and list those axioms
-   in `formal/trusted-assumptions.allowlist`
-
-Either way, the boundary should remain centralized in
-`vellaveto-audit/src/trusted_merkle_hash.rs`.
+- the concrete SHA-256 primitive (assembly-based; MERKLE-HASH-1/2 remain trusted)
+- filesystem durability and rename semantics (see `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md`)

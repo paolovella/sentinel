@@ -260,6 +260,10 @@ pub open spec fn refinement_completeness_kernel_assumptions_registered() -> bool
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn refinement_sort_stutter_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn acis_action_summary_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

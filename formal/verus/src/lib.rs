@@ -94,6 +94,8 @@ mod verified_path;
 mod verified_intent_scope;
 #[path = "../verified_refinement_completeness.rs"]
 mod verified_refinement_completeness;
+#[path = "../verified_refinement_sort_stutter.rs"]
+mod verified_refinement_sort_stutter;
 #[path = "../verified_refinement_safety.rs"]
 mod verified_refinement_safety;
 #[path = "../verified_rotation_manifest.rs"]

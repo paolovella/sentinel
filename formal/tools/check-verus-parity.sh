@@ -1510,6 +1510,32 @@ check_symbol_parity \
     'spec_continue_to_next'
 echo ""
 
+echo "--- Refinement Sort + Stutter Kernel (P5b) ---"
+VERUS_REFINEMENT_SORT_STUTTER="$PROJECT_DIR/formal/verus/verified_refinement_sort_stutter.rs"
+check_file_pair \
+    "verified_refinement_sort_stutter.rs exists (R-MCP-INIT-SORT + R-MCP-INDEX-STUTTER)" \
+    "$PROD_REFINEMENT_WITNESS" \
+    "$VERUS_REFINEMENT_SORT_STUTTER"
+check_symbol_parity \
+    "sort_policies exists and Verus models priority ordering predicate (R-MCP-INIT-SORT)" \
+    "$PROJECT_DIR/vellaveto-engine/src/lib.rs" \
+    'sort_policies' \
+    "$VERUS_REFINEMENT_SORT_STUTTER" \
+    'spec_sorted_by_priority'
+check_symbol_parity \
+    "tool_index optimization exists and Verus proves stutter soundness (R-MCP-INDEX-STUTTER)" \
+    "$PROJECT_DIR/vellaveto-engine/src/lib.rs" \
+    'build_tool_index' \
+    "$VERUS_REFINEMENT_SORT_STUTTER" \
+    'lemma_stutter_is_miss'
+check_symbol_parity \
+    "P5b closing theorem is present (lemma_p5b_full_simulation_is_complete)" \
+    "$PROJECT_DIR/vellaveto-engine/src/lib.rs" \
+    'sort_policies' \
+    "$VERUS_REFINEMENT_SORT_STUTTER" \
+    'lemma_p5b_full_simulation_is_complete'
+echo ""
+
 echo "--- ACIS Action Summary Kernel ---"
 check_file_pair \
     "verified_acis_action_summary.rs ↔ vellaveto-types/src/acis.rs" \

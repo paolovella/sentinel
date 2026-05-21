@@ -117,19 +117,45 @@ Covered obligations:
 - `R-MCP-CONTINUE`
 - `R-MCP-EXHAUSTED-NOMATCH`
 
-Not yet covered:
-- `R-MCP-INDEX-STUTTER`
+Not yet covered by executable witnesses:
+- `R-MCP-INDEX-STUTTER` (now machine-checked in Verus — see below)
 - liveness / fairness obligations from TLA+
 - full path, network, and IP-rule submachine refinement
 - proof that abstract wildcard/exact matching soundly over-approximates all compiled matcher cases
 
+## Machine-Checked Obligations (P5b)
+
+The following obligations are now machine-checked in Verus:
+
+### `formal/verus/verified_refinement_safety.rs` (P5a, safety-critical):
+- `R-MCP-START-EMPTY` — empty policy set → Deny
+- `R-MCP-APPLY-DENY` — Deny contribution → Deny verdict
+- `R-MCP-EXHAUSTED-NOMATCH` — no match → Deny
+
+### `formal/verus/verified_refinement_completeness.rs` (P5b, correctness):
+- `R-MCP-START-NONEMPTY` — non-empty set starts matching
+- `R-MCP-MATCH-MISS` — tool mismatch advances index
+- `R-MCP-MATCH-HIT` — tool match transitions to applying
+- `R-MCP-APPLY-ALLOW` — Allow policy → Allow verdict
+- `R-MCP-APPLY-REQUIRE-APPROVAL` — Conditional → RequireApproval
+- `R-MCP-CONTINUE` — Conditional on_no_match=continue loops back
+
+### `formal/verus/verified_refinement_sort_stutter.rs` (P5b, sort + stutter):
+- `R-MCP-INIT-SORT` — priority comparator is antisymmetric, transitive, and total;
+  sorted-adjacent-pairs implies full `SortedByPriority` predicate
+- `R-MCP-INDEX-STUTTER` — exact-tool index skip is a sound stutter: every skipped
+  policy would be `tool_matched = false`; first-match-wins semantics preserved
+
 ## Current Claim
 
-After this artifact, the project can claim:
+After P5b, the project can claim:
 - documented concrete-to-abstract mapping for the policy engine
-- explicit simulation obligations instead of an implicit correspondence story
+- explicit simulation obligations — all 11 now machine-checked in Verus
 - executable refinement witnesses on the traced Rust evaluator
+- machine-checked sort comparator total-order properties
+- machine-checked index-stutter soundness
 
 It still cannot claim:
-- a machine-checked end-to-end refinement proof from TLA+ to Rust
-- a verified simulation for tool-index stuttering or all submachines
+- a verified simulation of path/network/IP submachines (deferred)
+- liveness / fairness obligations (TLA+ model-checked, not Verus-proved)
+- full wildcard-to-compiled-matcher soundness proof (deferred)

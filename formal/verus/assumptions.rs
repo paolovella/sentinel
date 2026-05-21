@@ -124,6 +124,10 @@ pub open spec fn deputy_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn capability_chain_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn capability_context_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

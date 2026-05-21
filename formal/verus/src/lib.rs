@@ -42,6 +42,8 @@ mod verified_constraint_eval;
 mod verified_context_delegation;
 #[path = "../verified_core.rs"]
 mod verified_core;
+#[path = "../verified_capability_chain.rs"]
+mod verified_capability_chain;
 #[path = "../verified_cross_call_dlp.rs"]
 mod verified_cross_call_dlp;
 #[path = "../verified_cross_call_split.rs"]

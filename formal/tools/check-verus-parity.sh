@@ -218,6 +218,8 @@ VERUS_ENTROPY_PIPELINE="$PROJECT_DIR/formal/verus/verified_entropy_pipeline.rs"
 VERUS_ENTROPY_FIXED_POINT="$PROJECT_DIR/formal/verus/verified_entropy_fixed_point.rs"
 VERUS_FLOAT_AXIOMS="$PROJECT_DIR/formal/verus/float_boundary_axioms.rs"
 VERUS_CROSS_CALL_SPLIT="$PROJECT_DIR/formal/verus/verified_cross_call_split.rs"
+PROD_CAP_TOKEN="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
+VERUS_CAP_CHAIN="$PROJECT_DIR/formal/verus/verified_capability_chain.rs"
 
 echo "--- Cargo Verus Entrypoint ---"
 check_file_pair \
@@ -1657,6 +1659,31 @@ check_symbol_parity \
     'should_alert_on_high_entropy_count' \
     "$VERUS_ENTROPY_PIPELINE" \
     'pub[[:space:]]+fn[[:space:]]+should_alert'
+echo ""
+
+echo "--- Capability Chain Composition Kernel ---"
+check_file_pair \
+    "verified_capability_chain.rs exists (CAP-CHAIN-1 through CAP-CHAIN-5)" \
+    "$PROD_CAP_TOKEN" \
+    "$VERUS_CAP_CHAIN"
+check_symbol_parity \
+    "production depth decrement exists and chain proof covers monotonicity" \
+    "$PROD_CAP_TOKEN" \
+    'attenuate_capability_token' \
+    "$VERUS_CAP_CHAIN" \
+    'lemma_chain_depth_exact'
+check_symbol_parity \
+    "chain proof covers fail-closed depth exhaustion (CAP-CHAIN-2)" \
+    "$PROD_CAP_TOKEN" \
+    'remaining_depth' \
+    "$VERUS_CAP_CHAIN" \
+    'lemma_depth_exhausted_at_n_steps'
+check_symbol_parity \
+    "chain proof covers end-to-end fail-closed composition (CAP-CHAIN-5)" \
+    "$PROD_CAP_TOKEN" \
+    'attenuate_capability_token' \
+    "$VERUS_CAP_CHAIN" \
+    'lemma_delegated_context_fail_closed'
 echo ""
 
 echo "--- Float-to-Fixed Wrapper Kernel ---"

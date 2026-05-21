@@ -106,6 +106,8 @@ mod verified_sequence_analysis;
 mod verified_source_taint;
 #[path = "../verified_trust_lattice.rs"]
 mod verified_trust_lattice;
+#[path = "../verified_replay_provenance.rs"]
+mod verified_replay_provenance;
 #[path = "../verified_approval_drift.rs"]
 mod verified_approval_drift;
 #[path = "../verified_transitive_revoke.rs"]

@@ -1670,6 +1670,33 @@ check_symbol_parity \
     'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_should_restrict'
 echo ""
 
+echo "--- Replay Non-Admission + Unknown-Provenance Kernel ---"
+VERUS_REPLAY_PROV="$PROJECT_DIR/formal/verus/verified_replay_provenance.rs"
+PROD_REPLAY_HELPERS="$PROJECT_DIR/vellaveto-http-proxy/src/proxy/helpers.rs"
+check_file_pair \
+    "verified_replay_provenance.rs exists (REPLAY-MERGE-1–5, REPLAY-ADMIT-1–5)" \
+    "$PROD_REPLAY_HELPERS" \
+    "$VERUS_REPLAY_PROV"
+check_symbol_parity \
+    "merge_replay_status production exists, Verus proves stickiness (REPLAY-MERGE-2)" \
+    "$PROD_REPLAY_HELPERS" \
+    'fn merge_replay_status' \
+    "$VERUS_REPLAY_PROV" \
+    'lemma_replay_detected_absorbs'
+check_symbol_parity \
+    "replay -> Quarantined clamp in production, Verus proves end-to-end denial (REPLAY-ADMIT-4)" \
+    "$PROD_REPLAY_HELPERS" \
+    'replay_status == ReplayStatus::ReplayDetected' \
+    "$VERUS_REPLAY_PROV" \
+    'lemma_replay_admit_end_to_end_denied'
+check_symbol_parity \
+    "NotChecked != Fresh in Verus (REPLAY-ADMIT-2 fail-closed unknown-provenance)" \
+    "$PROJECT_DIR/vellaveto-types/src/provenance.rs" \
+    'NotChecked' \
+    "$VERUS_REPLAY_PROV" \
+    'lemma_unknown_provenance_fail_closed_end_to_end'
+echo ""
+
 echo "--- Trust Lattice Kernel (WP 3A) ---"
 VERUS_TRUST_LATTICE="$PROJECT_DIR/formal/verus/verified_trust_lattice.rs"
 check_file_pair \

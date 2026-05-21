@@ -88,6 +88,7 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_merkle_integrity.rs"]="merkle_integrity_kernel_assumptions_registered"
         ["formal/verus/verified_refinement_sort_stutter.rs"]="refinement_sort_stutter_kernel_assumptions_registered"
         ["formal/verus/verified_trust_lattice.rs"]="trust_lattice_kernel_assumptions_registered"
+        ["formal/verus/verified_replay_provenance.rs"]="replay_provenance_kernel_assumptions_registered"
     )
 
     while IFS= read -r file; do

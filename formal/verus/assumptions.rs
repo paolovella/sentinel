@@ -276,6 +276,10 @@ pub open spec fn trust_lattice_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn replay_provenance_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn intent_scope_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

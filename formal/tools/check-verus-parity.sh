@@ -1670,6 +1670,38 @@ check_symbol_parity \
     'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_should_restrict'
 echo ""
 
+echo "--- Trust Lattice Kernel (WP 3A) ---"
+VERUS_TRUST_LATTICE="$PROJECT_DIR/formal/verus/verified_trust_lattice.rs"
+check_file_pair \
+    "verified_trust_lattice.rs exists (TRUST-LAT-1–6, FLOW-ADM-1–5, FLOW-PROD-1–4)" \
+    "$PROD_PROVENANCE" \
+    "$VERUS_TRUST_LATTICE"
+check_symbol_parity \
+    "TrustTier::join exists and Verus models join commutativity (TRUST-LAT-1)" \
+    "$PROD_PROVENANCE" \
+    'pub const fn join' \
+    "$VERUS_TRUST_LATTICE" \
+    'lemma_trust_join_commutative'
+check_symbol_parity \
+    "can_flow_to exists and Verus models fail-closed flow admissibility (FLOW-ADM-1)" \
+    "$PROD_PROVENANCE" \
+    'pub const fn can_flow_to' \
+    "$VERUS_TRUST_LATTICE" \
+    'lemma_flow_adm_fail_closed'
+check_symbol_parity \
+    "FlowPoint::compose exists and Verus models composition lowers trust (FLOW-PROD-1)" \
+    "$PROD_PROVENANCE" \
+    'pub const fn compose' \
+    "$VERUS_TRUST_LATTICE" \
+    'lemma_flow_prod_compose_lowers_trust'
+check_symbol_parity \
+    "WP 3A end-to-end: tainted privileged flow denied without declassification" \
+    "$PROD_PROVENANCE" \
+    'pub fn check_flow_admissibility' \
+    "$VERUS_TRUST_LATTICE" \
+    'lemma_tainted_privileged_flow_denied'
+echo ""
+
 echo "--- Entropy Pipeline Kernel ---"
 check_file_pair \
     "verified_entropy_pipeline.rs ↔ vellaveto-engine/src/verified_entropy_gate.rs" \

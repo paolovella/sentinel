@@ -104,6 +104,8 @@ mod verified_rotation_manifest;
 mod verified_sequence_analysis;
 #[path = "../verified_source_taint.rs"]
 mod verified_source_taint;
+#[path = "../verified_trust_lattice.rs"]
+mod verified_trust_lattice;
 #[path = "../verified_approval_drift.rs"]
 mod verified_approval_drift;
 #[path = "../verified_transitive_revoke.rs"]

@@ -44,6 +44,8 @@ mod verified_context_delegation;
 mod verified_core;
 #[path = "../verified_cross_call_dlp.rs"]
 mod verified_cross_call_dlp;
+#[path = "../verified_cross_call_split.rs"]
+mod verified_cross_call_split;
 #[path = "../verified_delegation_projection.rs"]
 mod verified_delegation_projection;
 #[path = "../verified_deputy.rs"]
@@ -52,6 +54,8 @@ mod verified_deputy;
 mod verified_deputy_handoff;
 #[path = "../verified_dlp_core.rs"]
 mod verified_dlp_core;
+#[path = "../verified_entropy_fixed_point.rs"]
+mod verified_entropy_fixed_point;
 #[path = "../verified_entropy_gate.rs"]
 mod verified_entropy_gate;
 #[path = "../verified_entropy_pipeline.rs"]

@@ -7,6 +7,10 @@
 #   verus-external-body
 #   verus-external-fn-spec
 #   verus-trusted-marker
+verus-axiom	formal/verus/float_boundary_axioms.rs	pub broadcast axiom fn axiom_entropy_conv_bounded(
+verus-axiom	formal/verus/float_boundary_axioms.rs	pub broadcast axiom fn axiom_entropy_conv_nonfinite_zero(
+verus-axiom	formal/verus/float_boundary_axioms.rs	pub broadcast axiom fn axiom_entropy_conv_floor_le_ceil(
+verus-axiom	formal/verus/float_boundary_axioms.rs	pub broadcast axiom fn axiom_entropy_conv_ordering(
 verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_append_targets_intended_file(
 verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_metadata_matches_state(contents: Seq<u8>)
 verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_read_matches_state(contents: Seq<u8>)

@@ -17,6 +17,8 @@
 
 #[path = "audit_fs_boundary_axioms.rs"]
 pub mod audit_fs_boundary_axioms;
+#[path = "float_boundary_axioms.rs"]
+pub mod float_boundary_axioms;
 #[path = "merkle_boundary_axioms.rs"]
 pub mod merkle_boundary_axioms;
 
@@ -97,11 +99,20 @@ pub open spec fn entropy_pipeline_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn entropy_fixed_point_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+        && float_boundary_axioms::float_boundary_axioms_hold()
+}
+
 pub open spec fn dlp_core_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
 pub open spec fn cross_call_dlp_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn cross_call_split_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 

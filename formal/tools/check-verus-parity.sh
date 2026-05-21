@@ -215,6 +215,9 @@ PROD_TRACED="$PROJECT_DIR/vellaveto-engine/src/traced.rs"
 PROD_REFINEMENT_WITNESS="$PROJECT_DIR/vellaveto-engine/tests/refinement_trace.rs"
 VERUS_REFINEMENT_COMPLETENESS="$PROJECT_DIR/formal/verus/verified_refinement_completeness.rs"
 VERUS_ENTROPY_PIPELINE="$PROJECT_DIR/formal/verus/verified_entropy_pipeline.rs"
+VERUS_ENTROPY_FIXED_POINT="$PROJECT_DIR/formal/verus/verified_entropy_fixed_point.rs"
+VERUS_FLOAT_AXIOMS="$PROJECT_DIR/formal/verus/float_boundary_axioms.rs"
+VERUS_CROSS_CALL_SPLIT="$PROJECT_DIR/formal/verus/verified_cross_call_split.rs"
 
 echo "--- Cargo Verus Entrypoint ---"
 check_file_pair \
@@ -1654,6 +1657,48 @@ check_symbol_parity \
     'should_alert_on_high_entropy_count' \
     "$VERUS_ENTROPY_PIPELINE" \
     'pub[[:space:]]+fn[[:space:]]+should_alert'
+echo ""
+
+echo "--- Float-to-Fixed Wrapper Kernel ---"
+check_file_pair \
+    "verified_entropy_fixed_point.rs exists (FP-WRAP-1 through FP-WRAP-6)" \
+    "$PROD_ENTROPY_WRAPPER" \
+    "$VERUS_ENTROPY_FIXED_POINT"
+check_symbol_parity \
+    "float_boundary_axioms.rs contains FLOAT-CONV-1 (output bounded)" \
+    "$VERUS_FLOAT_AXIOMS" \
+    'axiom_entropy_conv_bounded' \
+    "$VERUS_ENTROPY_FIXED_POINT" \
+    'lemma_entropy_conv_bounded'
+check_symbol_parity \
+    "float-to-fixed wrapper proves no false negative (FP-WRAP-4)" \
+    "$PROD_ENTROPY_WRAPPER" \
+    'entropy_threshold_millibits' \
+    "$VERUS_ENTROPY_FIXED_POINT" \
+    'lemma_no_false_negative'
+check_file_pair \
+    "float_boundary_axioms.rs exists and is in allowlist" \
+    "$PROD_ENTROPY_WRAPPER" \
+    "$VERUS_FLOAT_AXIOMS"
+echo ""
+
+echo "--- Cross-Call Split-Detection Completeness ---"
+check_file_pair \
+    "verified_cross_call_split.rs exists (CC-SPLIT-1 through CC-SPLIT-4)" \
+    "$PROD_CROSS_DLP_WRAPPER" \
+    "$VERUS_CROSS_CALL_SPLIT"
+check_symbol_parity \
+    "cross_call_dlp.rs uses format! concatenation and split proof covers it" \
+    "$PROD_CROSS_DLP_WRAPPER" \
+    'format!' \
+    "$VERUS_CROSS_CALL_SPLIT" \
+    'lemma_split_secret_in_combined'
+check_symbol_parity \
+    "bounded-secret completeness lemma present (secrets ≤ 2×overlap)" \
+    "$PROD_CROSS_DLP_WRAPPER" \
+    'DEFAULT_OVERLAP_BUFFER_SIZE' \
+    "$VERUS_CROSS_CALL_SPLIT" \
+    'lemma_bounded_secret_always_covered'
 echo ""
 
 if [ "$DRIFT_FOUND" -ne 0 ]; then

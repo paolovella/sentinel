@@ -5,6 +5,7 @@
 # Usage:
 #   bash formal/tools/verify-verus.sh
 #   VERUS_BIN=/path/to/verus bash formal/tools/verify-verus.sh
+#   FORMAL_USE_CARGO_VERUS=1 FORMAL_REQUIRE_CARGO_VERUS=1 bash formal/tools/verify-verus.sh
 #   bash formal/tools/verify-verus.sh --list
 #
 # Exit code: 0 = all proofs verified, non-zero = failure
@@ -65,6 +66,18 @@ FILES=(
 )
 
 MANIFEST="formal/verus/Cargo.toml"
+VERUS_LIB="formal/verus/src/lib.rs"
+
+list_cargo_verus_files() {
+    local verus_lib="$PROJECT_DIR/$VERUS_LIB"
+
+    if [ -f "$verus_lib" ]; then
+        sed -n 's|^[[:space:]]*#\[path = "\.\./\(verified_[^"]*\.rs\)"\][[:space:]]*$|formal/verus/\1|p' "$verus_lib"
+        return
+    fi
+
+    printf '%s\n' "${FILES[@]}"
+}
 
 verus_dir_candidates() {
     printf '%s\n' "$PROJECT_DIR/verus-bin/verus-x86-linux"
@@ -127,45 +140,57 @@ find_cargo_verus_bin() {
 }
 
 if [ "${1:-}" = "--list" ]; then
-    printf '%s\n' "${FILES[@]}"
+    list_cargo_verus_files
     exit 0
 fi
 
 VERUS_FLAGS="${VERUS_FLAGS:---triggers-mode silent}"
 USE_CARGO_VERUS="${FORMAL_USE_CARGO_VERUS:-}"
+REQUIRE_CARGO_VERUS="${FORMAL_REQUIRE_CARGO_VERUS:-0}"
+if [ "$REQUIRE_CARGO_VERUS" = "1" ]; then
+    USE_CARGO_VERUS=1
+fi
 if [ -z "$USE_CARGO_VERUS" ] && [ "${CI:-}" = "true" ]; then
     USE_CARGO_VERUS=1
 fi
 
-if [ "$USE_CARGO_VERUS" = "1" ] && [ -f "$PROJECT_DIR/$MANIFEST" ] && CARGO_VERUS="$(find_cargo_verus_bin)"; then
-    CARGO_VERUS_TARGET_DIR="${CARGO_VERUS_TARGET_DIR:-${CARGO_TARGET_DIR:-/tmp/vellaveto-formal-verus-target}}"
-    echo "=== Verus Verification ==="
-    echo "Cargo Verus binary: $CARGO_VERUS"
-    echo "Manifest: $PROJECT_DIR/$MANIFEST"
-    echo "Cargo target dir: $CARGO_VERUS_TARGET_DIR"
-    echo ""
-    # shellcheck disable=SC2086
-    CARGO_TARGET_DIR="$CARGO_VERUS_TARGET_DIR" \
-        "$CARGO_VERUS" verify --manifest-path "$PROJECT_DIR/$MANIFEST" -- $VERUS_FLAGS
-    exit 0
-fi
-
-if [ "$USE_CARGO_VERUS" = "1" ] && [ ! -f "$PROJECT_DIR/$MANIFEST" ]; then
-    echo "INFO: $MANIFEST not found; falling back to per-file Verus verification."
-elif [ "$USE_CARGO_VERUS" = "1" ]; then
-    echo "INFO: cargo-verus requested but not found; falling back to per-file Verus verification."
+if [ "$USE_CARGO_VERUS" = "1" ]; then
+    if [ ! -f "$PROJECT_DIR/$MANIFEST" ]; then
+        if [ "$REQUIRE_CARGO_VERUS" = "1" ]; then
+            echo "FAIL: $MANIFEST not found; cannot run required cargo-Verus verification." >&2
+            exit 1
+        fi
+        echo "INFO: $MANIFEST not found; falling back to per-file Verus verification."
+    elif CARGO_VERUS="$(find_cargo_verus_bin)"; then
+        CARGO_VERUS_TARGET_DIR="${CARGO_VERUS_TARGET_DIR:-${CARGO_TARGET_DIR:-/tmp/vellaveto-formal-verus-target}}"
+        echo "=== Verus Verification ==="
+        echo "Cargo Verus binary: $CARGO_VERUS"
+        echo "Manifest: $PROJECT_DIR/$MANIFEST"
+        echo "Cargo target dir: $CARGO_VERUS_TARGET_DIR"
+        echo ""
+        # shellcheck disable=SC2086
+        CARGO_TARGET_DIR="$CARGO_VERUS_TARGET_DIR" \
+            "$CARGO_VERUS" verify --manifest-path "$PROJECT_DIR/$MANIFEST" -- $VERUS_FLAGS
+        exit 0
+    elif [ "$REQUIRE_CARGO_VERUS" = "1" ]; then
+        echo "FAIL: cargo-verus requested but not found; set CARGO_VERUS_BIN or install cargo-verus." >&2
+        exit 1
+    else
+        echo "INFO: cargo-verus requested but not found; falling back to per-file Verus verification."
+    fi
 else
     echo "INFO: using per-file Verus verification; set FORMAL_USE_CARGO_VERUS=1 to use the manifest entrypoint."
 fi
 echo ""
 
 VERUS="$(find_verus_bin)"
+mapfile -t VERIFY_FILES < <(list_cargo_verus_files)
 
 echo "=== Verus Verification ==="
 echo "Verus binary: $VERUS"
 echo ""
 
-for file in "${FILES[@]}"; do
+for file in "${VERIFY_FILES[@]}"; do
     echo "--- $file ---"
     # shellcheck disable=SC2086
     "$VERUS" $VERUS_FLAGS "$PROJECT_DIR/$file"

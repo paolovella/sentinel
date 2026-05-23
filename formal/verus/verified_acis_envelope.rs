@@ -87,7 +87,7 @@ pub open spec fn spec_deny_has_reason(decision: SpecDecisionKind, reason_len: na
 
 /// Ghost model: the fingerprint is a pure function of (tool, function, targets).
 /// SHA-256 is deterministic; we axiomatize this as a spec function.
-pub open spec fn spec_action_fingerprint(
+pub uninterp spec fn spec_action_fingerprint(
     tool: Seq<u8>,
     function: Seq<u8>,
     sorted_target_paths: Seq<Seq<u8>>,

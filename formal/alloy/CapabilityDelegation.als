@@ -31,6 +31,8 @@
  *   java -jar org.alloytools.alloy.dist.jar CapabilityDelegation.als
  */
 
+open util/ordering[Time]
+
 -- =========================================================================
 -- Abstract types
 -- =========================================================================
@@ -72,7 +74,6 @@ sig Domain {}
  * on Time atoms. This captures temporal monotonicity (child.expiry <= parent.expiry)
  * without requiring date arithmetic.
  */
-open util/ordering[Time]
 sig Time {}
 
 -- =========================================================================
@@ -249,8 +250,8 @@ pred patternCovers[parentPat: Pattern, childPat: Pattern] {
  * A child grant is a subset of a parent grant when:
  *   1. Parent's tool pattern covers child's tool pattern
  *   2. Parent's function pattern covers child's function pattern
- *   3. If parent restricts paths, child's paths are a subset
- *   4. If parent restricts domains, child's domains are a subset
+ *   3. If parent restricts paths, child also restricts paths to a subset
+ *   4. If parent restricts domains, child also restricts domains to a subset
  *
  * Abstraction gap: path/domain subset uses set identity (Alloy `in`)
  * rather than glob matching. In Rust, parent "/data/*" covers child
@@ -266,13 +267,15 @@ pred grantSubset[child: Grant, par: Grant] {
     -- Function pattern coverage
     patternCovers[par.funcPattern, child.funcPattern]
 
-    -- Path subset: if parent restricts paths, child must stay within them
+    -- Path subset: empty child set means unrestricted, so it is not covered
+    -- by a restricted parent.
     (some par.allowedPaths) implies
-        child.allowedPaths in par.allowedPaths
+        (some child.allowedPaths and child.allowedPaths in par.allowedPaths)
 
-    -- Domain subset: if parent restricts domains, child must stay within them
+    -- Domain subset: empty child set means unrestricted, so it is not covered
+    -- by a restricted parent.
     (some par.allowedDomains) implies
-        child.allowedDomains in par.allowedDomains
+        (some child.allowedDomains and child.allowedDomains in par.allowedDomains)
 }
 
 /**
@@ -435,23 +438,24 @@ fact TemporalConstraint {
 -- =========================================================================
 
 /**
- * Scope: 7 tokens, 5 grants, 3 principals, 3 paths, 3 domains, 4 times.
+ * Scope: 7 tokens, 5 grants, 3 patterns, 3 principals, 3 paths, 3 domains, 4 times.
  *
  * This scope is sufficient because:
  *   - 7 tokens > MAX_DEPTH+1=4, so S13 is non-vacuous (P1-8 fix)
  *   - 5 grants provide variety for subset checking with grant ownership
+ *   - 3 patterns cover the wildcard plus concrete exact-pattern cases
  *   - 3 principals cover issuer/holder chains with re-delegation
  *   - 4 time values cover before/equal/after with ordering chains
  *   - 6 Int gives range [-32, 31], sufficient for depths 0-3
  *
  * All checks should report 0 counterexamples.
  */
-check S11_MonotonicAttenuation for 7 Token, 5 Grant, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
-check S12_TransitiveAttenuation for 7 Token, 5 Grant, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
-check S13_DepthBudget for 7 Token, 5 Grant, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
-check S14_TemporalMonotonicity for 7 Token, 5 Grant, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
-check S15_TerminalCannotDelegate for 7 Token, 5 Grant, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
-check S16_IssuerChainIntegrity for 7 Token, 5 Grant, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
+check S11_MonotonicAttenuation for 7 Token, 5 Grant, 3 Pattern, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
+check S12_TransitiveAttenuation for 7 Token, 5 Grant, 3 Pattern, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
+check S13_DepthBudget for 7 Token, 5 Grant, 3 Pattern, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
+check S14_TemporalMonotonicity for 7 Token, 5 Grant, 3 Pattern, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
+check S15_TerminalCannotDelegate for 7 Token, 5 Grant, 3 Pattern, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
+check S16_IssuerChainIntegrity for 7 Token, 5 Grant, 3 Pattern, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
 
 -- =========================================================================
 -- Example: show a valid delegation chain
@@ -465,4 +469,4 @@ pred showDelegationChain {
     some disj t1, t2, t3: Token |
         t2.parent = t1 and t3.parent = t2
 }
-run showDelegationChain for 7 Token, 5 Grant, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int
+run showDelegationChain for 7 Token, 5 Grant, 3 Pattern, 3 Principal, 3 Path, 3 Domain, 4 Time, 6 Int

@@ -66,11 +66,13 @@ pub enum PolicyKind {
 }
 
 /// Abstract policy projection used for sort and stutter proofs.
-/// Uses `nat` for priority (u32 in production), `Seq<char>` for id.
+/// Uses `nat` for priority (u32 in production) and an abstract rank for the
+/// lexicographic policy-id tie breaker.
 pub struct SortPolicy {
     pub priority: nat,
     pub kind: PolicyKind,
-    pub id: Seq<u8>,   // lexicographic bytes; Seq is spec-comparable
+    pub id: Seq<u8>,
+    pub id_order: nat,
 }
 
 // ── Priority ordering spec ────────────────────────────────────────────────────
@@ -85,13 +87,13 @@ pub open spec fn spec_is_deny(kind: PolicyKind) -> bool {
 /// `a` comes before `b` (a has lower sort index) iff:
 /// - a.priority > b.priority, OR
 /// - a.priority == b.priority AND is_deny(a) AND !is_deny(b), OR
-/// - a.priority == b.priority AND is_deny(a) == is_deny(b) AND a.id ≤ b.id
+/// - a.priority == b.priority AND is_deny(a) == is_deny(b) AND a.id_order ≤ b.id_order
 pub open spec fn spec_policy_before(a: SortPolicy, b: SortPolicy) -> bool {
     a.priority > b.priority
         || (a.priority == b.priority && spec_is_deny(a.kind) && !spec_is_deny(b.kind))
         || (a.priority == b.priority
             && spec_is_deny(a.kind) == spec_is_deny(b.kind)
-            && a.id <= b.id)
+            && a.id_order <= b.id_order)
 }
 
 /// Spec: `a` and `b` are equivalent under the sort order.
@@ -120,15 +122,14 @@ pub open spec fn spec_sorted_by_priority(policies: Seq<SortPolicy>) -> bool {
 pub proof fn lemma_sort_reflexive(a: SortPolicy)
     ensures spec_policy_before(a, a),
 {
-    // a.priority == a.priority, is_deny(a) == is_deny(a), a.id <= a.id.
-    // The third branch: a.priority == a.priority AND same deny AND a.id <= a.id.
-    assert(a.id <= a.id);
+    // The third branch: a.priority == a.priority AND same deny AND a.id_order <= a.id_order.
+    assert(a.id_order <= a.id_order);
 }
 
 // ── Antisymmetry ──────────────────────────────────────────────────────────────
 
 /// If a is before b AND b is before a, they have the same priority, deny-status,
-/// and id (i.e., they represent the same abstract policy).
+/// and id-order rank (i.e., they are equivalent under the abstract comparator).
 pub proof fn lemma_sort_antisymmetric(a: SortPolicy, b: SortPolicy)
     requires
         spec_policy_before(a, b),
@@ -136,7 +137,7 @@ pub proof fn lemma_sort_antisymmetric(a: SortPolicy, b: SortPolicy)
     ensures
         a.priority == b.priority,
         spec_is_deny(a.kind) == spec_is_deny(b.kind),
-        a.id == b.id,
+        a.id_order == b.id_order,
 {
     // spec_policy_before(a, b) must go through one of the three branches.
     // spec_policy_before(b, a) must also hold.
@@ -146,9 +147,10 @@ pub proof fn lemma_sort_antisymmetric(a: SortPolicy, b: SortPolicy)
     // Case 2: a.priority == b.priority AND deny(a) AND !deny(b).
     //         For b→a, the first branch fails. For the second: !deny(b) means the
     //         second branch of b→a needs deny(b) — contradiction.
-    //         So b→a must use branch 3: a.id <= b.id AND b.id <= a.id → a.id == b.id.
-    // Case 3: Same priority, same deny status, a.id <= b.id.
-    //         For b→a branch 3: b.id <= a.id. Combined: a.id == b.id.
+    //         So b→a must use branch 3: a.id_order <= b.id_order AND
+    //         b.id_order <= a.id_order → a.id_order == b.id_order.
+    // Case 3: Same priority, same deny status, a.id_order <= b.id_order.
+    //         For b→a branch 3: b.id_order <= a.id_order.
     //
     // In all valid cases the conclusion holds. The proof is by contradiction in Verus.
     if a.priority > b.priority {
@@ -190,10 +192,10 @@ pub proof fn lemma_sort_antisymmetric(a: SortPolicy, b: SortPolicy)
         assert(false);
     }
     // Now is_deny(a) == is_deny(b).
-    // Both use branch 3: a.id <= b.id AND b.id <= a.id → a.id == b.id.
-    assert(a.id <= b.id);
-    assert(b.id <= a.id);
-    assert(a.id == b.id);
+    // Both use branch 3.
+    assert(a.id_order <= b.id_order);
+    assert(b.id_order <= a.id_order);
+    assert(a.id_order == b.id_order);
 }
 
 // ── Transitivity ──────────────────────────────────────────────────────────────
@@ -235,7 +237,7 @@ pub proof fn lemma_sort_transitive(a: SortPolicy, b: SortPolicy, c: SortPolicy)
             // a.priority == b.priority == c.priority
             // a→b uses branch 2 or 3; b→c uses branch 2 or 3
             // In all sub-cases, branch 3 of a→c holds: same deny status propagates transitively,
-            // and a.id <= b.id <= c.id → a.id <= c.id.
+            // and a.id_order <= b.id_order <= c.id_order → a.id_order <= c.id_order.
         }
     }
 }
@@ -258,9 +260,7 @@ pub proof fn lemma_sort_total(a: SortPolicy, b: SortPolicy)
         } else if spec_is_deny(b.kind) && !spec_is_deny(a.kind) {
             // Branch 2 for b→a.
         } else {
-            // Same deny status. Use branch 3 with id comparison.
-            // Seq ordering is total: either a.id <= b.id or b.id <= a.id.
-            // (In Verus, Seq<u8> comparison is lexicographic; <= is total.)
+            // Same deny status. Use branch 3 with the abstract id-order rank.
             // Branch 3 for whichever direction the id comparison goes.
         }
     }
@@ -273,9 +273,8 @@ pub proof fn lemma_sort_total(a: SortPolicy, b: SortPolicy)
 pub proof fn lemma_adjacent_sort_implies_full_sort(policies: Seq<SortPolicy>)
     requires
         forall|i: nat|
-            #![auto]
             i + 1 < policies.len()
-                ==> spec_policy_before(policies[i as int], policies[(i + 1) as int]),
+                ==> #[trigger] spec_policy_before(policies[i as int], policies[(i + 1) as int]),
     ensures
         spec_sorted_by_priority(policies),
     decreases policies.len()
@@ -299,9 +298,8 @@ proof fn lemma_sort_ordered_for_range(policies: Seq<SortPolicy>, i: nat, j: nat)
         i < j,
         j < policies.len(),
         forall|k: nat|
-            #![auto]
             k + 1 < policies.len()
-                ==> spec_policy_before(policies[k as int], policies[(k + 1) as int]),
+                ==> #[trigger] spec_policy_before(policies[k as int], policies[(k + 1) as int]),
     ensures
         spec_policy_before(policies[i as int], policies[j as int]),
     decreases j - i
@@ -310,13 +308,16 @@ proof fn lemma_sort_ordered_for_range(policies: Seq<SortPolicy>, i: nat, j: nat)
         // Adjacent pair — directly from the forall.
     } else {
         // j > i + 1. By IH: policies[i] before policies[i+1] before ... before policies[j].
-        lemma_sort_ordered_for_range(policies, i, (j - 1) as nat);
+        let prev = (j - 1) as nat;
+        lemma_sort_ordered_for_range(policies, i, prev);
         // policies[i] before policies[j-1]
         // policies[j-1] before policies[j] (from adjacent-pair forall with k = j-1)
+        assert(prev + 1 == j);
+        assert(spec_policy_before(policies[prev as int], policies[j as int]));
         // By transitivity: policies[i] before policies[j].
         lemma_sort_transitive(
             policies[i as int],
-            policies[(j - 1) as int],
+            policies[prev as int],
             policies[j as int],
         );
     }
@@ -340,9 +341,8 @@ pub proof fn lemma_r_mcp_init_sort_sorted_sequence_satisfies_predicate(
     requires
         // Pre-condition: every adjacent pair is in priority order (output of sort_policies).
         forall|i: nat|
-            #![auto]
             i + 1 < policies.len()
-                ==> spec_policy_before(policies[i as int], policies[(i + 1) as int]),
+                ==> #[trigger] spec_policy_before(policies[i as int], policies[(i + 1) as int]),
     ensures
         spec_sorted_by_priority(policies),
 {
@@ -478,9 +478,8 @@ pub proof fn lemma_p5b_full_simulation_is_complete(
     requires
         // Sorted sequence (post sort_policies).
         forall|i: nat|
-            #![auto]
             i + 1 < policies.len()
-                ==> spec_policy_before(policies[i as int], policies[(i + 1) as int]),
+                ==> #[trigger] spec_policy_before(policies[i as int], policies[(i + 1) as int]),
     ensures
         // (1) Sort obligation: sorted sequence satisfies the priority predicate.
         spec_sorted_by_priority(policies),
@@ -492,13 +491,11 @@ pub proof fn lemma_p5b_full_simulation_is_complete(
                     ==> !spec_exact_match(policies[i as int].id, queried_tool)),
 {
     lemma_r_mcp_init_sort_sorted_sequence_satisfies_predicate(policies);
-    assert forall|i: nat| #![auto] i < policies.len()
-        implies (policies[i as int].id != queried_tool
-            ==> !spec_exact_match(policies[i as int].id, queried_tool))
+    assert forall|i: nat| #![auto]
+        i < policies.len() && policies[i as int].id != queried_tool
+            implies !spec_exact_match(policies[i as int].id, queried_tool)
     by {
-        if policies[i as int].id != queried_tool {
-            lemma_stutter_is_miss(policies[i as int].id, queried_tool);
-        }
+        lemma_stutter_is_miss(policies[i as int].id, queried_tool);
     };
 }
 

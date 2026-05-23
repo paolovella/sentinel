@@ -233,6 +233,44 @@ pub proof fn lemma_named_assumptions_registered_for_this_kernel()
     ensures assumptions::entropy_fixed_point_kernel_assumptions_registered(),
 {
     assumptions::lemma_shared_formal_assumptions_registered();
+    assert(assumptions::float_boundary_axioms::float_boundary_axioms_hold()) by {
+        broadcast use assumptions::float_boundary_axioms::group_float_boundary_axioms;
+
+        assert forall|x: f64, round_up: bool|
+            #[trigger] assumptions::float_boundary_axioms::spec_entropy_conv(x, round_up) <= 8000u16 by {
+            assumptions::float_boundary_axioms::axiom_entropy_conv_bounded(x, round_up);
+        };
+
+        assert forall|x: f64, round_up: bool|
+            !assumptions::float_boundary_axioms::spec_f64_is_finite(x)
+                implies #[trigger] assumptions::float_boundary_axioms::spec_entropy_conv(x, round_up) == 0u16 by {
+            if !assumptions::float_boundary_axioms::spec_f64_is_finite(x) {
+                assumptions::float_boundary_axioms::axiom_entropy_conv_nonfinite_zero(x, round_up);
+            }
+        };
+
+        assert forall|x: f64|
+            #![trigger assumptions::float_boundary_axioms::spec_entropy_conv(x, false), assumptions::float_boundary_axioms::spec_entropy_conv(x, true)]
+            assumptions::float_boundary_axioms::spec_entropy_conv(x, false)
+                <= assumptions::float_boundary_axioms::spec_entropy_conv(x, true) by {
+            assumptions::float_boundary_axioms::axiom_entropy_conv_floor_le_ceil(x);
+        };
+
+        assert forall|actual: f64, threshold: f64|
+            #![trigger assumptions::float_boundary_axioms::spec_entropy_conv(actual, true), assumptions::float_boundary_axioms::spec_entropy_conv(threshold, false)]
+            assumptions::float_boundary_axioms::spec_f64_is_finite(actual)
+                && assumptions::float_boundary_axioms::spec_f64_is_finite(threshold)
+                && assumptions::float_boundary_axioms::spec_f64_ge(actual, threshold)
+                implies assumptions::float_boundary_axioms::spec_entropy_conv(actual, true)
+                    >= assumptions::float_boundary_axioms::spec_entropy_conv(threshold, false) by {
+            if assumptions::float_boundary_axioms::spec_f64_is_finite(actual)
+                && assumptions::float_boundary_axioms::spec_f64_is_finite(threshold)
+                && assumptions::float_boundary_axioms::spec_f64_ge(actual, threshold)
+            {
+                assumptions::float_boundary_axioms::axiom_entropy_conv_ordering(actual, threshold);
+            }
+        };
+    };
 }
 
 fn main() {}

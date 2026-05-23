@@ -99,6 +99,14 @@ check_multiline_symbol_parity() {
     pass "$label"
 }
 
+list_verus_kernels() {
+    find "$PROJECT_DIR/formal/verus" -maxdepth 1 -name 'verified_*.rs' -printf '%f\n' | sort
+}
+
+list_cargo_verus_shim_kernels() {
+    sed -n 's|^[[:space:]]*#\[path = "\.\./\(verified_[^"]*\.rs\)"\][[:space:]]*$|\1|p' "$VERUS_LIB" | sort
+}
+
 echo "=== Verus Proof Target Parity Check ==="
 echo ""
 
@@ -235,15 +243,19 @@ check_symbol_parity \
     "$VERUS_LIB" \
     'verified_core\.rs'
 while IFS= read -r verus_file; do
-    module="${verus_file##*/}"
-    module="${module%.rs}"
+    module="${verus_file%.rs}"
     check_symbol_parity \
         "$module is wired into the cargo-verus shim" \
         "$VERUS_LIB" \
         "${module}\\.rs" \
-        "$PROJECT_DIR/$verus_file" \
+        "$PROJECT_DIR/formal/verus/$verus_file" \
         'verus!'
-done < <("$PROJECT_DIR/formal/tools/verify-verus.sh" --list)
+done < <(list_verus_kernels)
+while IFS= read -r verus_file; do
+    if [ ! -f "$PROJECT_DIR/formal/verus/$verus_file" ]; then
+        fail "cargo-verus shim references missing kernel: formal/verus/$verus_file"
+    fi
+done < <(list_cargo_verus_shim_kernels)
 echo ""
 
 echo "--- Core Verdict ---"

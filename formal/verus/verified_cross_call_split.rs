@@ -222,7 +222,7 @@ pub proof fn lemma_split_secret_in_combined(
     ensures
         // The secret occupies combined[tail.len()-split_pos .. tail.len()-split_pos+secret_len]
         spec_spans_junction(
-            tail.len() - split_pos,
+            (tail.len() - split_pos) as nat,
             secret_len,
             tail.len(),
             tail.len() + current.len(),
@@ -233,11 +233,11 @@ pub proof fn lemma_split_secret_in_combined(
                 (tail.len() - split_pos + secret_len) as int,
             ),
             spec_combined(tail, current),
-            tail.len() - split_pos,
+            (tail.len() - split_pos) as nat,
         ),
 {
     let combined = spec_combined(tail, current);
-    let start = tail.len() - split_pos;
+    let start = (tail.len() - split_pos) as nat;
     let end = start + secret_len;
 
     // 1. Show the range spans the junction.
@@ -257,14 +257,13 @@ pub proof fn lemma_split_secret_in_combined(
 
 /// The overlap buffer for a given field is bounded by `overlap_size`.
 /// The tail passed to `scan_with_overlap` has at most `overlap_size` bytes.
-pub proof fn lemma_tail_bounded_by_overlap_size(tail: Seq<u8>, overlap_size: nat)
+pub proof fn lemma_tail_bounded_by_overlap_size(tail: Seq<u8>, overlap_size: nat, split_pos: nat)
     requires
         tail.len() <= overlap_size,
+        split_pos <= overlap_size,
+        split_pos <= tail.len(),
     ensures
-        // Any split_pos ≤ overlap_size is provably within the tail.
-        forall|split_pos: nat|
-            split_pos <= overlap_size && split_pos <= tail.len()
-            ==> split_pos <= tail.len(),
+        split_pos <= tail.len(),
 {
     // Trivial from the precondition.
 }
@@ -290,13 +289,13 @@ pub proof fn lemma_bounded_secret_always_covered(
         current.len() >= secret_len - split_pos,
     ensures
         spec_spans_junction(
-            tail.len() - split_pos,
+            (tail.len() - split_pos) as nat,
             secret_len,
             tail.len(),
             tail.len() + current.len(),
         ),
 {
-    let start = tail.len() - split_pos;
+    let start = (tail.len() - split_pos) as nat;
     assert(start < tail.len());
     assert(start + secret_len > tail.len()) by {
         // start + secret_len = tail.len() - split_pos + secret_len

@@ -224,12 +224,11 @@ pub proof fn lemma_expiry_never_exceeds_root(
         step_expiries.len() == n,
         // Each step's expiry is bounded by its parent: step[0] ≤ root, step[i] ≤ step[i-1].
         forall|i: nat|
-            #![auto]
-            i < n ==> step_expiries[i as int] <= if i == 0 { root_expiry } else { step_expiries[(i - 1) as int] },
+            i < n ==> #[trigger] step_expiries[i as int]
+                <= if i == 0 { root_expiry } else { step_expiries[(i - 1) as int] },
     ensures
         forall|i: nat|
-            #![auto]
-            i < n ==> step_expiries[i as int] <= root_expiry,
+            i < n ==> #[trigger] step_expiries[i as int] <= root_expiry,
     decreases n
 {
     if n == 0 {
@@ -239,8 +238,9 @@ pub proof fn lemma_expiry_never_exceeds_root(
         // step[n-1] ≤ step[n-2] ≤ ... ≤ step[0] ≤ root_expiry (by IH).
         let sub = step_expiries.take((n - 1) as int);
         assert(sub.len() == n - 1);
-        assert forall|i: nat| #![auto] i < n - 1
-            implies step_expiries[i as int] <= if i == 0 { root_expiry } else { step_expiries[(i - 1) as int] }
+        assert forall|i: nat| i < n - 1
+            implies #[trigger] step_expiries[i as int]
+                <= if i == 0 { root_expiry } else { step_expiries[(i - 1) as int] }
         by {
             // Follows from the outer forall since i < n - 1 < n.
         };
@@ -273,8 +273,8 @@ pub proof fn lemma_final_expiry_bounded_by_root(
         step_expiries.len() == n,
         step_expiries[(n - 1) as int] == final_expiry,
         forall|i: nat|
-            #![auto]
-            i < n ==> step_expiries[i as int] <= if i == 0 { root_expiry } else { step_expiries[(i - 1) as int] },
+            i < n ==> #[trigger] step_expiries[i as int]
+                <= if i == 0 { root_expiry } else { step_expiries[(i - 1) as int] },
     ensures
         final_expiry <= root_expiry,
 {

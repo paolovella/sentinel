@@ -251,29 +251,23 @@ jobs:
         run: |
           set -euo pipefail
           ALLOY_VERSION="6.2.0"
+          ALLOY_SHA256="6b8c1cb5bc93bedfc7c61435c4e1ab6e688a242dc702a394628d9a9801edb78d"
           curl -fsSL --retry 3 --retry-delay 2 -o alloy.jar \
             "https://github.com/AlloyTools/org.alloytools.alloy/releases/download/v${ALLOY_VERSION}/org.alloytools.alloy.dist.jar"
+          echo "${ALLOY_SHA256}  alloy.jar" | sha256sum -c -
 
       - name: Run Alloy checks — CapabilityDelegation (S11-S16)
         run: |
-          java -cp alloy.jar edu.mit.csail.sdg.alloy4whole.ExampleUsingTheCompiler \
-            formal/alloy/CapabilityDelegation.als 2>&1 | tee alloy-cap.log
-          if grep -q "Counterexample" alloy-cap.log; then
-            echo "FAIL: Counterexample found in CapabilityDelegation"
-            exit 1
-          fi
+          ALLOY_JAR=alloy.jar bash formal/tools/run-alloy-model.sh \
+            formal/alloy/CapabilityDelegation.als
 
       - name: Run Alloy checks — AbacForbidOverride (S7-S10)
         run: |
-          java -cp alloy.jar edu.mit.csail.sdg.alloy4whole.ExampleUsingTheCompiler \
-            formal/alloy/AbacForbidOverride.als 2>&1 | tee alloy-abac.log
-          if grep -q "Counterexample" alloy-abac.log; then
-            echo "FAIL: Counterexample found in AbacForbidOverride"
-            exit 1
-          fi
+          ALLOY_JAR=alloy.jar bash formal/tools/run-alloy-model.sh \
+            formal/alloy/AbacForbidOverride.als
 
   verus:
-    name: "Verus (47 kernels, 668 verified items)"
+    name: "Verus (canonical cargo-Verus shim)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -303,6 +297,7 @@ jobs:
       - name: Run canonical Verus verification
         run: |
           FORMAL_USE_CARGO_VERUS=1 \
+          FORMAL_REQUIRE_CARGO_VERUS=1 \
           CARGO_VERUS_BIN=verus-bin/verus-x86-linux/cargo-verus \
           VERUS_BIN=verus-bin/verus-x86-linux/verus \
             bash formal/tools/verify-verus.sh

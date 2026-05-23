@@ -121,7 +121,7 @@ pub proof fn lemma_global_seq_increases_by_n(n: nat, initial: nat)
         lemma_global_seq_increases_by_n((n - 1) as nat, initial);
         // seq_after_(n-1) = initial + (n-1) < u64::MAX
         assert(spec_global_seq_after_n_appends((n - 1) as nat, initial) == initial + (n - 1));
-        assert(spec_next_global_sequence(initial + (n - 1)) == initial + n);
+        assert(spec_next_global_sequence((initial + (n - 1)) as nat) == initial + n);
     }
 }
 
@@ -179,7 +179,7 @@ pub proof fn lemma_entry_count_equals_appends_after_rotation(n: nat)
     } else {
         lemma_entry_count_equals_appends_after_rotation((n - 1) as nat);
         assert(spec_entry_count_after_rotation_and_n((n - 1) as nat) == n - 1);
-        assert(spec_next_entry_count(n - 1) == n);
+        assert(spec_next_entry_count((n - 1) as nat) == n);
     }
 }
 
@@ -203,8 +203,7 @@ pub proof fn lemma_global_seq_continues_across_rotation(
 
 /// The `seen_hashed` flag can only transition from false to true — never back.
 pub proof fn lemma_seen_hashed_monotone(seen: bool, entry_has_hash: bool)
-    ensures spec_next_seen_hashed(seen, entry_has_hash) >= seen,
-    // (using bool ordering: false < true)
+    ensures seen ==> spec_next_seen_hashed(seen, entry_has_hash),
 {
     // If seen == true, next is true (monotone).
     // If seen == false and entry_has_hash == true, next is true.
@@ -276,8 +275,15 @@ pub proof fn lemma_hashed_entry_forces_all_later_entries_hashed(
     if k + 1 == n {
         // Already at the last step.
     } else {
-        // By induction: seen is true at k+1, so it stays true through n.
-        lemma_seen_hashed_latches_true(n - (k + 1), true, step_has_hash.skip((k + 1) as int));
+        // By induction: seen is true at k+1, so it stays true through n - 1,
+        // then the final transition preserves true.
+        lemma_hashed_entry_forces_all_later_entries_hashed((n - 1) as nat, k, initial_seen, step_has_hash);
+        assert(spec_seen_hashed_after_n_steps((n - 1) as nat, initial_seen, step_has_hash));
+        assert(spec_seen_hashed_after_n_steps(n, initial_seen, step_has_hash)
+            == spec_next_seen_hashed(
+                spec_seen_hashed_after_n_steps((n - 1) as nat, initial_seen, step_has_hash),
+                step_has_hash[(n - 1) as int],
+            ));
     }
 }
 

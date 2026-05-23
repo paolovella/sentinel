@@ -69,18 +69,23 @@ verus! {
 // ── Spec model ────────────────────────────────────────────────────────────────
 
 /// Max rank for TrustTier (Verified = 6).
-pub const TRUST_TIER_MAX_RANK: nat = 6;
-/// Max rank for SinkClass (PolicyMutation = 8).
-pub const SINK_CLASS_MAX_RANK: nat = 8;
-
-/// Spec: a valid TrustTier rank is in [0, TRUST_TIER_MAX_RANK].
-pub open spec fn spec_valid_trust_rank(r: nat) -> bool {
-    r <= TRUST_TIER_MAX_RANK
+pub open spec fn spec_trust_tier_max_rank() -> nat {
+    6
 }
 
-/// Spec: a valid SinkClass rank is in [0, SINK_CLASS_MAX_RANK].
+/// Max rank for SinkClass (PolicyMutation = 8).
+pub open spec fn spec_sink_class_max_rank() -> nat {
+    8
+}
+
+/// Spec: a valid TrustTier rank is in the supported trust-tier range.
+pub open spec fn spec_valid_trust_rank(r: nat) -> bool {
+    r <= spec_trust_tier_max_rank()
+}
+
+/// Spec: a valid SinkClass rank is in the supported sink-class range.
 pub open spec fn spec_valid_sink_rank(r: nat) -> bool {
-    r <= SINK_CLASS_MAX_RANK
+    r <= spec_sink_class_max_rank()
 }
 
 /// Spec: join on ranks is max.
@@ -238,9 +243,8 @@ pub proof fn lemma_flow_adm_monotone_source(
 pub proof fn lemma_flow_adm_superset(src_high: nat, src_low: nat, required: nat)
     requires src_high >= src_low,
     ensures
-        spec_can_flow_to(src_high, required, false)
-            >= spec_can_flow_to(src_low, required, false),
-    // (bool ordering: false=0, true=1; >= means "admits at least as many")
+        spec_can_flow_to(src_low, required, false)
+            ==> spec_can_flow_to(src_high, required, false),
 {
     // If src_low >= required (admits flow), then src_high >= required (also admits).
     // If src_low < required (denies flow), then trivially >= (false >= false = 0 >= 0).
@@ -258,12 +262,12 @@ pub proof fn lemma_flow_adm_quarantined_fail_closed(required_rank: nat)
 
 // ── FLOW-ADM-5: Verified (max rank) can flow anywhere without declassification ─
 
-/// Verified rank = TRUST_TIER_MAX_RANK = 6. It can flow to any required rank <= 6.
+/// Verified rank is the maximum trust tier. It can flow to any required rank <= 6.
 pub proof fn lemma_flow_adm_verified_admits_all(required_rank: nat)
-    requires required_rank <= TRUST_TIER_MAX_RANK,
-    ensures spec_can_flow_to(TRUST_TIER_MAX_RANK, required_rank, false),
+    requires required_rank <= spec_trust_tier_max_rank(),
+    ensures spec_can_flow_to(spec_trust_tier_max_rank(), required_rank, false),
 {
-    // TRUST_TIER_MAX_RANK >= required_rank → admitted.
+    // The maximum trust tier is >= required_rank, so the flow is admitted.
 }
 
 // ── Privileged sink threshold monotonicity ────────────────────────────────────
@@ -388,7 +392,7 @@ pub proof fn lemma_flow_prod_compose_can_escalate(t1: nat, t2: nat, s1: nat, s2:
 /// Spec: trust deficit for a flow point.
 pub open spec fn spec_trust_deficit(trust_rank: nat, sink_rank: nat) -> nat {
     let required = spec_min_trust_for_sink(sink_rank);
-    if required > trust_rank { required - trust_rank } else { 0 }
+    if required > trust_rank { (required - trust_rank) as nat } else { 0 }
 }
 
 /// Trust deficit is 0 iff the flow is admissible (without declassification).
@@ -408,7 +412,7 @@ pub proof fn lemma_flow_deficit_zero_iff_admissible(trust_rank: nat, sink_rank: 
     } else {
         // Not admissible → deficit > 0.
         assert(required > trust_rank);
-        assert(spec_trust_deficit(trust_rank, sink_rank) == required - trust_rank);
+        assert(spec_trust_deficit(trust_rank, sink_rank) == (required - trust_rank) as nat);
         assert(!spec_can_flow_to(trust_rank, required, false));
     }
 }

@@ -8,6 +8,8 @@ SHELL := /bin/bash
 
 EVIDENCE_DIR := target/evidence
 EVIDENCE_FILE := $(EVIDENCE_DIR)/evidence-$(shell date +%Y%m%d-%H%M%S).json
+ALLOY_JAR ?= formal/alloy/alloy.jar
+KANI_SHARD_COUNT ?= 8
 
 # ─────────────────────────────────────────────────────────────────────
 # Primary targets
@@ -77,14 +79,14 @@ verify: ## Run full verification suite and produce evidence bundle
 		echo "SKIP: TLA+ (requires Java 11+ and formal/tla/tla2tools.jar)"; \
 	fi
 	@# Alloy (2 models)
-	@if command -v java >/dev/null 2>&1 && [ -f formal/alloy/alloy.jar ]; then \
+	@if command -v java >/dev/null 2>&1 && [ -f "$(ALLOY_JAR)" ]; then \
 		echo "Running Alloy bounded model checking (2 models)..."; \
 		for model in CapabilityDelegation AbacForbidOverride; do \
 			echo "  Alloy $$model..."; \
-			java -jar formal/alloy/alloy.jar -c "formal/alloy/$${model}.als" 2>&1 | tail -3; \
+			ALLOY_JAR="$(ALLOY_JAR)" bash formal/tools/run-alloy-model.sh "formal/alloy/$${model}.als"; \
 		done; \
 	else \
-		echo "SKIP: Alloy (requires Java 11+ and formal/alloy/alloy.jar)"; \
+		echo "SKIP: Alloy (requires Java 11+ and ALLOY_JAR=$(ALLOY_JAR))"; \
 	fi
 	@# Lean 4 (5 files, 32 theorems)
 	@if command -v lake >/dev/null 2>&1; then \
@@ -106,18 +108,23 @@ verify: ## Run full verification suite and produce evidence bundle
 	bash formal/tools/check-formal-trusted-assumptions.sh
 	@# Kani (90 harnesses on actual Rust)
 	@if command -v cargo-kani >/dev/null 2>&1; then \
-		echo "Running Kani bounded model checking (all local harnesses)..."; \
-		cd formal/kani && cargo kani 2>&1 | tail -10; \
+		echo "Running Kani bounded model checking ($(KANI_SHARD_COUNT) local shards)..."; \
+		count="$(KANI_SHARD_COUNT)"; \
+		case "$$count" in ''|*[!0-9]*) echo "FAIL: invalid KANI_SHARD_COUNT=$$count"; exit 2;; esac; \
+		if [ "$$count" -eq 0 ]; then echo "FAIL: KANI_SHARD_COUNT must be greater than 0"; exit 2; fi; \
+		for shard in $$(seq 0 $$((count - 1))); do \
+			bash formal/tools/run-kani-shard.sh "$$shard" "$$count"; \
+		done; \
 	else \
 		echo "SKIP: Kani (requires cargo-kani)"; \
 	fi
-	@# Verus (all canonical kernels on actual Rust)
-	@if [ -n "$$VERUS_BIN" ] || command -v verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/verus ] || [ -x "$$HOME/verus/verus-bin/verus-x86-linux/verus" ] || [ -x "$$HOME/verus/source/target-verus/release/verus" ]; then \
-		echo "Running Verus deductive verification..."; \
+	@# Verus (canonical cargo-Verus shim)
+	@if [ -n "$$CARGO_VERUS_BIN" ] || command -v cargo-verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/cargo-verus ] || [ -x "$$HOME/verus/verus-bin/verus-x86-linux/cargo-verus" ] || [ -x "$$HOME/verus/source/target-verus/release/cargo-verus" ]; then \
+		echo "Running Verus deductive verification through cargo-Verus..."; \
 		bash formal/tools/check-verus-parity.sh; \
-		bash formal/tools/verify-verus.sh; \
+		FORMAL_USE_CARGO_VERUS=1 FORMAL_REQUIRE_CARGO_VERUS=1 CARGO_VERUS_TARGET_DIR="$${CARGO_VERUS_TARGET_DIR:-/tmp/vellaveto-formal-verus-target}" bash formal/tools/verify-verus.sh; \
 	else \
-		echo "SKIP: Verus (set VERUS_BIN, install verus, unpack verus-bin/, or keep ~/verus/)"; \
+		echo "SKIP: Verus (set CARGO_VERUS_BIN, install cargo-verus, unpack verus-bin/, or keep ~/verus/)"; \
 	fi
 	@echo ""
 	@# Step 5: Benchmark sanity (short run — not full benchmarks)
@@ -215,8 +222,8 @@ formal-tla: ## Run TLA+ model checking (all local specs, requires Java 11+ and t
 
 .PHONY: formal-alloy
 formal-alloy: ## Run Alloy bounded model checking (requires alloy.jar)
-	java -jar formal/alloy/alloy.jar -c formal/alloy/CapabilityDelegation.als
-	java -jar formal/alloy/alloy.jar -c formal/alloy/AbacForbidOverride.als
+	ALLOY_JAR="$(ALLOY_JAR)" bash formal/tools/run-alloy-model.sh formal/alloy/CapabilityDelegation.als
+	ALLOY_JAR="$(ALLOY_JAR)" bash formal/tools/run-alloy-model.sh formal/alloy/AbacForbidOverride.als
 
 .PHONY: formal-lean
 formal-lean: ## Run Lean 4 type checker (5 files, 32 theorems)
@@ -227,8 +234,13 @@ formal-coq: ## Run Coq type checker (8 files, 45 theorems)
 	cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile && make -f CoqMakefile
 
 .PHONY: formal-kani
-formal-kani: ## Run Kani bounded model checking (all local harnesses; large local artifact footprint)
-	cd formal/kani && CARGO_TARGET_DIR="$${CARGO_TARGET_DIR:-/tmp/vellaveto-formal-kani-target}" cargo kani
+formal-kani: ## Run Kani bounded model checking through local shards
+	@count="$(KANI_SHARD_COUNT)"; \
+	case "$$count" in ''|*[!0-9]*) echo "FAIL: invalid KANI_SHARD_COUNT=$$count"; exit 2;; esac; \
+	if [ "$$count" -eq 0 ]; then echo "FAIL: KANI_SHARD_COUNT must be greater than 0"; exit 2; fi; \
+	for shard in $$(seq 0 $$((count - 1))); do \
+		bash formal/tools/run-kani-shard.sh "$$shard" "$$count"; \
+	done
 
 .PHONY: formal-trusted-assumptions
 formal-trusted-assumptions: ## Verify the trusted-assumption inventory matches the allowlist
@@ -237,7 +249,7 @@ formal-trusted-assumptions: ## Verify the trusted-assumption inventory matches t
 .PHONY: formal-verus
 formal-verus: ## Run Verus parity checks and canonical verification
 	bash formal/tools/check-verus-parity.sh
-	bash formal/tools/verify-verus.sh
+	FORMAL_USE_CARGO_VERUS=1 FORMAL_REQUIRE_CARGO_VERUS=1 CARGO_VERUS_TARGET_DIR="$${CARGO_VERUS_TARGET_DIR:-/tmp/vellaveto-formal-verus-target}" bash formal/tools/verify-verus.sh
 
 .PHONY: formal-docker
 formal-docker: ## Run formal verification in Docker (reproducible, all tools pinned)

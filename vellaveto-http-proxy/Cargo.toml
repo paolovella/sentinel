@@ -65,6 +65,7 @@ hex = { workspace = true }
 subtle = "2"
 governor = "0.10"
 base64 = { workspace = true }
+url = { workspace = true }
 tonic = { workspace = true, optional = true }
 tonic-prost = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }

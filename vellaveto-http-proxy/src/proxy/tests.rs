@@ -6132,6 +6132,36 @@ fn test_negotiate_transport_none_available() {
 }
 
 #[test]
+fn test_validate_upstream_url_scheme_allows_loopback_plaintext() {
+    assert!(validate_upstream_url_scheme("http://localhost:8000/mcp").is_ok());
+    assert!(validate_upstream_url_scheme("http://127.0.0.1:8000/mcp").is_ok());
+    assert!(validate_upstream_url_scheme("ws://[::1]:8000/mcp").is_ok());
+}
+
+#[test]
+fn test_validate_upstream_url_scheme_rejects_plaintext_userinfo_spoof() {
+    let result = validate_upstream_url_scheme("http://127.0.0.1:80@evil.example/mcp");
+    assert!(
+        result.is_err(),
+        "userinfo must not make a remote host look like loopback"
+    );
+}
+
+#[test]
+fn test_validate_upstream_url_scheme_rejects_plaintext_localhost_suffix() {
+    let result = validate_upstream_url_scheme("http://localhost.evil.example/mcp");
+    assert!(
+        result.is_err(),
+        "localhost suffix must not be treated as loopback"
+    );
+}
+
+#[test]
+fn test_validate_upstream_url_scheme_rejects_unsupported_scheme() {
+    assert!(validate_upstream_url_scheme("file:///tmp/socket").is_err());
+}
+
+#[test]
 fn test_sdk_capabilities_tier() {
     assert_eq!(VELLAVETO_SDK_TIER, SdkTier::Extended);
     let caps = build_sdk_capabilities();

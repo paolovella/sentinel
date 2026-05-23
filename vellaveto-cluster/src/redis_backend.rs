@@ -25,6 +25,7 @@ use async_trait::async_trait;
 use deadpool_redis::redis;
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::{Config as PoolConfig, Pool, Runtime};
+use std::net::IpAddr;
 use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus, PendingApproval};
 use vellaveto_types::Action;
 
@@ -178,6 +179,45 @@ fn validate_rate_limit_param(name: &str, value: &str) -> Result<(), ClusterError
     Ok(())
 }
 
+fn redis_url_is_tls_or_local(redis_url: &str) -> Result<bool, ClusterError> {
+    let parsed = redis::parse_redis_url(redis_url).ok_or_else(|| {
+        ClusterError::Validation(
+            "Redis URL must use a supported redis://, rediss://, or unix socket scheme".to_string(),
+        )
+    })?;
+
+    match parsed.scheme() {
+        "rediss" | "valkeys" => {
+            if parsed.fragment().is_some() {
+                return Err(ClusterError::Validation(
+                    "Redis TLS URL must not disable certificate verification".to_string(),
+                ));
+            }
+            Ok(true)
+        }
+        "redis+unix" | "valkey+unix" | "unix" => Ok(true),
+        "redis" | "valkey" => {
+            let host = parsed.host_str().ok_or_else(|| {
+                ClusterError::Validation("Redis URL must include a hostname".to_string())
+            })?;
+            if host.eq_ignore_ascii_case("localhost") {
+                return Ok(true);
+            }
+
+            let host_for_ip = host
+                .strip_prefix('[')
+                .and_then(|value| value.strip_suffix(']'))
+                .unwrap_or(host);
+            Ok(host_for_ip
+                .parse::<IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback()))
+        }
+        _ => Err(ClusterError::Validation(
+            "Redis URL must use a supported redis://, rediss://, or unix socket scheme".to_string(),
+        )),
+    }
+}
+
 impl RedisBackend {
     /// Create a new Redis backend.
     ///
@@ -225,10 +265,7 @@ impl RedisBackend {
         // R244-CLUSTER-1: Enforce TLS for non-localhost Redis connections.
         // Approval state, rate limits, and dedup hashes are security-sensitive;
         // transmitting them over plaintext enables MITM approval hijacking.
-        let is_localhost = redis_url.contains("://127.0.0.1")
-            || redis_url.contains("://localhost")
-            || redis_url.contains("://[::1]");
-        if !is_localhost && !redis_url.starts_with("rediss://") {
+        if !redis_url_is_tls_or_local(redis_url)? {
             return Err(ClusterError::Validation(
                 "Redis URL must use rediss:// (TLS) for non-localhost connections".to_string(),
             ));
@@ -1407,7 +1444,7 @@ mod tests {
 
     #[test]
     fn test_validate_approval_id_unicode_format_char_rejected() {
-        let r = validate_approval_id_for_redis(&format!("id\u{FEFF}bad"));
+        let r = validate_approval_id_for_redis("id\u{FEFF}bad");
         assert!(r
             .unwrap_err()
             .to_string()
@@ -1789,6 +1826,45 @@ mod tests {
     }
 
     #[test]
+    fn test_r244_plaintext_localhost_suffix_rejected() {
+        let err = err_str(RedisBackend::new(
+            "redis://localhost.evil.com:6379",
+            4,
+            "vv:",
+        ));
+        assert!(
+            err.contains("rediss://"),
+            "Expected TLS enforcement for localhost suffix spoof, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r244_plaintext_userinfo_localhost_spoof_rejected() {
+        let err = err_str(RedisBackend::new(
+            "redis://localhost@remote-host:6379",
+            4,
+            "vv:",
+        ));
+        assert!(
+            err.contains("rediss://"),
+            "Expected TLS enforcement for userinfo localhost spoof, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r244_rediss_insecure_fragment_rejected() {
+        let err = err_str(RedisBackend::new(
+            "rediss://secure-host:6380#insecure",
+            4,
+            "vv:",
+        ));
+        assert!(
+            err.contains("certificate verification"),
+            "Expected rejection of disabled TLS verification, got: {err}"
+        );
+    }
+
+    #[test]
     fn test_r244_remote_redis_with_tls_accepted() {
         // rediss:// URL will fail at pool creation (no actual Redis), but
         // should NOT fail the TLS validation check.
@@ -1813,6 +1889,18 @@ mod tests {
             assert!(
                 !msg.contains("rediss://"),
                 "Localhost should be exempt from TLS requirement"
+            );
+        }
+    }
+
+    #[test]
+    fn test_r244_loopback_ipv6_redis_without_tls_accepted() {
+        let result = RedisBackend::new("redis://[::1]:6379", 4, "vv:");
+        if let Err(e) = &result {
+            let msg = format!("{e}");
+            assert!(
+                !msg.contains("rediss://"),
+                "IPv6 loopback should be exempt from TLS requirement"
             );
         }
     }

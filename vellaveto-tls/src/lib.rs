@@ -366,6 +366,12 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
     match config.mode {
         TlsMode::None => Ok(None),
         TlsMode::Tls | TlsMode::Mtls => {
+            if config.mode == TlsMode::Mtls && !config.require_client_cert {
+                return Err(TlsError::Config(
+                    "tls.require_client_cert must be true when tls.mode = mtls".to_string(),
+                ));
+            }
+
             let cert_path = config
                 .cert_path
                 .as_ref()
@@ -632,6 +638,23 @@ mod tests {
         // This will fail because files don't exist, but we're testing the logic
         let result = build_tls_acceptor(&config);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mtls_rejects_optional_client_auth_before_file_io() {
+        let config = TlsConfig {
+            mode: TlsMode::Mtls,
+            cert_path: Some("/path/to/cert".to_string()),
+            key_path: Some("/path/to/key".to_string()),
+            client_ca_path: Some("/path/to/ca".to_string()),
+            require_client_cert: false,
+            ..Default::default()
+        };
+        let result = build_tls_acceptor(&config);
+        match result {
+            Err(e) => assert!(e.to_string().contains("require_client_cert")),
+            Ok(_) => panic!("Expected error for optional client auth in mTLS mode"),
+        }
     }
 
     #[test]

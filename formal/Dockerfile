@@ -31,7 +31,8 @@ ENV ALLOY_VERSION="6.2.0"
 ENV ALLOY_SHA256="6b8c1cb5bc93bedfc7c61435c4e1ab6e688a242dc702a394628d9a9801edb78d"
 ENV ELAN_VERSION="v4.2.0"
 ENV ELAN_SHA256="620db834935d0da55ac9cda207b2e370e8034061cbb0228af5eb6c14b02f0c0c"
-ENV RUSTUP_INIT_SHA256="17247e4bcacf6027ec2e11c79a72c494c9af69ac8d1abcc1b271fa4375a106c2"
+ENV RUSTUP_VERSION="1.29.0"
+ENV RUSTUP_INIT_SHA256="4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10"
 ENV RUST_WORKSPACE_TOOLCHAIN="1.94.0"
 ENV RUST_VERUS_TOOLCHAIN="1.93.1"
 
@@ -51,10 +52,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── Rust (workspace toolchain + Verus toolchain) ──
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh \
-    && echo "${RUSTUP_INIT_SHA256}  /tmp/rustup-init.sh" | sha256sum -c - \
-    && sh /tmp/rustup-init.sh -y --default-toolchain "${RUST_WORKSPACE_TOOLCHAIN}" \
-    && rm /tmp/rustup-init.sh \
+RUN curl -fsSL --retry 3 --retry-delay 2 -o /tmp/rustup-init \
+        "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+    && echo "${RUSTUP_INIT_SHA256}  /tmp/rustup-init" | sha256sum -c - \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --default-toolchain "${RUST_WORKSPACE_TOOLCHAIN}" \
+    && rm /tmp/rustup-init \
     && /root/.cargo/bin/rustup install "${RUST_VERUS_TOOLCHAIN}-x86_64-unknown-linux-gnu" \
     && /root/.cargo/bin/rustup component add rustfmt clippy \
         --toolchain "${RUST_WORKSPACE_TOOLCHAIN}-x86_64-unknown-linux-gnu"

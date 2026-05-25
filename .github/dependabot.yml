@@ -98,6 +98,9 @@ updates:
       day: "monday"
       time: "07:00"
       timezone: "UTC"
+    ignore:
+      # pydantic pins pydantic-core exactly; update pydantic-core through pydantic releases.
+      - dependency-name: "pydantic-core"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps(sdk-python)"

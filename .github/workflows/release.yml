@@ -425,13 +425,13 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
-          exit-code: '0'
+          exit-code: '1'
 
       - name: Upload Trivy scan results
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa
         with:
           sarif_file: trivy-results.sarif
-        continue-on-error: true
 
   # ──────────────────────────────────────────────
   # Phase 4: Provenance and SBOM

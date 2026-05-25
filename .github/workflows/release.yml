@@ -172,6 +172,16 @@ jobs:
         if: matrix.cross
         run: cross build --release --locked --target ${{ matrix.target }}
 
+      - name: Validate release binaries
+        run: |
+          for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
+            path="target/${{ matrix.target }}/release/$bin"
+            if [ ! -x "$path" ]; then
+              echo "::error::Required release binary missing or not executable: $path"
+              exit 1
+            fi
+          done
+
       - name: Strip binaries (Linux)
         if: contains(matrix.target, 'linux') && !matrix.cross
         run: |
@@ -197,9 +207,10 @@ jobs:
       - name: Create release archive
         run: |
           VERSION="${{ inputs.version }}"
+          rm -rf release
           mkdir -p release
           for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
-            cp "target/${{ matrix.target }}/release/$bin" "release/" 2>/dev/null || true
+            cp "target/${{ matrix.target }}/release/$bin" "release/"
           done
           cp LICENSE LICENSING.md NOTICE README.md CHANGELOG.md release/
           cp -r examples/ release/examples/

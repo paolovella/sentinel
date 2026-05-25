@@ -106,6 +106,8 @@ verify: ## Run full verification suite and produce evidence bundle
 	@# Trusted formal assumption inventory
 	@echo "Checking trusted formal assumptions..."
 	bash formal/tools/check-formal-trusted-assumptions.sh
+	@echo "Checking Lean/Coq proof completion markers..."
+	bash formal/tools/check-proof-completion-markers.sh
 	@# Kani (90 harnesses on actual Rust)
 	@if command -v cargo-kani >/dev/null 2>&1; then \
 		echo "Running Kani bounded model checking ($(KANI_SHARD_COUNT) local shards)..."; \
@@ -188,11 +190,12 @@ bench-quick: ## Run quick benchmark sanity check
 	cargo bench -p vellaveto-engine -- --quick
 
 .PHONY: formal
-formal: formal-trusted-assumptions formal-tla formal-alloy formal-lean formal-coq formal-kani formal-verus ## Run all formal verification tools
+formal: formal-trusted-assumptions formal-proof-completions formal-tla formal-alloy formal-lean formal-coq formal-kani formal-verus ## Run all formal verification tools
 
 .PHONY: formal-local
 formal-local: ## Run storage-light local formal coverage checks
 	bash formal/tools/check-formal-trusted-assumptions.sh
+	bash formal/tools/check-proof-completion-markers.sh
 	bash formal/tools/check-verus-parity.sh
 	RUN_KANI_PARITY_TESTS=0 KANI_PARITY_TARGET_DIR="$${KANI_PARITY_TARGET_DIR:-/tmp/vellaveto-formal-kani-parity-target}" bash formal/tools/check-kani-parity.sh
 	bash formal/tools/check-formal-e2e-coverage.sh
@@ -245,6 +248,10 @@ formal-kani: ## Run Kani bounded model checking through local shards
 .PHONY: formal-trusted-assumptions
 formal-trusted-assumptions: ## Verify the trusted-assumption inventory matches the allowlist
 	bash formal/tools/check-formal-trusted-assumptions.sh
+
+.PHONY: formal-proof-completions
+formal-proof-completions: ## Verify Lean/Coq sources contain no unfinished proof markers
+	bash formal/tools/check-proof-completion-markers.sh
 
 .PHONY: formal-verus
 formal-verus: ## Run Verus parity checks and canonical verification

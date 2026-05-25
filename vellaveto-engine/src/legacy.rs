@@ -487,6 +487,37 @@ impl PolicyEngine {
             });
         }
 
+        // In strict mode, reject unrecognized condition keys with an explicit
+        // validation error before the broader non-strict fail-closed path.
+        if self.strict_mode {
+            if let Some(obj) = conditions.as_object() {
+                for key in obj.keys() {
+                    if !Self::condition_key_is_known(key) {
+                        return Err(EngineError::InvalidCondition {
+                            policy_id: policy.id.clone(),
+                            reason: format!("Unknown condition key '{key}' in strict mode"),
+                        });
+                    }
+                }
+            }
+        }
+
+        if crate::verified_constraint_eval::unrecognized_condition_payload(
+            Self::condition_payload_is_non_empty(conditions),
+            Self::condition_has_known_key(conditions),
+        ) {
+            tracing::warn!(
+                policy = %policy.name,
+                "Conditional policy has no recognized condition keys — fail-closed"
+            );
+            return Ok(Some(Verdict::Deny {
+                reason: format!(
+                    "Policy '{}' has no recognized condition keys (fail-closed)",
+                    policy.name
+                ),
+            }));
+        }
+
         // Check require_approval first
         // SECURITY (FIND-IMP-013): Fail-closed — non-boolean values default to
         // requiring approval rather than silently bypassing it.
@@ -570,29 +601,6 @@ impl PolicyEngine {
                     policy_id: policy.id.clone(),
                     reason: "parameter_constraints must be an array".to_string(),
                 });
-            }
-        }
-
-        // In strict mode, reject unrecognized condition keys
-        if self.strict_mode {
-            // SECURITY (R34-ENG-7): Include "context_conditions" to match compiled path.
-            let known_keys = [
-                "require_approval",
-                "forbidden_parameters",
-                "required_parameters",
-                "parameter_constraints",
-                "context_conditions",
-                "on_no_match",
-            ];
-            if let Some(obj) = conditions.as_object() {
-                for key in obj.keys() {
-                    if !known_keys.contains(&key.as_str()) {
-                        return Err(EngineError::InvalidCondition {
-                            policy_id: policy.id.clone(),
-                            reason: format!("Unknown condition key '{key}' in strict mode"),
-                        });
-                    }
-                }
             }
         }
 

@@ -20,6 +20,7 @@
 //! | ENG-CON-2 | Forbidden precedence | Any forbidden parameter presence forces `Deny` |
 //! | ENG-CON-3 | Require-approval precedence | `require_approval` forces `RequireApproval` unless already denied |
 //! | ENG-CON-4 | No-match handling | `on_no_match_continue` only yields `Continue` on the no-match path |
+//! | ENG-CON-5 | Unknown-only conditions | Non-empty condition payload with no known key is fail-closed |
 
 /// Final decision produced by the pure constraint-evaluation kernel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +54,35 @@ impl From<MatchedConstraintVerdict> for ConstraintVerdict {
 #[must_use = "security decisions must not be discarded"]
 pub const fn all_constraints_skipped(total_constraints: usize, any_evaluated: bool) -> bool {
     total_constraints > 0 && !any_evaluated
+}
+
+/// Return true when a condition payload contains at least one known top-level key.
+#[inline]
+#[must_use = "security decisions must not be discarded"]
+pub const fn has_known_condition_key(
+    has_require_approval: bool,
+    has_forbidden_parameters: bool,
+    has_required_parameters: bool,
+    has_parameter_constraints: bool,
+    has_context_conditions: bool,
+    has_on_no_match: bool,
+) -> bool {
+    has_require_approval
+        || has_forbidden_parameters
+        || has_required_parameters
+        || has_parameter_constraints
+        || has_context_conditions
+        || has_on_no_match
+}
+
+/// Return true when a non-empty condition payload has no recognized condition key.
+#[inline]
+#[must_use = "security decisions must not be discarded"]
+pub const fn unrecognized_condition_payload(
+    has_condition_payload: bool,
+    has_known_condition_key: bool,
+) -> bool {
+    has_condition_payload && !has_known_condition_key
 }
 
 /// Return true when at least one forbidden parameter is present.
@@ -127,6 +157,26 @@ mod tests {
         assert!(all_constraints_skipped(3, false));
         assert!(!all_constraints_skipped(0, false));
         assert!(!all_constraints_skipped(3, true));
+    }
+
+    #[test]
+    fn test_known_condition_key_detection() {
+        assert!(has_known_condition_key(
+            false, true, false, false, false, false
+        ));
+        assert!(has_known_condition_key(
+            false, false, false, false, false, true
+        ));
+        assert!(!has_known_condition_key(
+            false, false, false, false, false, false
+        ));
+    }
+
+    #[test]
+    fn test_unrecognized_condition_payload_detected() {
+        assert!(unrecognized_condition_payload(true, false));
+        assert!(!unrecognized_condition_payload(false, false));
+        assert!(!unrecognized_condition_payload(true, true));
     }
 
     #[test]

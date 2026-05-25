@@ -218,13 +218,13 @@ fn empty_required_params_array_allows() {
 }
 
 // ═══════════════════════════════════
-// UNKNOWN CONDITION KEYS ARE SILENTLY IGNORED
+// UNKNOWN-ONLY CONDITION KEYS FAIL CLOSED
 // ════════════════════════════════════
 
-/// Conditions with only unrecognized keys → no rule triggers → Allow.
-/// This is a potential security gap: typos in condition keys silently allow everything.
+/// Conditions with only unrecognized keys are denied instead of silently
+/// allowing everything.
 #[test]
-fn unknown_condition_keys_silently_allow() {
+fn unknown_only_condition_keys_denied_fail_closed() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "rm_rf", json!({"target": "/"}));
     let policies = vec![conditional_policy(
@@ -237,8 +237,8 @@ fn unknown_condition_keys_silently_allow() {
     )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
-        matches!(result, Verdict::Allow),
-        "Typos in condition keys should silently fall through to Allow — SECURITY BUG POTENTIAL"
+        matches!(result, Verdict::Deny { .. }),
+        "Typos in condition keys should fail closed, got {result:?}"
     );
 }
 

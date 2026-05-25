@@ -702,7 +702,7 @@ check_file_pair \
     "verified_constraint_eval.rs ↔ vellaveto-engine/src/verified_constraint_eval.rs" \
     "$PROD_CONSTRAINT" \
     "$VERUS_CONSTRAINT"
-for fn in all_constraints_skipped has_forbidden_parameter conditional_verdict; do
+for fn in all_constraints_skipped has_known_condition_key unrecognized_condition_payload has_forbidden_parameter conditional_verdict; do
     check_symbol_parity \
         "$fn exists in production and Verus" \
         "$PROD_CONSTRAINT" \
@@ -722,6 +722,12 @@ check_symbol_parity \
     'verified_constraint_eval::no_match_verdict' \
     "$VERUS_CONSTRAINT" \
     'pub[[:space:]]+fn[[:space:]]+no_match_verdict'
+check_symbol_parity \
+    "policy compiler uses verified unknown-only condition kernel" \
+    "$PROJECT_DIR/vellaveto-engine/src/policy_compile.rs" \
+    'verified_constraint_eval::unrecognized_condition_payload' \
+    "$VERUS_CONSTRAINT" \
+    'pub[[:space:]]+fn[[:space:]]+unrecognized_condition_payload'
 echo ""
 
 echo "--- Deputy Delegation Kernel ---"

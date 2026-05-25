@@ -50,6 +50,84 @@ pub fn all_constraints_skipped(total_constraints: usize, any_evaluated: bool) ->
     total_constraints > 0 && !any_evaluated
 }
 
+pub open spec fn spec_has_known_condition_key(
+    has_require_approval: bool,
+    has_forbidden_parameters: bool,
+    has_required_parameters: bool,
+    has_parameter_constraints: bool,
+    has_context_conditions: bool,
+    has_on_no_match: bool,
+) -> bool {
+    has_require_approval
+        || has_forbidden_parameters
+        || has_required_parameters
+        || has_parameter_constraints
+        || has_context_conditions
+        || has_on_no_match
+}
+
+pub fn has_known_condition_key(
+    has_require_approval: bool,
+    has_forbidden_parameters: bool,
+    has_required_parameters: bool,
+    has_parameter_constraints: bool,
+    has_context_conditions: bool,
+    has_on_no_match: bool,
+) -> (result: bool)
+    ensures
+        result == spec_has_known_condition_key(
+            has_require_approval,
+            has_forbidden_parameters,
+            has_required_parameters,
+            has_parameter_constraints,
+            has_context_conditions,
+            has_on_no_match,
+        ),
+        result ==> has_require_approval
+            || has_forbidden_parameters
+            || has_required_parameters
+            || has_parameter_constraints
+            || has_context_conditions
+            || has_on_no_match,
+        !result ==> !has_require_approval
+            && !has_forbidden_parameters
+            && !has_required_parameters
+            && !has_parameter_constraints
+            && !has_context_conditions
+            && !has_on_no_match,
+{
+    has_require_approval
+        || has_forbidden_parameters
+        || has_required_parameters
+        || has_parameter_constraints
+        || has_context_conditions
+        || has_on_no_match
+}
+
+pub open spec fn spec_unrecognized_condition_payload(
+    has_condition_payload: bool,
+    has_known_condition_key: bool,
+) -> bool {
+    has_condition_payload && !has_known_condition_key
+}
+
+pub fn unrecognized_condition_payload(
+    has_condition_payload: bool,
+    has_known_condition_key: bool,
+) -> (result: bool)
+    ensures
+        result == spec_unrecognized_condition_payload(
+            has_condition_payload,
+            has_known_condition_key,
+        ),
+        result ==> has_condition_payload,
+        result ==> !has_known_condition_key,
+        !has_condition_payload ==> !result,
+        has_known_condition_key ==> !result,
+{
+    has_condition_payload && !has_known_condition_key
+}
+
 pub open spec fn spec_has_forbidden_parameter(flags: Seq<bool>) -> bool {
     exists|i: int| 0 <= i < flags.len() && #[trigger] flags[i]
 }
@@ -204,6 +282,14 @@ pub proof fn lemma_all_skipped_is_fail_closed(total_constraints: nat)
     ensures
         spec_all_constraints_skipped(total_constraints, false),
         !spec_all_constraints_skipped(total_constraints, true),
+{
+}
+
+pub proof fn lemma_unrecognized_condition_payload_is_fail_closed()
+    ensures
+        spec_unrecognized_condition_payload(true, false),
+        !spec_unrecognized_condition_payload(false, false),
+        !spec_unrecognized_condition_payload(true, true),
 {
 }
 

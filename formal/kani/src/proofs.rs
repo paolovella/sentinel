@@ -23,7 +23,7 @@
 //! K41-K45: Rule checking fail-closed (Phase 8)
 //! K46-K48: ResolvedMatch construction equivalence (Phase 9)
 //! K49-K52: Cascading failure circuit breaker (Phase 10)
-//! K53-K55: Constraint evaluation fail-closed (Phase 11)
+//! K53-K55A: Constraint evaluation fail-closed (Phase 11)
 //! K56-K58: Task lifecycle (Phase 12)
 //! K59: Entropy verification (collusion detection)
 //! K60: Grant coverage fail-closed (capability delegation)
@@ -1828,7 +1828,7 @@ fn proof_error_rate_bounded() {
 }
 
 // =========================================================================
-// Phase 11: Constraint Evaluation Fail-Closed (K53-K55)
+// Phase 11: Constraint Evaluation Fail-Closed (K53-K55A)
 // =========================================================================
 
 // K53: All constraints skipped → all_constraints_skipped == true
@@ -1916,6 +1916,39 @@ fn proof_require_approval_propagated() {
         result,
         ConstraintVerdict::RequireApproval,
         "K55 violated: require_approval not propagated"
+    );
+}
+
+// K55A: Non-empty condition payload with no known key is detected
+#[kani::proof]
+fn proof_unrecognized_condition_payload_detected() {
+    use crate::constraint::{
+        has_known_condition_key, unrecognized_condition_payload,
+    };
+
+    let has_require_approval: bool = kani::any();
+    let has_forbidden_parameters: bool = kani::any();
+    let has_required_parameters: bool = kani::any();
+    let has_parameter_constraints: bool = kani::any();
+    let has_context_conditions: bool = kani::any();
+    let has_on_no_match: bool = kani::any();
+    let has_known = has_known_condition_key(
+        has_require_approval,
+        has_forbidden_parameters,
+        has_required_parameters,
+        has_parameter_constraints,
+        has_context_conditions,
+        has_on_no_match,
+    );
+
+    assert_eq!(
+        unrecognized_condition_payload(true, has_known),
+        !has_known,
+        "K55A violated: non-empty unknown-only condition payload not detected"
+    );
+    assert!(
+        !unrecognized_condition_payload(false, has_known),
+        "K55A violated: empty condition payload must not be detected"
     );
 }
 

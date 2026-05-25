@@ -239,6 +239,39 @@ impl PolicyEngine {
         })
     }
 
+    pub(crate) fn condition_key_is_known(key: &str) -> bool {
+        matches!(
+            key,
+            "require_approval"
+                | "forbidden_parameters"
+                | "required_parameters"
+                | "parameter_constraints"
+                | "context_conditions"
+                | "on_no_match"
+        )
+    }
+
+    pub(crate) fn condition_payload_is_non_empty(conditions: &serde_json::Value) -> bool {
+        match conditions.as_object() {
+            Some(obj) => !obj.is_empty(),
+            None => true,
+        }
+    }
+
+    pub(crate) fn condition_has_known_key(conditions: &serde_json::Value) -> bool {
+        let Some(obj) = conditions.as_object() else {
+            return false;
+        };
+        crate::verified_constraint_eval::has_known_condition_key(
+            obj.contains_key("require_approval"),
+            obj.contains_key("forbidden_parameters"),
+            obj.contains_key("required_parameters"),
+            obj.contains_key("parameter_constraints"),
+            obj.contains_key("context_conditions"),
+            obj.contains_key("on_no_match"),
+        )
+    }
+
     /// Compile condition JSON into pre-parsed fields and compiled constraints.
     fn compile_conditions(
         policy: &Policy,
@@ -271,6 +304,33 @@ impl PolicyEngine {
             });
         }
 
+        // Validate strict mode unknown keys before the broader unknown-only
+        // fail-closed gate so strict-mode diagnostics stay precise.
+        if strict_mode {
+            if let Some(obj) = conditions.as_object() {
+                for key in obj.keys() {
+                    if !Self::condition_key_is_known(key) {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!("Unknown condition key '{key}' in strict mode"),
+                        });
+                    }
+                }
+            }
+        }
+
+        if crate::verified_constraint_eval::unrecognized_condition_payload(
+            Self::condition_payload_is_non_empty(conditions),
+            Self::condition_has_known_key(conditions),
+        ) {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "Conditional conditions must be an object with at least one recognized condition key, or an empty object".to_string(),
+            });
+        }
+
         // SECURITY (FIND-IMP-013): Fail-closed — if require_approval is present
         // but not a valid boolean, default to true (require approval).
         let require_approval = conditions
@@ -284,25 +344,33 @@ impl PolicyEngine {
             .map(|s| s == "continue")
             .unwrap_or(false);
 
-        let forbidden_parameters: Vec<String> = conditions
-            .get("forbidden_parameters")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
+        let forbidden_parameters: Vec<String> =
+            if let Some(forbidden) = conditions.get("forbidden_parameters") {
+                let arr = forbidden.as_array().ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: "forbidden_parameters must be an array".to_string(),
+                })?;
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect()
-            })
-            .unwrap_or_default();
+            } else {
+                Vec::new()
+            };
 
-        let required_parameters: Vec<String> = conditions
-            .get("required_parameters")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
+        let required_parameters: Vec<String> =
+            if let Some(required) = conditions.get("required_parameters") {
+                let arr = required.as_array().ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: "required_parameters must be an array".to_string(),
+                })?;
                 arr.iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect()
-            })
-            .unwrap_or_default();
+            } else {
+                Vec::new()
+            };
 
         // SECURITY (FIND-R46-012): Maximum number of parameter constraints per policy.
         const MAX_PARAMETER_CONSTRAINTS: usize = 100;
@@ -372,29 +440,6 @@ impl PolicyEngine {
         } else {
             Vec::new()
         };
-
-        // Validate strict mode unknown keys
-        if strict_mode {
-            let known_keys = [
-                "require_approval",
-                "forbidden_parameters",
-                "required_parameters",
-                "parameter_constraints",
-                "context_conditions",
-                "on_no_match",
-            ];
-            if let Some(obj) = conditions.as_object() {
-                for key in obj.keys() {
-                    if !known_keys.contains(&key.as_str()) {
-                        return Err(PolicyValidationError {
-                            policy_id: policy.id.clone(),
-                            policy_name: policy.name.clone(),
-                            reason: format!("Unknown condition key '{key}' in strict mode"),
-                        });
-                    }
-                }
-            }
-        }
 
         // SECURITY (FIND-CREATIVE-006): Warn when on_no_match="continue" is combined
         // with ALL constraints having on_missing="skip". This combination means:

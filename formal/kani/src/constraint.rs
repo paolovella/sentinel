@@ -9,7 +9,8 @@
 //! `vellaveto-engine/src/constraint_eval.rs`.
 //!
 //! Pure predicates for the `all_constraints_skipped` detection,
-//! forbidden parameter matching, and require_approval propagation.
+//! unknown-only condition payload detection, forbidden parameter matching,
+//! and require_approval propagation.
 //!
 //! # Verified Properties (K53-K55)
 //!
@@ -18,10 +19,12 @@
 //! | K53 | All constraints skipped → all_constraints_skipped == true |
 //! | K54 | Forbidden parameter match → Deny |
 //! | K55 | require_approval == true → RequireApproval verdict |
+//! | K55A | Non-empty condition payload with no known key → fail-closed |
 //!
 //! # Production Correspondence
 //!
 //! - `detect_all_skipped` ↔ `vellaveto-engine/src/constraint_eval.rs:113-169`
+//! - `unrecognized_condition_payload` ↔ `vellaveto-engine/src/policy_compile.rs`
 //! - `check_forbidden_params` ↔ `vellaveto-engine/src/constraint_eval.rs:62-83`
 
 /// Represents the evaluation state of a single constraint.
@@ -39,6 +42,31 @@ pub fn detect_all_skipped(constraints: &[ConstraintEval]) -> bool {
         return false; // No constraints = not "all skipped"
     }
     !constraints.iter().any(|c| c.was_evaluated)
+}
+
+/// Detect whether a condition object has at least one recognized top-level key.
+pub fn has_known_condition_key(
+    has_require_approval: bool,
+    has_forbidden_parameters: bool,
+    has_required_parameters: bool,
+    has_parameter_constraints: bool,
+    has_context_conditions: bool,
+    has_on_no_match: bool,
+) -> bool {
+    has_require_approval
+        || has_forbidden_parameters
+        || has_required_parameters
+        || has_parameter_constraints
+        || has_context_conditions
+        || has_on_no_match
+}
+
+/// Detect a non-empty condition payload that contains no known condition keys.
+pub fn unrecognized_condition_payload(
+    has_condition_payload: bool,
+    has_known_condition_key: bool,
+) -> bool {
+    has_condition_payload && !has_known_condition_key
 }
 
 /// Decision when all constraints are skipped.
@@ -146,6 +174,19 @@ mod tests {
     #[test]
     fn test_empty_not_skipped() {
         assert!(!detect_all_skipped(&[]));
+    }
+
+    #[test]
+    fn test_known_condition_key_detected() {
+        assert!(has_known_condition_key(false, false, true, false, false, false));
+        assert!(!has_known_condition_key(false, false, false, false, false, false));
+    }
+
+    #[test]
+    fn test_unrecognized_condition_payload_detected() {
+        assert!(unrecognized_condition_payload(true, false));
+        assert!(!unrecognized_condition_payload(false, false));
+        assert!(!unrecognized_condition_payload(true, true));
     }
 
     #[test]

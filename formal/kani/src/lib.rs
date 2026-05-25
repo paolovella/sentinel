@@ -77,6 +77,7 @@
 //! | K53 | All constraints skipped → detected | Constraint evaluation |
 //! | K54 | Forbidden parameter match → Deny | Constraint evaluation |
 //! | K55 | require_approval → RequireApproval verdict | Constraint evaluation |
+//! | K55A | Unknown-only condition payload detected | Constraint evaluation |
 //! | K56 | Terminal state → no further transitions | Task lifecycle |
 //! | K57 | At max tasks → reject new registration | Task lifecycle |
 //! | K58 | Self-cancel + different requester → reject | Task lifecycle |

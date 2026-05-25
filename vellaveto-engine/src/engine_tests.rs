@@ -9204,7 +9204,7 @@ fn test_compile_conditions_unknown_key_strict_mode_fails() {
 }
 
 #[test]
-fn test_compile_conditions_unknown_key_non_strict_passes() {
+fn test_compile_conditions_unknown_key_non_strict_rejects_unknown_only() {
     let policies = vec![Policy {
         id: "tool:*".to_string(),
         name: "Unknown key".to_string(),
@@ -9215,7 +9215,62 @@ fn test_compile_conditions_unknown_key_non_strict_passes() {
         path_rules: None,
         network_rules: None,
     }];
+    let errors = PolicyEngine::compile_policies(&policies, false).unwrap_err();
+    assert!(errors[0].reason.contains("recognized condition key"));
+}
+
+#[test]
+fn test_compile_conditions_unknown_key_non_strict_passes_with_known_key() {
+    let policies = vec![Policy {
+        id: "tool:*".to_string(),
+        name: "Unknown key with known key".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "unknown_key": true,
+                "require_approval": false
+            }),
+        },
+        priority: 50,
+        path_rules: None,
+        network_rules: None,
+    }];
     assert!(PolicyEngine::compile_policies(&policies, false).is_ok());
+}
+
+#[test]
+fn test_compile_conditions_forbidden_parameters_non_array_fails() {
+    let policies = vec![Policy {
+        id: "tool:*".to_string(),
+        name: "Malformed forbidden".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({"forbidden_parameters": "danger"}),
+        },
+        priority: 50,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let errors = PolicyEngine::compile_policies(&policies, false).unwrap_err();
+    assert!(errors[0]
+        .reason
+        .contains("forbidden_parameters must be an array"));
+}
+
+#[test]
+fn test_compile_conditions_required_parameters_non_array_fails() {
+    let policies = vec![Policy {
+        id: "tool:*".to_string(),
+        name: "Malformed required".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({"required_parameters": {"token": true}}),
+        },
+        priority: 50,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let errors = PolicyEngine::compile_policies(&policies, false).unwrap_err();
+    assert!(errors[0]
+        .reason
+        .contains("required_parameters must be an array"));
 }
 
 #[test]

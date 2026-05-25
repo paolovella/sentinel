@@ -5,9 +5,13 @@
 
 # Build artifacts
 target/
+target-b/
 fuzz/target/
 fuzz/corpus/
 fuzz/artifacts/
+formal/kani/target/
+formal/verus/target/
+packages/vellaveto-desktop/src-tauri/target/
 
 # IDE and editor
 .vscode/
@@ -20,10 +24,18 @@ fuzz/artifacts/
 .github/
 
 # Development tooling
+.agents/
+.aider*
 .claude/
+.codex/
+.collab/
+.deepeval/
+.hypothesis/
+.pytest_cache/
 coordination/
 scripts/
 security-testing/
+__pycache__/
 
 # Documentation (not needed in image)
 docs/
@@ -34,8 +46,27 @@ LICENSE*
 # SDK (not needed in Rust image)
 sdk/
 
+# Frontend, SDK-adjacent, and non-Rust package surfaces
+admin-console/
+packages/
+site/
+terraform-provider-vellaveto/
+proto/
+
 # Helm charts (not needed in image)
 helm/
+
+# Verification, reports, and local research artifacts
+code-logs/
+dist/
+formal/
+perf/
+planning/
+quality/
+security/
+states/
+tools/
+vellaveto_brandkit/
 
 # Local/temporary files
 .env
@@ -43,3 +74,5 @@ helm/
 *.log
 MONETIZATION_STRATEGY.md
 .well-known/
+/vellaveto/
+/vellaveto-src/

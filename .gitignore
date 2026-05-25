@@ -18,6 +18,7 @@ claude-*-log.md
 # Python cache
 .pytest_cache/
 __pycache__/
+.hypothesis/
 
 # Node.js / TypeScript
 node_modules/
@@ -44,6 +45,9 @@ policies/
 
 # Internal collaboration / session files
 .collab/
+.agents/
+.aider*
+.codex/
 .failures/
 .session-state.md
 .backups.log

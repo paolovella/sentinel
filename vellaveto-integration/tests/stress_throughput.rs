@@ -70,7 +70,7 @@ fn generate_mixed_policies(count: usize) -> Vec<Policy> {
                 id: format!("cond_{i}:*"),
                 name: format!("Conditional {i}"),
                 policy_type: PolicyType::Conditional {
-                    conditions: json!({"time_window": {"after": "00:00", "before": "23:59"}}),
+                    conditions: json!({"required_parameters": []}),
                 },
                 priority,
                 path_rules: None,

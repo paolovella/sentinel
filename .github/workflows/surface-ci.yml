@@ -1,0 +1,144 @@
+name: Surface CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "admin-console/**"
+      - "helm/**"
+      - "packages/create-vellaveto/**"
+      - "packages/vellaveto-desktop/**"
+      - "site/**"
+      - "terraform-provider-vellaveto/**"
+      - "vscode-vellaveto/**"
+      - ".github/workflows/surface-ci.yml"
+  pull_request:
+    paths:
+      - "admin-console/**"
+      - "helm/**"
+      - "packages/create-vellaveto/**"
+      - "packages/vellaveto-desktop/**"
+      - "site/**"
+      - "terraform-provider-vellaveto/**"
+      - "vscode-vellaveto/**"
+      - ".github/workflows/surface-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-surfaces:
+    name: "${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Admin Console
+            directory: admin-console
+            build_script: build
+            lint_script: lint
+            test_script: test
+          - name: Create Vellaveto
+            directory: packages/create-vellaveto
+            build_script: build
+            lint_script: ""
+            test_script: ""
+          - name: Desktop Web Shell
+            directory: packages/vellaveto-desktop
+            build_script: build
+            lint_script: ""
+            test_script: ""
+          - name: Site
+            directory: site
+            build_script: build
+            lint_script: ""
+            test_script: ""
+          - name: VS Code Extension
+            directory: vscode-vellaveto
+            build_script: compile
+            lint_script: ""
+            test_script: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.directory }}
+        run: npm ci
+
+      - name: Lint
+        if: matrix.lint_script != ''
+        working-directory: ${{ matrix.directory }}
+        run: npm run ${{ matrix.lint_script }}
+
+      - name: Test
+        if: matrix.test_script != ''
+        working-directory: ${{ matrix.directory }}
+        run: npm run ${{ matrix.test_script }}
+
+      - name: Build
+        working-directory: ${{ matrix.directory }}
+        run: npm run ${{ matrix.build_script }}
+
+  helm-chart:
+    name: Helm Chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Lint chart
+        run: helm lint helm/vellaveto
+
+      - name: Render chart
+        run: helm template vellaveto helm/vellaveto > /tmp/vellaveto-rendered.yaml
+
+  terraform-provider:
+    name: Terraform Provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: terraform-provider-vellaveto/go.mod
+          cache-dependency-path: terraform-provider-vellaveto/go.sum
+
+      - name: Check formatting
+        working-directory: terraform-provider-vellaveto
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: terraform-provider-vellaveto
+        run: go vet ./...
+
+      - name: Test
+        working-directory: terraform-provider-vellaveto
+        run: go test -v -race -count=1 ./...

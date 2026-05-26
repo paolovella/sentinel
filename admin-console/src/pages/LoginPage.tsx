@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from "react";
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/authContext";
 
 export function LoginPage() {
   const { login, setApiKey } = useAuth();

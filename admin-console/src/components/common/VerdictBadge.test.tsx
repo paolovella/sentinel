@@ -3,7 +3,8 @@
 
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { VerdictBadge, verdictLabel, verdictClass } from "./VerdictBadge";
+import { VerdictBadge } from "./VerdictBadge";
+import { verdictClass, verdictLabel } from "./verdict";
 
 describe("verdictLabel", () => {
   it("returns 'Allow' for Allow verdict", () => {

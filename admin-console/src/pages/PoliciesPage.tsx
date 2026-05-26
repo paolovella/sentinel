@@ -4,7 +4,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileText, Trash2, RefreshCw, Plus } from "lucide-react";
 import { DataTable, type Column } from "../components/common/DataTable";
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/authContext";
 import * as api from "../api/client";
 import type { Policy } from "../types/api";
 

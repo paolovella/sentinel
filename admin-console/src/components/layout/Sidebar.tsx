@@ -14,7 +14,7 @@ import {
   CreditCard,
   Network,
 } from "lucide-react";
-import { useAuth } from "../../auth/AuthProvider";
+import { useAuth } from "../../auth/authContext";
 import type { Role } from "../../types/api";
 
 interface NavItem {

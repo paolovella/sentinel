@@ -9,7 +9,7 @@ import { LoginPage } from "./LoginPage";
 const mockLogin = vi.fn();
 const mockSetApiKey = vi.fn();
 
-vi.mock("../auth/AuthProvider", () => ({
+vi.mock("../auth/authContext", () => ({
   useAuth: () => ({
     login: mockLogin,
     setApiKey: mockSetApiKey,

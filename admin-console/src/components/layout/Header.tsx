@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { LogOut, User } from "lucide-react";
-import { useAuth } from "../../auth/AuthProvider";
+import { useAuth } from "../../auth/authContext";
 
 export function Header() {
   const { session, role, logout } = useAuth();

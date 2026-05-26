@@ -11,41 +11,10 @@
  * Otherwise fall back to API-key stored in sessionStorage.
  */
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-import type { Role, UserSession } from "../types/api";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { UserSession } from "../types/api";
 import * as api from "../api/client";
-
-interface AuthState {
-  authenticated: boolean;
-  loading: boolean;
-  session: UserSession | null;
-  role: Role;
-  login: () => void;
-  logout: () => void;
-  setApiKey: (key: string) => void;
-}
-
-const AuthContext = createContext<AuthState>({
-  authenticated: false,
-  loading: true,
-  session: null,
-  role: "viewer",
-  login: () => {},
-  logout: () => {},
-  setApiKey: () => {},
-});
-
-export function useAuth(): AuthState {
-  return useContext(AuthContext);
-}
+import { AuthContext, type AuthState } from "./authContext";
 
 const API_KEY_STORAGE = "vellaveto_api_key";
 

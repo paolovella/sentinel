@@ -25,7 +25,7 @@
     "build": "tsc",
     "prepublishOnly": "npm run build",
     "test": "jest",
-    "lint": "eslint src/"
+    "lint": "eslint src/ tests/"
   },
   "keywords": [
     "vellaveto",
@@ -40,11 +40,15 @@
   ],
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
-    "typescript": "^6.0.2",
+    "@eslint/js": "^9.39.4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.6.0",
+    "eslint": "^9.39.4",
+    "globals": "^17.6.0",
     "jest": "^30.2.0",
     "ts-jest": "^29.0.0",
-    "@types/jest": "^30.0.0",
-    "@types/node": "^25.6.0"
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.60.0"
   },
   "engines": {
     "node": ">=18.0.0"

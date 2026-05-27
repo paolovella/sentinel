@@ -5,8 +5,6 @@ import {
   ApprovalRequired,
   ParameterRedactor,
   Verdict,
-  Action,
-  EvaluationResult,
   BatchResponse,
   ValidateResponse,
   SimulateResponse,

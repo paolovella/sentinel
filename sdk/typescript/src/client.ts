@@ -4,6 +4,7 @@
  * Uses native fetch() (Node 18+). Zero runtime dependencies.
  */
 
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import {
   AccessReviewReport,
   Action,
@@ -44,6 +45,11 @@ const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 500;
 const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504]);
+// SECURITY: Intentionally matches C0/C1 control characters and DEL.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
+const UNICODE_FORMAT_CHARS_RE =
+  /[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u;
 
 /** Configuration for the Vellaveto client. */
 export interface VellavetoClientOptions {
@@ -362,7 +368,6 @@ export class VellavetoClient {
     if (trimmedUrl.startsWith("http://")) {
       const host = new URL(trimmedUrl).hostname;
       if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
-        // eslint-disable-next-line no-console
         console.warn(
           `[vellaveto] WARNING: baseUrl uses unencrypted HTTP for non-localhost host "${host}". ` +
             "API keys and policy data will be transmitted in cleartext. " +
@@ -664,10 +669,10 @@ export class VellavetoClient {
     // SECURITY (FIND-R211-002): Reject control and Unicode format characters in
     // tool and function names to prevent invisible-text manipulation attacks.
     // Parity with context field validation (session_id, agent_id, tenant_id).
-    if (/[\x00-\x1f\x7f-\x9f]/.test(action.tool)) {
+    if (CONTROL_CHARS_RE.test(action.tool)) {
       throw new VellavetoError("action.tool contains control characters");
     }
-    if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(action.tool)) {
+    if (UNICODE_FORMAT_CHARS_RE.test(action.tool)) {
       throw new VellavetoError("action.tool contains Unicode format characters");
     }
     if (
@@ -678,10 +683,10 @@ export class VellavetoClient {
       throw new VellavetoError("action.function must be a string if provided");
     }
     if (typeof action.function === "string") {
-      if (/[\x00-\x1f\x7f-\x9f]/.test(action.function)) {
+      if (CONTROL_CHARS_RE.test(action.function)) {
         throw new VellavetoError("action.function contains control characters");
       }
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(action.function)) {
+      if (UNICODE_FORMAT_CHARS_RE.test(action.function)) {
         throw new VellavetoError("action.function contains Unicode format characters");
       }
     }
@@ -753,13 +758,13 @@ export class VellavetoClient {
         );
       }
       // Control chars: C0 (0x00-0x1F), DEL (0x7F), C1 (0x80-0x9F)
-      if (/[\x00-\x1f\x7f-\x9f]/.test(value)) {
+      if (CONTROL_CHARS_RE.test(value)) {
         throw new VellavetoError(
           `context.${name} contains control characters`
         );
       }
       // Unicode format chars: zero-width, bidi overrides, BOM, bidi isolates (\u2065-\u2069)
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(value)) {
+      if (UNICODE_FORMAT_CHARS_RE.test(value)) {
         throw new VellavetoError(
           `context.${name} contains Unicode format characters`
         );
@@ -790,12 +795,12 @@ export class VellavetoClient {
         // SECURITY (FIND-R114-003): Validate call_chain entries for control
         // and Unicode format characters. Parity with identity field validation
         // (session_id, agent_id, tenant_id) which already checks these.
-        if (/[\x00-\x1f\x7f-\x9f]/.test(ctx.call_chain[i])) {
+        if (CONTROL_CHARS_RE.test(ctx.call_chain[i])) {
           throw new VellavetoError(
             `context.call_chain[${i}] contains control characters`
           );
         }
-        if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(ctx.call_chain[i])) {
+        if (UNICODE_FORMAT_CHARS_RE.test(ctx.call_chain[i])) {
           throw new VellavetoError(
             `context.call_chain[${i}] contains Unicode format characters`
           );
@@ -1113,12 +1118,12 @@ export class VellavetoClient {
         );
       }
       // Control chars: C0 (0x00-0x1F), DEL (0x7F), C1 (0x80-0x9F)
-      if (/[\x00-\x1f\x7f-\x9f]/.test(serverId)) {
+      if (CONTROL_CHARS_RE.test(serverId)) {
         throw new VellavetoError("serverId contains control characters");
       }
       // SECURITY (FIND-R157-004): Reject Unicode format characters (zero-width,
       // bidi overrides, soft hyphen). Parity with approval ID and agent ID validation.
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(serverId)) {
+      if (UNICODE_FORMAT_CHARS_RE.test(serverId)) {
         throw new VellavetoError("serverId contains Unicode format characters");
       }
     }
@@ -1273,12 +1278,12 @@ export class VellavetoClient {
         throw new VellavetoError("agent_id exceeds max length (128)");
       }
       // SECURITY (FIND-R55-SDK-004): Reject control chars. Parity with federationTrustAnchors.
-      if (/[\x00-\x1f\x7f-\x9f]/.test(agentId)) {
+      if (CONTROL_CHARS_RE.test(agentId)) {
         throw new VellavetoError("agent_id contains control characters");
       }
       // SECURITY (FIND-R112-007): Reject Unicode format characters (zero-width,
       // bidi overrides, BOM, etc.). Parity with Go SDK and context validation.
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(agentId)) {
+      if (UNICODE_FORMAT_CHARS_RE.test(agentId)) {
         throw new VellavetoError("agent_id contains Unicode format characters");
       }
       params.set("agent_id", agentId);
@@ -1311,12 +1316,12 @@ export class VellavetoClient {
         throw new VellavetoError("org_id exceeds max length (128)");
       }
       // SECURITY (FIND-R50-037): Catch DEL (0x7F) and C1 control chars (0x80-0x9F)
-      if (/[\x00-\x1f\x7f-\x9f]/.test(orgId)) {
+      if (CONTROL_CHARS_RE.test(orgId)) {
         throw new VellavetoError("org_id contains control characters");
       }
       // SECURITY (FIND-R113-001): Reject Unicode format characters (zero-width,
       // bidi overrides, BOM, etc.). Parity with soc2AccessReview agentId check.
-      if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(orgId)) {
+      if (UNICODE_FORMAT_CHARS_RE.test(orgId)) {
         throw new VellavetoError("org_id contains Unicode format characters");
       }
     }
@@ -1469,7 +1474,6 @@ export class VellavetoClient {
     response: Record<string, unknown>,
     hmacKey: string
   ): boolean {
-    const crypto = require("crypto");
     const meta = response._meta as Record<string, unknown> | undefined;
     if (!meta) return false;
     const attestation = meta.vellaveto_attestation as
@@ -1480,8 +1484,7 @@ export class VellavetoClient {
     // Verify content hash matches
     const content = response.result ?? response.error ?? null;
     const canonical = JSON.stringify(content);
-    const expectedHash = crypto
-      .createHash("sha256")
+    const expectedHash = createHash("sha256")
       .update(canonical, "utf8")
       .digest("hex");
     if (attestation.content_hash !== expectedHash) return false;
@@ -1498,11 +1501,10 @@ export class VellavetoClient {
 
     // Verify HMAC signature
     const signingContent = `v${attestation.version}:${attestation.timestamp}:${attestation.content_hash}:${attestation.injection_clean}:${attestation.dlp_clean}:${attestation.schema_valid}:${attestation.trust_tier}:${attestation.scan_passes}`;
-    const expectedSig = crypto
-      .createHmac("sha256", hmacKey)
+    const expectedSig = createHmac("sha256", hmacKey)
       .update(signingContent, "utf8")
       .digest("hex");
-    return crypto.timingSafeEqual(
+    return timingSafeEqual(
       Buffer.from(sig, "utf8"),
       Buffer.from(expectedSig, "utf8")
     );
@@ -1546,10 +1548,10 @@ function buildResolveBody(reason?: string): Record<string, string> | undefined {
       `reason exceeds maximum length (4096 bytes, got ${byteLen})`
     );
   }
-  if (/[\x00-\x1f\x7f-\x9f]/.test(reason)) {
+  if (CONTROL_CHARS_RE.test(reason)) {
     throw new VellavetoError("reason contains control characters");
   }
-  if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(reason)) {
+  if (UNICODE_FORMAT_CHARS_RE.test(reason)) {
     throw new VellavetoError("reason contains Unicode format characters");
   }
   return { reason };
@@ -1562,11 +1564,11 @@ function validateApprovalId(id: string): void {
   if (id.length > 256) {
     throw new VellavetoError("approval ID exceeds max length (256)");
   }
-  if (/[\x00-\x1f\x7f-\x9f]/.test(id)) {
+  if (CONTROL_CHARS_RE.test(id)) {
     throw new VellavetoError("approval ID contains control characters");
   }
   // SECURITY (FIND-R104-SDK-002): Reject Unicode format characters (parity with Go SDK).
-  if (/[\u00AD\u200B-\u200F\u2028-\u202F\uFEFF\u2060-\u2069\uFFF9-\uFFFB\u{E0001}-\u{E007F}]/u.test(id)) {
+  if (UNICODE_FORMAT_CHARS_RE.test(id)) {
     throw new VellavetoError("approval ID contains Unicode format characters");
   }
 }

@@ -50,4 +50,4 @@ jobs:
       - name: Lint
         if: matrix.node-version == '22'
         working-directory: sdk/typescript
-        run: npx --no-install eslint src/ 2>/dev/null || echo "eslint not configured — skipping lint"
+        run: npm run lint

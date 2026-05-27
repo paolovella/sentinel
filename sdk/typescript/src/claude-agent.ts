@@ -225,7 +225,6 @@ export class VellavetoToolPermission {
     toolName?: string,
     agentName?: string
   ): (...args: Parameters<T>) => Promise<ReturnType<T>> {
-    const guard = this;
     const name = toolName ?? fn.name;
 
     const wrapper = async (...args: Parameters<T>): Promise<ReturnType<T>> => {
@@ -234,7 +233,7 @@ export class VellavetoToolPermission {
           ? (args[0] as Record<string, unknown>)
           : {};
 
-      const allowed = await guard.check(name, kwargs, agentName);
+      const allowed = await this.check(name, kwargs, agentName);
       if (!allowed) {
         throw new PolicyDenied(`Tool '${name}' denied by Vellaveto policy`);
       }

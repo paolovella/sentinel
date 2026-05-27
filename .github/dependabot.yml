@@ -91,6 +91,57 @@ updates:
     labels:
       - "dependencies"
 
+  - package-ecosystem: "npm"
+    directory: "/packages/create-vellaveto"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:10"
+      timezone: "UTC"
+    groups:
+      create-vellaveto:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(create-vellaveto)"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/vellaveto-desktop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:15"
+      timezone: "UTC"
+    groups:
+      vellaveto-desktop:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(desktop)"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:20"
+      timezone: "UTC"
+    groups:
+      site:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(site)"
+    labels:
+      - "dependencies"
+
   - package-ecosystem: "pip"
     directory: "/sdk/python"
     schedule:
@@ -107,3 +158,199 @@ updates:
     labels:
       - "dependencies"
       - "SDK"
+
+  - package-ecosystem: "gomod"
+    directory: "/sdk/go"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:25"
+      timezone: "UTC"
+    groups:
+      go-sdk:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(sdk-go)"
+    labels:
+      - "dependencies"
+      - "SDK"
+
+  - package-ecosystem: "gomod"
+    directory: "/terraform-provider-vellaveto"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:30"
+      timezone: "UTC"
+    groups:
+      terraform-provider:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(terraform)"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "maven"
+    directory: "/sdk/java"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:35"
+      timezone: "UTC"
+    groups:
+      java-sdk:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(sdk-java)"
+    labels:
+      - "dependencies"
+      - "SDK"
+
+  - package-ecosystem: "cargo"
+    directory: "/fuzz"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:40"
+      timezone: "UTC"
+    groups:
+      fuzz-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(fuzz)"
+    labels:
+      - "dependencies"
+      - "security"
+
+  - package-ecosystem: "cargo"
+    directory: "/formal/kani"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:45"
+      timezone: "UTC"
+    groups:
+      kani-proof-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(kani)"
+    labels:
+      - "dependencies"
+      - "formal-verification"
+
+  - package-ecosystem: "cargo"
+    directory: "/formal/verus"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:50"
+      timezone: "UTC"
+    groups:
+      verus-proof-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(verus)"
+    labels:
+      - "dependencies"
+      - "formal-verification"
+
+  - package-ecosystem: "cargo"
+    directory: "/packages/vellaveto-desktop/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:55"
+      timezone: "UTC"
+    groups:
+      desktop-tauri-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(desktop-tauri)"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "UTC"
+    groups:
+      docker-images:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(docker)"
+    labels:
+      - "dependencies"
+      - "security"
+
+  - package-ecosystem: "docker"
+    directory: "/formal"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:05"
+      timezone: "UTC"
+    groups:
+      formal-docker-images:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(formal-docker)"
+    labels:
+      - "dependencies"
+      - "formal-verification"
+      - "security"
+
+  - package-ecosystem: "docker"
+    directory: "/repro"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:10"
+      timezone: "UTC"
+    groups:
+      repro-docker-images:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(repro-docker)"
+    labels:
+      - "dependencies"
+      - "security"
+
+  - package-ecosystem: "helm"
+    directory: "/helm/vellaveto"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:15"
+      timezone: "UTC"
+    groups:
+      helm-chart:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(helm)"
+    labels:
+      - "dependencies"

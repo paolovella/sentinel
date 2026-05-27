@@ -1,10 +1,11 @@
 import * as p from "@clack/prompts";
+import { requirePromptValue } from "../prompt.js";
 import type { AuditExportFormat, RedactionLevel, WizardState } from "../types.js";
 
 export async function auditStep(
   state: WizardState,
 ): Promise<void> {
-  const redaction = await p.select<RedactionLevel>({
+  const redaction = requirePromptValue(await p.select<RedactionLevel>({
     message: "Audit log redaction level",
     options: [
       {
@@ -24,16 +25,11 @@ export async function auditStep(
       },
     ],
     initialValue: "low",
-  });
-
-  if (p.isCancel(redaction)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
+  }));
 
   state.redactionLevel = redaction;
 
-  const format = await p.select<AuditExportFormat>({
+  const format = requirePromptValue(await p.select<AuditExportFormat>({
     message: "Audit export format",
     options: [
       {
@@ -57,17 +53,12 @@ export async function auditStep(
         hint: "POST events to an HTTP endpoint",
       },
     ],
-  });
-
-  if (p.isCancel(format)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
+  }));
 
   state.auditExportFormat = format;
 
   if (format === "webhook") {
-    const target = await p.text({
+    const target = requirePromptValue(await p.text({
       message: "Webhook URL",
       placeholder: "https://example.com/vellaveto-events",
       validate(value) {
@@ -81,30 +72,20 @@ export async function auditStep(
           return "Please enter a valid URL";
         }
       },
-    });
-
-    if (p.isCancel(target)) {
-      p.cancel("Setup cancelled.");
-      process.exit(0);
-    }
+    }));
 
     state.auditExportTarget = target;
   } else if (format === "jsonl" || format === "cef") {
-    const target = await p.text({
+    const target = requirePromptValue(await p.text({
       message: "Export file path",
       placeholder: `/var/log/vellaveto/export.${format}`,
       defaultValue: `/var/log/vellaveto/export.${format}`,
-    });
-
-    if (p.isCancel(target)) {
-      p.cancel("Setup cancelled.");
-      process.exit(0);
-    }
+    }));
 
     state.auditExportTarget = target;
   }
 
-  const checkpoint = await p.text({
+  const checkpoint = requirePromptValue(await p.text({
     message: "Audit checkpoint interval (seconds, 0 to disable)",
     placeholder: "300",
     defaultValue: "300",
@@ -114,12 +95,7 @@ export async function auditStep(
         return "Must be a non-negative integer";
       }
     },
-  });
-
-  if (p.isCancel(checkpoint)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
+  }));
 
   state.checkpointInterval = Number(checkpoint);
 }

@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { requirePromptValue } from "../prompt.js";
 import type { ComplianceFramework, WizardState } from "../types.js";
 
 const FRAMEWORKS: { value: ComplianceFramework; label: string; hint: string }[] = [
@@ -17,15 +18,10 @@ export async function complianceStep(
   const selected: ComplianceFramework[] = [];
 
   for (const fw of FRAMEWORKS) {
-    const enabled = await p.confirm({
+    const enabled = requirePromptValue(await p.confirm({
       message: `${fw.label} — ${fw.hint}`,
       initialValue: false,
-    });
-
-    if (p.isCancel(enabled)) {
-      p.cancel("Setup cancelled.");
-      process.exit(0);
-    }
+    }));
 
     if (enabled) {
       selected.push(fw.value);

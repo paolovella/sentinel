@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import { requirePromptValue } from "../prompt.js";
 import type { DeploymentTarget, WizardState } from "../types.js";
 import { BANNER } from "../constants.js";
 
@@ -19,21 +20,16 @@ export async function welcomeStep(
   // Ask for project directory if not provided via CLI arg
   let dir = projectDir;
   if (!dir) {
-    const input = await p.text({
+    const input = requirePromptValue(await p.text({
       message: "Project directory",
       placeholder: "vellaveto",
       defaultValue: "vellaveto",
-    });
-
-    if (p.isCancel(input)) {
-      p.cancel("Setup cancelled.");
-      process.exit(0);
-    }
+    }));
 
     dir = input;
   }
 
-  const target = await p.select<DeploymentTarget>({
+  const target = requirePromptValue(await p.select<DeploymentTarget>({
     message: "How will you deploy Vellaveto?",
     options: [
       {
@@ -57,12 +53,7 @@ export async function welcomeStep(
         hint: "Clones repo + vellaveto.toml — cargo build",
       },
     ],
-  });
-
-  if (p.isCancel(target)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
+  }));
 
   state.deploymentTarget = target;
   return dir;

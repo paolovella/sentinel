@@ -1,10 +1,11 @@
 import * as p from "@clack/prompts";
+import { requirePromptValue } from "../prompt.js";
 import type { PolicyPreset, WizardState } from "../types.js";
 
 export async function policiesStep(
   state: WizardState,
 ): Promise<void> {
-  const preset = await p.select<PolicyPreset>({
+  const preset = requirePromptValue(await p.select<PolicyPreset>({
     message: "Select a policy preset",
     options: [
       {
@@ -24,12 +25,7 @@ export async function policiesStep(
       },
     ],
     initialValue: "balanced",
-  });
-
-  if (p.isCancel(preset)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
+  }));
 
   state.policyPreset = preset;
 }

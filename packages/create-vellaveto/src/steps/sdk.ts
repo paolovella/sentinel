@@ -1,12 +1,13 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import { requirePromptValue } from "../prompt.js";
 import type { SdkLanguage, WizardState } from "../types.js";
 import { generateSnippet, installCommand } from "../generators/snippets.js";
 
 export async function sdkStep(
   state: WizardState,
 ): Promise<void> {
-  const language = await p.select<SdkLanguage>({
+  const language = requirePromptValue(await p.select<SdkLanguage>({
     message: "Show integration snippet for which SDK?",
     options: [
       { value: "python", label: "Python", hint: "pip install vellaveto" },
@@ -15,12 +16,7 @@ export async function sdkStep(
       { value: "java", label: "Java", hint: "Maven / Gradle" },
       { value: "skip", label: "Skip", hint: "No snippet needed" },
     ],
-  });
-
-  if (p.isCancel(language)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
+  }));
 
   state.sdkLanguage = language;
 

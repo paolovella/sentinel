@@ -8,6 +8,7 @@ import { resolve, dirname } from "node:path";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import type { WizardState, GeneratedFile } from "./types.js";
+import { requirePromptValue } from "./prompt.js";
 import { VERSION } from "./constants.js";
 import { generateToml } from "./generators/toml.js";
 import { generateDockerFiles } from "./generators/docker.js";
@@ -56,11 +57,11 @@ export async function runWizard(projectDir: string | undefined): Promise<void> {
     try {
       const entries = readdirSync(absDir);
       if (entries.length > 0) {
-        const overwrite = await p.confirm({
+        const overwrite = requirePromptValue(await p.confirm({
           message: `Directory ${pc.cyan(absDir)} already exists and is not empty. Continue?`,
           initialValue: false,
-        });
-        if (p.isCancel(overwrite) || !overwrite) {
+        }));
+        if (!overwrite) {
           p.cancel("Setup cancelled.");
           process.exit(0);
         }
@@ -95,11 +96,11 @@ export async function runWizard(projectDir: string | undefined): Promise<void> {
   const toml = generateToml(state);
   p.note(toml, "vellaveto.toml preview");
 
-  const confirmed = await p.confirm({
+  const confirmed = requirePromptValue(await p.confirm({
     message: `Write ${files.length} file(s) to ${pc.cyan(absDir)}?`,
-  });
+  }));
 
-  if (p.isCancel(confirmed) || !confirmed) {
+  if (!confirmed) {
     p.cancel("No files written.");
     process.exit(0);
   }

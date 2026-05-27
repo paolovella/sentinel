@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         import.meta.env.VITE_SERVER_URL ?? window.location.origin;
       api.configure(serverUrl, stored);
     }
-    checkSession();
+    void Promise.resolve().then(checkSession);
   }, [checkSession]);
 
   const login = useCallback(() => {

@@ -18,7 +18,7 @@
 #   docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-coq
 #   docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-trusted-assumptions
 
-FROM ubuntu:24.04@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
+FROM ubuntu:26.04@sha256:f3d28607ddd78734bb7f71f117f3c6706c666b8b76cbff7c9ff6e5718d46ff64
 
 # ── Version pins (must match .github/workflows/formal-verification.yml) ──
 

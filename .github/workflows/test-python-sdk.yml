@@ -48,4 +48,9 @@ jobs:
       - name: Type check
         if: matrix.python-version == '3.12'
         working-directory: sdk/python
-        run: mypy vellaveto/ --ignore-missing-imports || true
+        run: python -m mypy vellaveto/ --ignore-missing-imports
+
+      - name: Lint critical Python issues
+        if: matrix.python-version == '3.12'
+        working-directory: sdk/python
+        run: python -m ruff check --select E9,F vellaveto

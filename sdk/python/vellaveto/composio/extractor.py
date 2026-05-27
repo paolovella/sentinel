@@ -7,7 +7,6 @@ split into a tool name and function name for Vellaveto policy evaluation.
 This module provides pure functions with no external dependencies.
 """
 
-import unicodedata
 from typing import Any, Dict, List, Tuple
 
 # Maximum targets extracted on client side (matches server MAX_TARGETS = 256)

@@ -18,7 +18,7 @@ Example:
 """
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, TypedDict
+from typing import Any, Callable, Dict, List, Optional, TypedDict, cast
 from urllib.parse import urlparse
 
 from vellaveto.client import VellavetoClient, PolicyDenied, ApprovalRequired
@@ -243,16 +243,6 @@ def create_vellaveto_tool_node(
             "LangGraph is required. Install with: pip install langgraph"
         )
 
-    # Import here to avoid circular imports
-    from vellaveto.langchain import VellavetoCallbackHandler
-
-    handler = VellavetoCallbackHandler(
-        client=client,
-        session_id=session_id,
-        agent_id=agent_id,
-        raise_on_deny=True,
-    )
-
     # Create base tool node
     base_node = ToolNode(tools)
 
@@ -272,7 +262,7 @@ def create_vellaveto_tool_node(
 
         # Evaluate each tool call
         for tool_call in last_message.tool_calls:
-            tool_name = tool_call.get("name", "unknown")
+            tool_name = str(tool_call.get("name", "unknown"))
             tool_input = tool_call.get("args", {})
 
             context = EvaluationContext(
@@ -328,7 +318,7 @@ def create_vellaveto_tool_node(
                 }
 
         # All tools allowed - execute with base node
-        return base_node(state)
+        return cast(Dict[str, Any], base_node(state))
 
     return guarded_tool_node
 
@@ -377,7 +367,7 @@ class VellavetoCheckpoint:
                 thread_id = "invalid"
             if "vellaveto_session_id" not in state:
                 state["vellaveto_session_id"] = f"langgraph-{thread_id}"
-        return state
+        return cast(Optional[Dict[str, Any]], state)
 
     def put(self, config: Dict[str, Any], state: Dict[str, Any]) -> None:
         """Save checkpoint state."""

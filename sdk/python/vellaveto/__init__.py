@@ -14,7 +14,14 @@ Example:
     chain = LLMChain(..., callbacks=[handler])
 """
 
-from vellaveto.client import VellavetoClient, AsyncVellavetoClient, VellavetoError, PolicyDenied, ApprovalRequired
+from vellaveto.client import (
+    ApprovalRequired,
+    AsyncVellavetoClient,
+    PolicyDenied,
+    SecurityWarning,
+    VellavetoClient,
+    VellavetoError,
+)
 from vellaveto.redaction import ParameterRedactor
 from vellaveto.types import (
     Verdict,
@@ -38,6 +45,7 @@ __all__ = [
     "VellavetoError",
     "PolicyDenied",
     "ApprovalRequired",
+    "SecurityWarning",
     "ParameterRedactor",
     "Verdict",
     "EvaluationResult",

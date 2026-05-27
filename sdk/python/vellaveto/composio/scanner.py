@@ -15,7 +15,7 @@ import re
 import logging
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Pattern
+from typing import Any, List, Optional, Pattern
 
 logger = logging.getLogger(__name__)
 

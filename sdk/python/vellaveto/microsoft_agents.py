@@ -19,13 +19,14 @@ Example:
     )
 """
 
+import asyncio
 import logging
 import threading
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from vellaveto.client import ApprovalRequired, PolicyDenied, VellavetoClient
-from vellaveto.types import EvaluationContext
+from vellaveto.types import EvaluationContext, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -219,10 +220,10 @@ class VellavetoAgentMiddleware:
             self._append_chain(function_name)
             self._record_otel_span(
                 tool_name, function_name,
-                result.verdict, result.reason,
+                result.verdict.value, result.reason,
             )
 
-            if result.verdict == "deny":
+            if result.verdict == Verdict.DENY:
                 logger.warning(
                     "MS Agent tool call denied: tool=%s fn=%s reason=%s",
                     tool_name,
@@ -230,15 +231,18 @@ class VellavetoAgentMiddleware:
                     result.reason,
                 )
                 if self._raise_on_deny:
-                    raise PolicyDenied(result.reason)
-            elif result.verdict == "require_approval":
+                    raise PolicyDenied(result.reason or "Policy denied")
+            elif result.verdict == Verdict.REQUIRE_APPROVAL:
                 logger.info(
                     "MS Agent tool call requires approval: tool=%s fn=%s",
                     tool_name,
                     function_name,
                 )
                 if self._raise_on_deny:
-                    raise ApprovalRequired(result.reason, result.approval_id)
+                    raise ApprovalRequired(
+                        result.reason or "Approval required",
+                        result.approval_id or "unknown",
+                    )
         except (PolicyDenied, ApprovalRequired):
             raise
         except Exception:
@@ -270,8 +274,8 @@ class VellavetoAgentMiddleware:
             Wrapped function with policy enforcement.
         """
         guard = self
-        _tool_name = tool_name or getattr(
-            func, "__qualname__", func.__name__
+        _tool_name: str = tool_name or str(
+            getattr(func, "__qualname__", func.__name__)
         )
         fn_name = func.__name__
         _agent_name = agent_name
@@ -348,7 +352,8 @@ class VellavetoAgentMiddleware:
             paths, domains = self._extract_targets(arguments)
             ctx = self._build_context(agent_name=agent_name)
 
-            result = await self._client.evaluate_async(
+            result = await asyncio.to_thread(
+                self._client.evaluate,
                 tool=tool_name,
                 function=function_name,
                 parameters=arguments,
@@ -360,10 +365,10 @@ class VellavetoAgentMiddleware:
             self._append_chain(function_name)
             self._record_otel_span(
                 tool_name, function_name,
-                result.verdict, result.reason,
+                result.verdict.value, result.reason,
             )
 
-            if result.verdict == "deny":
+            if result.verdict == Verdict.DENY:
                 logger.warning(
                     "MS Agent tool call denied (async): tool=%s fn=%s reason=%s",
                     tool_name,
@@ -371,15 +376,18 @@ class VellavetoAgentMiddleware:
                     result.reason,
                 )
                 if self._raise_on_deny:
-                    raise PolicyDenied(result.reason)
-            elif result.verdict == "require_approval":
+                    raise PolicyDenied(result.reason or "Policy denied")
+            elif result.verdict == Verdict.REQUIRE_APPROVAL:
                 logger.info(
                     "MS Agent tool call requires approval (async): tool=%s fn=%s",
                     tool_name,
                     function_name,
                 )
                 if self._raise_on_deny:
-                    raise ApprovalRequired(result.reason, result.approval_id)
+                    raise ApprovalRequired(
+                        result.reason or "Approval required",
+                        result.approval_id or "unknown",
+                    )
         except (PolicyDenied, ApprovalRequired):
             raise
         except Exception:
@@ -411,8 +419,8 @@ class VellavetoAgentMiddleware:
             Wrapped async function with policy enforcement.
         """
         guard = self
-        _tool_name = tool_name or getattr(
-            func, "__qualname__", func.__name__
+        _tool_name: str = tool_name or str(
+            getattr(func, "__qualname__", func.__name__)
         )
         fn_name = func.__name__
         _agent_name = agent_name

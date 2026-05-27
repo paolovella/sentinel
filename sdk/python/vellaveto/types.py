@@ -68,6 +68,14 @@ class EvaluationResult:
     approval_id: Optional[str] = None
     trace: Optional[Dict[str, Any]] = None
 
+    def __post_init__(self) -> None:
+        """Normalize direct string construction to the declared Verdict enum."""
+        if isinstance(self.verdict, str):
+            try:
+                self.verdict = Verdict(self.verdict)
+            except ValueError:
+                self.verdict = Verdict.DENY
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EvaluationResult":
         """Create from API response dictionary.

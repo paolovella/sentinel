@@ -29,7 +29,7 @@ from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from vellaveto.client import ApprovalRequired, PolicyDenied, VellavetoClient
-from vellaveto.types import EvaluationContext
+from vellaveto.types import EvaluationContext, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ class VellavetoStrandsGuard:
 
             self._append_chain(function_name)
 
-            if result.verdict == "deny":
+            if result.verdict == Verdict.DENY:
                 logger.warning(
                     "Strands tool call denied: tool=%s fn=%s reason=%s",
                     tool_name,
@@ -178,15 +178,18 @@ class VellavetoStrandsGuard:
                     result.reason,
                 )
                 if self._raise_on_deny:
-                    raise PolicyDenied(result.reason)
-            elif result.verdict == "require_approval":
+                    raise PolicyDenied(result.reason or "Policy denied")
+            elif result.verdict == Verdict.REQUIRE_APPROVAL:
                 logger.info(
                     "Strands tool call requires approval: tool=%s fn=%s",
                     tool_name,
                     function_name,
                 )
                 if self._raise_on_deny:
-                    raise ApprovalRequired(result.reason, result.approval_id)
+                    raise ApprovalRequired(
+                        result.reason or "Approval required",
+                        result.approval_id or "unknown",
+                    )
         except (PolicyDenied, ApprovalRequired):
             raise
         except Exception:
@@ -217,8 +220,8 @@ class VellavetoStrandsGuard:
             Wrapped function with policy enforcement.
         """
         guard = self
-        _tool_name = tool_name or getattr(
-            func, "__qualname__", func.__name__
+        _tool_name: str = tool_name or str(
+            getattr(func, "__qualname__", func.__name__)
         )
         fn_name = func.__name__
         _agent_name = agent_name

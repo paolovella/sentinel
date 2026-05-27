@@ -223,7 +223,7 @@ class ParameterRedactor:
             # Prevent stack overflow on deeply nested structures
             return {k: self.placeholder for k in d}
 
-        result = {}
+        result: Dict[str, Any] = {}
         for key, value in d.items():
             if self.is_sensitive_key(key):
                 result[key] = self.placeholder
@@ -242,7 +242,7 @@ class ParameterRedactor:
         if depth > 10:
             return [self.placeholder for _ in lst]
 
-        result = []
+        result: List[Any] = []
         for item in lst:
             if isinstance(item, dict):
                 result.append(self._redact_dict(item, depth + 1))

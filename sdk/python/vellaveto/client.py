@@ -10,7 +10,7 @@ import logging
 import random
 import time
 import warnings
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, cast
 from urllib.parse import quote, urljoin, urlparse
 
 try:
@@ -25,6 +25,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+from vellaveto.redaction import ParameterRedactor
 from vellaveto.types import Action, EvaluationResult, EvaluationContext, Verdict
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,10 @@ class ApprovalRequired(VellavetoError):
 class VellavetoConnectionError(VellavetoError):
     """Raised when unable to connect to Vellaveto server."""
     pass
+
+
+class SecurityWarning(UserWarning):
+    """Warning emitted when the client is configured with insecure transport settings."""
 
 
 # SECURITY (FIND-SDK-019): Backward-compatible alias.
@@ -340,6 +345,22 @@ def _build_evaluate_payload(
     return payload
 
 
+def _json_object_list(data: Any) -> List[Dict[str, Any]]:
+    """Validate a JSON value is an array of objects."""
+    if not isinstance(data, list) or not all(
+        isinstance(item, dict) for item in data
+    ):
+        raise VellavetoError("Expected JSON array of objects response")
+    return cast(List[Dict[str, Any]], data)
+
+
+def _pending_approvals_from_response(data: Any) -> List[Dict[str, Any]]:
+    """Accept both legacy list responses and the current wrapped server shape."""
+    if isinstance(data, dict):
+        return _json_object_list(data.get("approvals", []))
+    return _json_object_list(data)
+
+
 class VellavetoClient:
     """
     Synchronous client for the Vellaveto API.
@@ -468,7 +489,7 @@ class VellavetoClient:
     def __enter__(self) -> "VellavetoClient":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()
 
     def _headers(self) -> Dict[str, str]:
@@ -493,8 +514,33 @@ class VellavetoClient:
         method: str,
         path: str,
         json_data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Make an HTTP request expected to return a JSON object."""
+        data = self._request_json(method, path, json_data=json_data, params=params)
+        if not isinstance(data, dict):
+            raise VellavetoError("Expected JSON object response")
+        return cast(Dict[str, Any], data)
+
+    def _request_list(
+        self,
+        method: str,
+        path: str,
+        json_data: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Make an HTTP request expected to return a JSON array of objects."""
+        return _json_object_list(
+            self._request_json(method, path, json_data=json_data, params=params)
+        )
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        json_data: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Any:
         """Make an HTTP request to the Vellaveto API.
 
         SECURITY (FIND-SDK-014): Retries transient failures (connection errors,
@@ -740,7 +786,7 @@ class VellavetoClient:
 
     def list_policies(self) -> List[Dict[str, Any]]:
         """List all configured policies."""
-        return self._request("GET", "/api/policies")
+        return self._request_list("GET", "/api/policies")
 
     def reload_policies(self) -> Dict[str, Any]:
         """Reload policies from configuration."""
@@ -748,7 +794,9 @@ class VellavetoClient:
 
     def get_pending_approvals(self) -> List[Dict[str, Any]]:
         """Get list of pending approval requests."""
-        return self._request("GET", "/api/approvals/pending")
+        return _pending_approvals_from_response(
+            self._request_json("GET", "/api/approvals/pending")
+        )
 
     def resolve_approval(
         self,
@@ -1228,7 +1276,7 @@ class VellavetoClient:
             params=params,
         )
 
-    def close(self):
+    def close(self) -> None:
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
             self._client.close()
@@ -1386,7 +1434,7 @@ class AsyncVellavetoClient:
         )
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if self._client:
             await self._client.aclose()
 
@@ -1419,8 +1467,35 @@ class AsyncVellavetoClient:
         method: str,
         path: str,
         json_data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Make an HTTP request expected to return a JSON object (async)."""
+        data = await self._request_json(
+            method, path, json_data=json_data, params=params
+        )
+        if not isinstance(data, dict):
+            raise VellavetoError("Expected JSON object response")
+        return cast(Dict[str, Any], data)
+
+    async def _request_list(
+        self,
+        method: str,
+        path: str,
+        json_data: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Make an HTTP request expected to return a JSON array of objects (async)."""
+        return _json_object_list(
+            await self._request_json(method, path, json_data=json_data, params=params)
+        )
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        json_data: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Any:
         """Make an HTTP request to the Vellaveto API (async).
 
         SECURITY (FIND-R51-003): Retries transient failures (connection errors,
@@ -1582,7 +1657,7 @@ class AsyncVellavetoClient:
 
     async def list_policies(self) -> List[Dict[str, Any]]:
         """List all configured policies (async)."""
-        return await self._request("GET", "/api/policies")
+        return await self._request_list("GET", "/api/policies")
 
     async def reload_policies(self) -> Dict[str, Any]:
         """Reload policies from configuration (async)."""
@@ -1590,7 +1665,9 @@ class AsyncVellavetoClient:
 
     async def get_pending_approvals(self) -> List[Dict[str, Any]]:
         """Get list of pending approval requests (async)."""
-        return await self._request("GET", "/api/approvals/pending")
+        return _pending_approvals_from_response(
+            await self._request_json("GET", "/api/approvals/pending")
+        )
 
     async def resolve_approval(
         self,

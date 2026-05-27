@@ -29,7 +29,7 @@ from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from vellaveto.client import ApprovalRequired, PolicyDenied, VellavetoClient
-from vellaveto.types import EvaluationContext
+from vellaveto.types import EvaluationContext, Verdict
 
 logger = logging.getLogger(__name__)
 
@@ -164,22 +164,25 @@ class VellavetoCrewGuard:
         # Append to call chain AFTER evaluation (not before)
         self._append_chain(tool_name)
 
-        if result.verdict == "deny":
+        if result.verdict == Verdict.DENY:
             logger.warning(
                 "CrewAI tool call denied: tool=%s reason=%s",
                 tool_name,
                 result.reason,
             )
             if self._raise_on_deny:
-                raise PolicyDenied(result.reason)
-        elif result.verdict == "require_approval":
+                raise PolicyDenied(result.reason or "Policy denied")
+        elif result.verdict == Verdict.REQUIRE_APPROVAL:
             logger.info(
                 "CrewAI tool call requires approval: tool=%s approval_id=%s",
                 tool_name,
                 result.approval_id,
             )
             if self._raise_on_deny:
-                raise ApprovalRequired(result.reason, result.approval_id)
+                raise ApprovalRequired(
+                    result.reason or "Approval required",
+                    result.approval_id or "unknown",
+                )
 
     def wrap_tool(self, tool_func: Callable[..., Any]) -> Callable[..., Any]:
         """
@@ -195,8 +198,9 @@ class VellavetoCrewGuard:
             A wrapped function with policy enforcement.
         """
         guard = self
-        tool_name = getattr(tool_func, "name", None) or getattr(
-            tool_func, "__name__", "unknown_tool"
+        tool_name: str = str(
+            getattr(tool_func, "name", None)
+            or getattr(tool_func, "__name__", "unknown_tool")
         )
 
         def guarded(*args: Any, **kwargs: Any) -> Any:

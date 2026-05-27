@@ -176,14 +176,17 @@ class VellavetoToolPermission:
 
             self._append_chain(tool_name)
 
-            if result.verdict == "allow":
+            if result.verdict == Verdict.ALLOW:
                 return True
-            elif result.verdict == "require_approval":
+            elif result.verdict == Verdict.REQUIRE_APPROVAL:
                 logger.info(
                     "Claude agent tool requires approval: tool=%s",
                     tool_name,
                 )
-                raise ApprovalRequired(result.reason, result.approval_id)
+                raise ApprovalRequired(
+                    result.reason or "Approval required",
+                    result.approval_id or "unknown",
+                )
             else:
                 logger.warning(
                     "Claude agent tool denied: tool=%s reason=%s",
@@ -223,8 +226,8 @@ class VellavetoToolPermission:
             Wrapped function with policy enforcement.
         """
         guard = self
-        _tool_name = tool_name or getattr(
-            func, "__qualname__", func.__name__
+        _tool_name: str = tool_name or str(
+            getattr(func, "__qualname__", func.__name__)
         )
         _agent_name = agent_name
 

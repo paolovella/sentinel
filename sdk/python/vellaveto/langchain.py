@@ -19,7 +19,7 @@ Example:
 
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -29,19 +29,30 @@ from vellaveto.types import EvaluationContext, Verdict
 logger = logging.getLogger(__name__)
 
 # Check for LangChain availability
-try:
-    from langchain_core.callbacks import BaseCallbackHandler
+HAS_LANGCHAIN = False
+if TYPE_CHECKING:
     from langchain_core.agents import AgentAction, AgentFinish
+    from langchain_core.callbacks import (
+        BaseCallbackHandler as LangChainBaseCallbackHandler,
+    )
     from langchain_core.outputs import LLMResult
-    HAS_LANGCHAIN = True
-except ImportError:
-    HAS_LANGCHAIN = False
-    # Define stub for type hints
-    class BaseCallbackHandler:
-        pass
+else:
+    try:
+        from langchain_core.agents import AgentAction, AgentFinish
+        from langchain_core.callbacks import (
+            BaseCallbackHandler as LangChainBaseCallbackHandler,
+        )
+        from langchain_core.outputs import LLMResult
+        HAS_LANGCHAIN = True
+    except ImportError:
+        HAS_LANGCHAIN = False
+
+        # Define stub for runtime inheritance when LangChain is not installed.
+        class LangChainBaseCallbackHandler:
+            pass
 
 
-class VellavetoCallbackHandler(BaseCallbackHandler):
+class VellavetoCallbackHandler(LangChainBaseCallbackHandler):
     """
     LangChain callback handler for Vellaveto policy enforcement.
 
@@ -503,7 +514,7 @@ class VellavetoToolGuard:
         client: VellavetoClient,
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
-    ):
+    ) -> None:
         self.client = client
         self.session_id = session_id
         self.agent_id = agent_id
@@ -514,7 +525,7 @@ class VellavetoToolGuard:
         function: Optional[str] = None,
         extract_paths: Optional[List[str]] = None,
         extract_domains: Optional[List[str]] = None,
-    ):
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """
         Create a guard decorator for a specific tool.
 
@@ -527,16 +538,16 @@ class VellavetoToolGuard:
         extract_paths = extract_paths or ["path", "file", "filepath"]
         extract_domains = extract_domains or ["url", "uri", "domain"]
 
-        def decorator(func):
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             import functools
 
             @functools.wraps(func)
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
                 func_name = function or func.__name__
 
                 # Extract paths and domains from kwargs
-                target_paths = []
-                target_domains = []
+                target_paths: List[str] = []
+                target_domains: List[str] = []
 
                 for key, value in kwargs.items():
                     if key in extract_paths and isinstance(value, str):

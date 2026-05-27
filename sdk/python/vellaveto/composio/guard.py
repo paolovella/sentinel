@@ -14,7 +14,7 @@ user-friendly API that can be used in two ways:
 
 import copy
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 from vellaveto.client import VellavetoClient, PolicyDenied, ApprovalRequired
 from vellaveto.composio.modifiers import (
@@ -289,7 +289,7 @@ class ComposioGuard:
                                 "error": f"Security scan detected {len(scan_result.findings)} finding(s)",
                             }
 
-        return response
+        return cast(Dict[str, Any], response)
 
     def reset_session(self) -> None:
         """Reset the call chain tracker (e.g. on new session)."""

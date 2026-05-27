@@ -1,5 +1,6 @@
 """Tests for vellaveto.client module."""
 
+import asyncio
 import json
 
 import pytest
@@ -1322,18 +1323,16 @@ class TestAsyncEvaluationContextValidation:
     def test_async_context_session_id_too_long(self):
         ctx = EvaluationContext(session_id="x" * 257)
         client = AsyncVellavetoClient(url="http://localhost:1")
-        import asyncio
         with pytest.raises(VellavetoError, match="session_id exceeds max length"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 client.evaluate(tool="test", context=ctx)
             )
 
     def test_async_context_control_chars(self):
         ctx = EvaluationContext(agent_id="agent\x01id")
         client = AsyncVellavetoClient(url="http://localhost:1")
-        import asyncio
         with pytest.raises(VellavetoError, match="agent_id contains control characters"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 client.evaluate(tool="test", context=ctx)
             )
 

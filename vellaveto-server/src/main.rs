@@ -71,6 +71,7 @@ impl axum::serve::Listener for TlsListener {
 #[derive(Parser)]
 #[command(
     name = "vellaveto",
+    version,
     about = "Vellaveto policy engine — CLI and HTTP server"
 )]
 struct Cli {

@@ -33,6 +33,7 @@ mod presets;
 #[derive(Parser)]
 #[command(
     name = "vellaveto-proxy",
+    version,
     about = "MCP stdio proxy with policy enforcement",
     after_help = "\
 Examples:

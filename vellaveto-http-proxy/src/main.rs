@@ -112,6 +112,7 @@ impl axum::serve::Listener for TlsListener {
 #[derive(Parser)]
 #[command(
     name = "vellaveto-http-proxy",
+    version,
     about = "Vellaveto MCP Streamable HTTP reverse proxy"
 )]
 struct Args {

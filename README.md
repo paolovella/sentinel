@@ -118,9 +118,17 @@ These invariants are enforced by concrete runtime capabilities:
 Pick a protection level and go — no config file needed:
 
 ```bash
-# Install (pick one):
-cargo install vellaveto-proxy                 # From source (~2 min)
-# or download pre-built binary from https://github.com/paolovella/vellaveto/releases
+# Install — one command, no Rust toolchain needed (~3 seconds, macOS + Linux).
+# The script SHA-256-verifies every binary against the release checksums file.
+curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh | sh
+
+# Prefer to review first? Download, read, then run:
+#   curl -fsSL -o install.sh https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh
+#   less install.sh && sh install.sh
+#
+# Other options:
+#   cargo install vellaveto-proxy                            # From source (~2 min, needs Rust)
+#   gh release download v6.1.1 --repo paolovella/vellaveto   # Manual download
 
 # Shield — credentials, SANDWORM defense, exfil blocking, injection/DLP
 vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp

@@ -29,6 +29,7 @@ use vellaveto_types::command::resolve_executable;
 #[derive(Parser)]
 #[command(
     name = "vellaveto-shield",
+    version,
     about = "Consumer AI shield with bidirectional PII sanitization and encrypted audit"
 )]
 struct Cli {

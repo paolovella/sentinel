@@ -97,6 +97,9 @@ jobs:
       - name: Lint GitHub workflows
         run: actionlint .github/workflows/*.yml
 
+      - name: Shellcheck install.sh
+        run: shellcheck --shell=sh --severity=warning scripts/install.sh
+
       - name: Format
         run: cargo fmt --all -- --check
 

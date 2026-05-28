@@ -644,26 +644,25 @@ echo "Backup completed: $BACKUP_DIR"
 # 1. Back up
 /usr/local/bin/vellaveto-backup.sh
 
-# 2. Download new version
-wget https://github.com/paolovella/vellaveto/releases/download/v1.1.0/vellaveto-linux-amd64
-
-# 3. Verify checksum
-sha256sum -c vellaveto-linux-amd64.sha256
-
-# 4. Stop service
+# 2. Stop service
 sudo systemctl stop vellaveto
 
-# 5. Replace binary
-sudo mv vellaveto-linux-amd64 /usr/local/bin/vellaveto
-sudo chmod +x /usr/local/bin/vellaveto
+# 3. Download + verify + install (the script SHA-256-verifies every binary
+#    against the published checksums file before writing it).
+#    Pin VELLAVETO_VERSION to the version you're upgrading to.
+sudo curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh \
+  | sudo VELLAVETO_INSTALL_DIR=/usr/local/bin \
+         VELLAVETO_BINARY=vellaveto \
+         VELLAVETO_VERSION=6.1.1 \
+         VELLAVETO_FORCE=1 sh
 
-# 6. Validate config with new version
+# 4. Validate config with new version
 vellaveto check --config /etc/vellaveto/config.toml
 
-# 7. Start service
+# 5. Start service
 sudo systemctl start vellaveto
 
-# 8. Verify health
+# 6. Verify health
 curl localhost:3000/health
 curl -s localhost:3000/metrics | head -20
 ```

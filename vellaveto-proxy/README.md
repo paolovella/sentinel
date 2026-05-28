@@ -7,7 +7,13 @@ MCP stdio proxy with built-in security presets for [Vellaveto](https://vellaveto
 Zero-config MCP security — wraps any stdio-based MCP server with policy enforcement:
 
 ```bash
+# Pre-built binary, SHA-256 verified (no Rust toolchain needed):
+curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh \
+  | VELLAVETO_BINARY=vellaveto-proxy sh
+
+# From source:
 cargo install vellaveto-proxy
+
 vellaveto-proxy --protect shield -- ./your-mcp-server
 ```
 

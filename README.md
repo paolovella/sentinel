@@ -165,7 +165,7 @@ vellaveto-proxy --config policy.toml -- /path/to/mcp-server
 ### HTTP Reverse Proxy (deployed MCP servers)
 
 ```bash
-cargo install vellaveto-http-proxy
+# vellaveto-http-proxy ships with the one-command installer above.
 VELLAVETO_API_KEY=$(openssl rand -hex 32) vellaveto-http-proxy \
   --upstream http://localhost:8000/mcp \
   --config policy.toml \

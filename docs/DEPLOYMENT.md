@@ -53,7 +53,12 @@ Vellaveto is designed for low resource usage: <5ms P99 evaluation latency and <5
 The fastest way to protect a local MCP server — no config file needed:
 
 ```bash
+# One-command install (no Rust toolchain needed; SHA-256 verified):
+curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh | sh
+
+# Or from source:
 cargo install vellaveto-proxy
+
 vellaveto-proxy --protect shield -- npx @modelcontextprotocol/server-filesystem /tmp
 ```
 

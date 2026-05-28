@@ -8,7 +8,7 @@ This guide walks through a minimal end-to-end security flow:
 
 ## Prerequisites
 
-- Rust toolchain installed (`cargo --version`)
+- Vellaveto installed (one-liner: `curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh | sh` — or build from source with `cargo`)
 - `curl` and `jq`
 - free local port `3000`
 
@@ -38,7 +38,8 @@ priority = 0
 
 ```bash
 export VELLAVETO_API_KEY="$(openssl rand -hex 32)"
-cargo run -p vellaveto-server -- serve --config policy.toml --port 3000
+vellaveto serve --config policy.toml --port 3000
+# Or from source: cargo run -p vellaveto-server -- serve --config policy.toml --port 3000
 ```
 
 Keep this terminal open.

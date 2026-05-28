@@ -842,20 +842,30 @@ per_principal_burst = 10
 
 ### Binary Verification
 
-Always verify binaries before deployment:
+Each release publishes one `tar.gz` per supported target plus a single
+`checksums-sha256.txt` file. Verify before deployment:
 
 ```bash
-# Download binary and signature
-wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64
-wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sha256
-wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sig
+# Pick the right target for your platform:
+#   x86_64-unknown-linux-musl, aarch64-unknown-linux-musl,
+#   x86_64-apple-darwin, aarch64-apple-darwin
+TARGET=x86_64-unknown-linux-musl
+VERSION=6.1.1
+BASE=https://github.com/paolovella/vellaveto/releases/download/v${VERSION}
 
-# Verify checksum
-sha256sum -c vellaveto-linux-amd64.sha256
+# Download the archive and the checksums file
+curl -fsSLO "${BASE}/vellaveto-${VERSION}-${TARGET}.tar.gz"
+curl -fsSLO "${BASE}/checksums-sha256.txt"
 
-# Verify signature (if GPG signed)
-gpg --verify vellaveto-linux-amd64.sig vellaveto-linux-amd64
+# Verify (passes only if the archive matches its line in checksums-sha256.txt)
+sha256sum --ignore-missing -c checksums-sha256.txt
 ```
+
+For the standard install path, `scripts/install.sh` performs this same
+checksum verification automatically (see [`scripts/install.sh`](../scripts/install.sh)).
+
+Binary GPG/sigstore signing is not yet implemented — track [#TBD](https://github.com/paolovella/vellaveto/issues)
+for status. Maven Central artifacts (Java SDK) are GPG signed today.
 
 For container images:
 

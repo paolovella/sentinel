@@ -16,7 +16,13 @@ The main server binary for the [Vellaveto](https://vellaveto.online) MCP securit
 ## Quick start
 
 ```bash
+# Pre-built binary, SHA-256 verified (no Rust toolchain needed):
+curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh \
+  | VELLAVETO_BINARY=vellaveto sh
+
+# From source (this crate publishes the `vellaveto` binary):
 cargo install vellaveto-server
+
 vellaveto --config policy.toml
 ```
 

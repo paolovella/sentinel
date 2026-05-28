@@ -15,7 +15,13 @@ Protects individual users when interacting with AI agents and MCP tools:
 ## Quick start
 
 ```bash
+# Pre-built binary, SHA-256 verified (no Rust toolchain needed):
+curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh \
+  | VELLAVETO_BINARY=vellaveto-shield sh
+
+# From source:
 cargo install vellaveto-shield
+
 vellaveto-shield --passphrase-env SHIELD_KEY -- ./your-mcp-server
 ```
 

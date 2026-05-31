@@ -40,7 +40,9 @@ via `RelayState.agent_id`.
 | `handle_mcp_get()` | `GET /mcp/*` | `fingerprint_action` | RequireApproval gate | Y | Y | Y | `log_entry_with_acis` |
 | `handle_protected_resource_metadata()` | `GET /api/resource-metadata` | — | — | N | N | N | Y |
 
-**Session identity:** `Mcp-Session-Id` header, OAuth claims for `requested_by`.
+**Session identity:** HTTP proxy session state, OAuth/API-key principal, and
+legacy `Mcp-Session-Id` when present. MCP `2026-07-28` peers are treated as
+stateless per request; protocol session headers are not assumed.
 
 ### HTTP Sub-interceptors
 
@@ -50,6 +52,8 @@ via `RelayState.agent_id`.
 | `auth.rs` | Auth validation | OAuth/API-key enforcement | `log_entry_with_acis` |
 | `upstream.rs` | Upstream forwarding | Response DLP + injection | `log_entry_with_acis` |
 | `helpers.rs` | Approval gate | Approval creation/consumption | `log_entry_with_acis` |
+| `request_state.rs` | Continuation sealing | HMAC-sealed `requestState`, replay/expiry denial | `log_entry_with_acis` |
+| `server_request.rs` | Server-request control | Deny detached server-initiated JSON-RPC requests | `log_entry_with_acis` |
 
 ---
 

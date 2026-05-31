@@ -78,6 +78,25 @@ admin = 0     # Disabled
 - **Resource Indicators:** OAuth RFC 8707 support
 - **Step-Up Authentication:** Configurable auth level requirements
 
+### MCP 2026-07-28 Guardrails
+
+- **Version-gated dispatch:** HTTP MCP requests must declare
+  `MCP-Protocol-Version` by default. `streamable_http.protocol_version_floor`
+  rejects versions below the configured floor.
+- **Canonical wire model:** MCP `2025-11-25` and `2026-07-28` messages are
+  normalized before policy and audit code sees them.
+- **Routing header agreement:** `Mcp-Method` and `Mcp-Name` must match the
+  JSON-RPC body for `2026-07-28` traffic.
+- **`Mcp-Param-*` allowlisting:** Custom parameter-derived headers require both
+  an operator allowlist entry and an observed tool-schema `x-mcp-header`
+  declaration.
+- **`requestState` sealing:** Multi-round-trip continuations are wrapped in
+  Vellaveto tokens and denied on tamper, replay, expiry, or missing session
+  state.
+- **Server-request control:** Detached GET SSE server requests are denied, and
+  WebSocket server requests require a live client request in the same
+  connection.
+
 ### Phase 2: Advanced Threat Detection
 
 - **Circuit Breaker:** Cascading failure protection
@@ -258,6 +277,18 @@ similarity_threshold = 0.9
 [sampling_detection]
 enabled = false
 max_requests_per_session = 100
+
+# ═══════════════════════════════════════════════════════════════
+# MCP Streamable HTTP Protocol Guardrails
+# ═══════════════════════════════════════════════════════════════
+
+[streamable_http]
+resumability_enabled = true
+strict_tool_name_validation = false
+max_event_id_length = 128
+protocol_version_floor = "2025-11-25"
+require_protocol_version_header = true
+allowed_mcp_param_headers = []
 
 # ═══════════════════════════════════════════════════════════════
 # Phase 3: Cross-Agent Security (Optional)

@@ -52,15 +52,15 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | **Test evidence** | `vellaveto-audit/src/tests.rs` — hash chain verification, corruption detection, checkpoint validation, Merkle proof verification; `vellaveto-integration/tests/` — audit integrity tests |
 | **Reproduce** | `cargo test -p vellaveto-audit -- chain && cargo test -p vellaveto-audit -- checkpoint && cargo test -p vellaveto-audit -- merkle` |
 
-### C4. "MCP 2025-11-25 compliance with backwards compatibility"
+### C4. "MCP 2025-11-25 and 2026-07-28 compliance with version-gated compatibility"
 
 | Field | Value |
 |-------|-------|
-| **Scope** | JSON-RPC 2.0 message handling, MCP method routing, capability negotiation, elicitation/sampling interception |
+| **Scope** | JSON-RPC 2.0 message handling, MCP method routing, protocol-version dispatch, capability negotiation, elicitation/sampling interception |
 | **Assumptions** | Upstream MCP server is spec-compliant |
-| **Test evidence** | `vellaveto-mcp/src/tests.rs` — protocol conformance tests; `vellaveto-integration/tests/` — transport-specific tests for HTTP, stdio, WebSocket, gRPC |
-| **Backwards compat** | Tested against 2025-03-26 and 2025-06-18 message formats |
-| **Reproduce** | `cargo test -p vellaveto-mcp -- protocol && cargo test -p vellaveto-integration` |
+| **Test evidence** | `vellaveto-mcp/src/wire.rs` adapter and `_meta` normalization tests; `vellaveto-http-proxy/tests/proxy_integration.rs` HTTP routing, `requestState`, SSE, and WebSocket guardrails; `vellaveto-integration/tests/` transport/version compatibility |
+| **Backwards compat** | Default advertised floor is `2025-11-25`, with `2026-07-28` preferred. Older known versions remain parseable only when policy explicitly lowers the floor. |
+| **Reproduce** | `cargo test -p vellaveto-mcp wire && cargo test -p vellaveto-http-proxy request_state && cargo test -p vellaveto-http-proxy server_request && cargo test -p vellaveto-integration` |
 
 ### C5. "EU AI Act compliance (Art 50(2) + Art 10)"
 

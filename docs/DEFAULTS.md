@@ -62,6 +62,16 @@ explicit opt-in. Silent insecurity is a bug.
 | `max_validation_depth` | **20** | JSON nesting depth limit. Prevents stack exhaustion. |
 | `max_path_decode_iterations` | **3** | Limits percent-decode/base64-decode passes. Prevents DoS via deeply nested encoding. |
 
+## MCP Streamable HTTP
+
+| Setting | Default | Rationale |
+|---------|---------|-----------|
+| `streamable_http.protocol_version_floor` | **`2025-11-25`** | Keeps the current migration window while refusing older protocol behavior unless policy explicitly lowers the floor. |
+| `streamable_http.require_protocol_version_header` | **`true`** | Firewalls must not guess MCP wire semantics from a missing header. |
+| `streamable_http.allowed_mcp_param_headers` | **Empty** | Custom `Mcp-Param-*` headers are denied until the operator allowlists each suffix. |
+| `streamable_http.resumability_enabled` | **`false`** | Detached GET SSE resumability is opt-in. |
+| `streamable_http.max_event_id_length` | **128 bytes** | Caps `Last-Event-ID` and SSE event identifier memory exposure. |
+
 ## Config Loading
 
 | Setting | Default | Rationale |

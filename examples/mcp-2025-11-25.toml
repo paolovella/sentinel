@@ -1,24 +1,29 @@
-# MCP 2025-11-25 Compliance Configuration
+# MCP 2025-11-25 / 2026-07-28 Compatibility Configuration
 #
-# This example demonstrates the new security features introduced in
-# MCP 2025-11-25, including Streamable HTTP (SSE resumability, strict
-# tool name validation), async task policies, resource indicators,
-# capability-based routing (CIMD), and step-up authentication.
+# This example demonstrates MCP 2025-11-25 security features plus the
+# 2026-07-28 migration guardrails: protocol-version floors, required routing
+# headers, x-mcp-header allowlisting, requestState sealing, and detached
+# server-request rejection.
 
 # ═══════════════════════════════════════════════════════════════════
-# STREAMABLE HTTP CONFIGURATION (Phase 30)
+# STREAMABLE HTTP CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════
 #
-# Controls MCP 2025-11-25 Streamable HTTP features:
+# Controls MCP Streamable HTTP features:
 # - SSE resumability via GET /mcp with Last-Event-ID
 # - Strict tool name validation per spec format
 # - Event ID length limits for memory safety
 # - SSE retry directive overrides
+# - Protocol version floor and required version header
+# - Allowlist for parameter-derived Mcp-Param-* headers
 
 [streamable_http]
 resumability_enabled = true             # Enable GET /mcp for SSE resumption
 strict_tool_name_validation = false     # Opt-in: reject non-spec tool names
 max_event_id_length = 128               # Max bytes for Last-Event-ID (1-512)
+protocol_version_floor = "2025-11-25"   # Accept 2025-11-25 and newer
+require_protocol_version_header = true  # Deny missing MCP-Protocol-Version
+allowed_mcp_param_headers = []          # Add x-mcp-header suffixes explicitly
 # sse_retry_ms = 3000                   # Override SSE retry directive (100-60000)
 
 # ═══════════════════════════════════════════════════════════════════

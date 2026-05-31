@@ -28,7 +28,7 @@ Source: `vellaveto-types/src/acis.rs`
 |-------|------|----------|-------------|
 | `decision_id` | `String` | yes | UUID v4 hex, max 64 chars |
 | `timestamp` | `String` | yes | RFC 3339, must end with `Z` or `+00:00` |
-| `session_id` | `Option<String>` | no | From `Mcp-Session-Id` header or stateless blob, max 512 |
+| `session_id` | `Option<String>` | no | Transport-scoped isolation identifier: stdio relay UUID, WebSocket connection UUID, HTTP proxy session state, or legacy `Mcp-Session-Id` when present; max 512 |
 | `tenant_id` | `Option<String>` | no | Multi-tenant identifier, max 256 |
 | `agent_identity` | `Option<AgentIdentity>` | no | Cryptographically attested identity from JWT |
 | `agent_id` | `Option<String>` | no | Legacy agent identifier, max 512 |

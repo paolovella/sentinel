@@ -136,7 +136,23 @@ vellaveto policies --preset deny-all    # Deny everything by default
 vellaveto policies --preset allow-all   # Allow everything (testing only)
 ```
 
-See [`examples/presets/`](../examples/presets/) for additional preset templates including consumer shield, MCP 2025-11-25, production, and SANDWORM hardening configurations.
+See [`examples/presets/`](../examples/presets/) for additional preset templates including consumer shield, MCP protocol, production, and SANDWORM hardening configurations.
+
+## MCP Streamable HTTP
+
+Control MCP HTTP compatibility and fail-closed protocol checks:
+
+```toml
+[streamable_http]
+protocol_version_floor = "2025-11-25"  # Accept 2025-11-25 and newer
+require_protocol_version_header = true # Deny requests missing MCP-Protocol-Version
+resumability_enabled = true            # Enable GET /mcp SSE resumption
+allowed_mcp_param_headers = []         # Deny Mcp-Param-* unless allowlisted
+```
+
+`allowed_mcp_param_headers` controls custom headers derived from tool
+parameters. A header is forwarded only when the suffix is allowlisted here and
+the observed tool schema declares the same `x-mcp-header` binding.
 
 ## Elicitation & Sampling Policies
 

@@ -22,6 +22,7 @@ This guide covers security best practices and hardening configurations for produ
   - [Injection Scanning](#injection-scanning)
   - [DLP Configuration](#dlp-configuration)
   - [Rug-Pull Detection](#rug-pull-detection)
+  - [MCP Protocol Guardrails](#mcp-protocol-guardrails)
   - [Behavioral Anomaly Detection](#behavioral-anomaly-detection)
 - [Audit & Compliance](#audit--compliance)
   - [Audit Log Configuration](#audit-log-configuration)
@@ -541,6 +542,35 @@ manifest_path = "/etc/vellaveto/manifest.json"
 ```
 
 On first run, Vellaveto captures tool schemas. On subsequent runs, any schema changes trigger alerts or blocks.
+
+### MCP Protocol Guardrails
+
+For HTTP and WebSocket MCP traffic, Vellaveto enforces protocol checks before
+forwarding to the upstream server:
+
+- Unknown MCP protocol versions are denied. HTTP requests must include
+  `MCP-Protocol-Version` unless `require_protocol_version_header` is explicitly
+  disabled.
+- `streamable_http.protocol_version_floor` defaults to `2025-11-25`. Lower
+  versions are not advertised or accepted at the default floor.
+- `Mcp-Method` and `Mcp-Name` routing headers must agree with the JSON-RPC
+  body on `2026-07-28` traffic.
+- `Mcp-Param-*` headers are denied unless the suffix is operator-allowlisted
+  and the current tool definition declared the same `x-mcp-header` binding.
+- Upstream `requestState` values are sealed before the client sees them.
+  Continuations are accepted once, in the same session, before expiry.
+- Detached server-initiated requests on GET SSE are denied. WebSocket
+  server-initiated requests are only forwarded while a client request is live
+  on that connection.
+
+Recommended baseline:
+
+```toml
+[streamable_http]
+protocol_version_floor = "2025-11-25"
+require_protocol_version_header = true
+allowed_mcp_param_headers = []
+```
 
 ### Behavioral Anomaly Detection
 

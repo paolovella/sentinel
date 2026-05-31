@@ -475,6 +475,11 @@ vellaveto-http-proxy \
 
 Your agent connects to `localhost:3000` instead of the upstream server directly. Vellaveto inspects every request and response.
 
+HTTP MCP clients should send `MCP-Protocol-Version`. The default proxy policy
+accepts `2025-11-25` and `2026-07-28` and denies missing or older versions.
+When using `2026-07-28`, `Mcp-Method` and `Mcp-Name` headers must agree with
+the JSON-RPC body.
+
 ---
 
 ## Parameter Redaction

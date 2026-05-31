@@ -24,6 +24,8 @@ mod handlers;
 mod helpers;
 mod inspection;
 pub mod origin;
+mod request_state;
+mod server_request;
 pub mod smart_fallback;
 #[cfg(test)]
 mod tests;
@@ -354,14 +356,22 @@ const MCP_SESSION_ID: &str = "mcp-session-id";
 /// MCP protocol version header (MCP 2025-06-18 spec requirement).
 const MCP_PROTOCOL_VERSION_HEADER: &str = "mcp-protocol-version";
 
+/// MCP method routing header (MCP 2026-07-28).
+const MCP_METHOD_HEADER: &str = "mcp-method";
+
+/// MCP name routing header (MCP 2026-07-28).
+const MCP_NAME_HEADER: &str = "mcp-name";
+
 /// The protocol version value this proxy speaks.
 /// FIND-R56-HTTP-006: Renamed from `MCP_PROTOCOL_VERSION` to avoid confusion
 /// with `MCP_PROTOCOL_VERSION_HEADER` (the header name).
-const MCP_PROTOCOL_VERSION_VALUE: &str = "2025-11-25";
+const MCP_PROTOCOL_VERSION_VALUE: &str = "2026-07-28";
 
 /// Supported MCP protocol versions for incoming requests.
-/// The proxy accepts these versions for backwards compatibility.
-const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
+/// Policy still applies a configurable version floor before accepting them.
+#[cfg(test)]
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
+    &["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"];
 
 /// Header for client transport preference negotiation (MCP June 2026).
 /// Clients may send a comma-separated list of preferred transports.

@@ -27,6 +27,28 @@ use vellaveto_types::{AgentIdentity, ReplayStatus};
 /// Type alias for backward compatibility with existing code.
 pub type ToolAnnotationsCompact = ToolAnnotations;
 
+/// Observed `x-mcp-header` bindings from a tool's `inputSchema`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolParamHeaderBindings {
+    /// Tool schema is valid; contained values are lowercase `Mcp-Param-*` suffixes.
+    Valid(HashSet<String>),
+    /// Tool schema declared invalid custom header metadata and must fail closed.
+    Rejected(String),
+}
+
+/// Pending server requestState sealed by Vellaveto before reaching the client.
+#[derive(Debug, Clone)]
+pub struct RequestStateRecord {
+    /// Original upstream requestState value to restore before forwarding.
+    pub(crate) original_state: serde_json::Value,
+    /// Expiry for replay and stale-continuation rejection.
+    pub(crate) expires_at: Instant,
+    /// Hash of `original_state`, bound into the sealed token payload.
+    pub(crate) state_hash: String,
+    /// Monotonic per-session requestState step.
+    pub(crate) step: u64,
+}
+
 /// Per-session state tracked by the HTTP proxy.
 #[derive(Debug)]
 pub struct SessionState {
@@ -42,6 +64,16 @@ pub struct SessionState {
     /// SECURITY (FIND-R52-SESSION-001): Use `pub(crate)` to force callers through
     /// bounded `insert_known_tool` method. Direct read access within the crate is allowed.
     pub(crate) known_tools: HashMap<String, ToolAnnotations>,
+    /// Observed custom MCP parameter-header bindings keyed by normalized tool name.
+    ///
+    /// Populated from `tools/list` `inputSchema.properties[*].x-mcp-header`.
+    /// A rejected marker denies calls to tools with invalid security-relevant
+    /// schema metadata.
+    pub(crate) tool_param_header_bindings: HashMap<String, ToolParamHeaderBindings>,
+    /// Sealed requestState tokens that may be echoed by a future client request.
+    pub(crate) pending_request_states: HashMap<String, RequestStateRecord>,
+    /// Monotonic counter for requestState sealing within this session.
+    pub(crate) next_request_state_step: u64,
     pub request_count: u64,
     /// Whether the initial tools/list response has been seen for this session.
     /// Used for rug-pull detection: tool additions after the first list are suspicious.
@@ -202,6 +234,9 @@ impl SessionState {
             last_activity: now,
             protocol_version: None,
             known_tools: HashMap::new(),
+            tool_param_header_bindings: HashMap::new(),
+            pending_request_states: HashMap::new(),
+            next_request_state_step: 0,
             request_count: 0,
             tools_list_seen: false,
             oauth_subject: None,
@@ -235,6 +270,11 @@ impl SessionState {
     /// Read-only access to known tools.
     pub fn known_tools(&self) -> &HashMap<String, ToolAnnotations> {
         &self.known_tools
+    }
+
+    /// Read-only access to observed MCP parameter-header bindings.
+    pub fn tool_param_header_bindings(&self) -> &HashMap<String, ToolParamHeaderBindings> {
+        &self.tool_param_header_bindings
     }
 
     /// Read-only access to flagged tools.
@@ -328,6 +368,29 @@ impl SessionState {
             return false;
         }
         self.known_tools.insert(name, annotations);
+        true
+    }
+
+    /// SECURITY: Insert observed custom-header bindings with the known-tools capacity bound.
+    #[allow(clippy::map_entry)] // Capacity check requires len() which conflicts with entry() borrow
+    pub fn insert_tool_param_header_bindings(
+        &mut self,
+        name: String,
+        bindings: ToolParamHeaderBindings,
+    ) -> bool {
+        if self.tool_param_header_bindings.contains_key(&name) {
+            self.tool_param_header_bindings.insert(name, bindings);
+            return true;
+        }
+        if self.tool_param_header_bindings.len() >= MAX_KNOWN_TOOLS {
+            tracing::warn!(
+                session_id = %self.session_id,
+                capacity = MAX_KNOWN_TOOLS,
+                "Tool parameter-header binding capacity reached; dropping new tool"
+            );
+            return false;
+        }
+        self.tool_param_header_bindings.insert(name, bindings);
         true
     }
 
@@ -908,6 +971,31 @@ mod tests {
         let ann = session.known_tools.get("read_file").unwrap();
         assert!(ann.read_only_hint);
         assert!(!ann.destructive_hint);
+    }
+
+    #[test]
+    fn test_tool_param_header_bindings_mutations() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        let id = store.get_or_create(None);
+
+        {
+            let mut session = store.get_mut(&id).unwrap();
+            let mut headers = HashSet::new();
+            headers.insert("region".to_string());
+            assert!(session.insert_tool_param_header_bindings(
+                "read_file".to_string(),
+                ToolParamHeaderBindings::Valid(headers)
+            ));
+        }
+
+        let session = store.get_mut(&id).unwrap();
+        let bindings = session
+            .tool_param_header_bindings()
+            .get("read_file")
+            .unwrap();
+        assert!(
+            matches!(bindings, ToolParamHeaderBindings::Valid(headers) if headers.contains("region"))
+        );
     }
 
     #[test]

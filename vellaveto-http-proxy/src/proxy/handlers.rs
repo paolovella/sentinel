@@ -12,12 +12,17 @@
 
 use axum::{
     extract::{OriginalUri, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{
+        header::{HeaderName, HeaderValue},
+        HeaderMap, StatusCode,
+    },
     response::{IntoResponse, Response},
     Extension, Json,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use bytes::Bytes;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use vellaveto_mcp::extractor::{self, make_denial_response, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
@@ -27,8 +32,12 @@ use vellaveto_mcp::mediation::{
     build_acis_envelope_with_security_context, build_secondary_acis_envelope_with_security_context,
     mediate_with_security_context,
 };
+use vellaveto_mcp::wire::{CanonicalMessageKind, CanonicalRequest};
 use vellaveto_types::acis::DecisionOrigin;
-use vellaveto_types::{is_unicode_format_char, Action, EvaluationContext, Verdict};
+use vellaveto_types::McpProtocolVersion;
+use vellaveto_types::{
+    has_dangerous_chars, is_unicode_format_char, Action, EvaluationContext, Verdict,
+};
 
 use super::auth::{
     build_effective_request_uri, validate_agent_identity, validate_api_key, validate_oauth,
@@ -57,15 +66,18 @@ use super::helpers::{
 };
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
+use super::request_state;
 use super::trace_propagation;
 use super::upstream::{
     canonicalize_body, forward_to_upstream, forward_to_upstream_url, make_jsonrpc_error,
+    UpstreamForwardOptions,
 };
 use super::{
-    McpQueryParams, ProxyState, TrustedProxyContext, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    McpQueryParams, ProxyState, TrustedProxyContext, MCP_METHOD_HEADER, MCP_NAME_HEADER,
+    MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID,
 };
 use crate::proxy_metrics::record_dlp_finding;
+use crate::session::ToolParamHeaderBindings;
 
 // NOTE: MAX_RESPONSE_BODY_SIZE and MAX_SSE_EVENT_SIZE are now configurable
 // via state.limits.max_response_body_bytes and state.limits.max_sse_event_bytes.
@@ -74,7 +86,395 @@ use crate::proxy_metrics::record_dlp_finding;
 /// FIND-R56-HTTP-007: Maximum length for MCP session IDs.
 /// Server-generated IDs are UUIDs (36 chars); anything over 128 is suspicious.
 const MAX_SESSION_ID_LENGTH: usize = 128;
+const MAX_ROUTING_HEADER_BYTES: usize = 512;
+const MCP_PARAM_HEADER_PREFIX: &str = "mcp-param-";
+const MAX_MCP_PARAM_HEADERS: usize = 32;
+const MAX_MCP_PARAM_HEADER_VALUE_BYTES: usize = 2048;
+const MAX_MCP_PARAM_HEADER_TOTAL_BYTES: usize = 8192;
 const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid for this action";
+
+pub(super) type ForwardedMcpParamHeaders = Vec<(HeaderName, HeaderValue)>;
+
+fn protocol_version_error(message: impl Into<String>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32600,
+                "message": message.into()
+            },
+            "id": null
+        })),
+    )
+        .into_response()
+}
+
+fn adapter_deny_response(deny: &vellaveto_mcp::wire::AdapterDeny) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": deny.code,
+                "message": "Invalid request metadata"
+            },
+            "id": deny.id.clone().unwrap_or(Value::Null)
+        })),
+    )
+        .into_response()
+}
+
+fn routing_header_error(message: impl Into<String>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32600,
+                "message": message.into()
+            },
+            "id": null
+        })),
+    )
+        .into_response()
+}
+
+fn mcp_param_header_error(message: impl Into<String>, id: Option<&Value>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32600,
+                "message": message.into()
+            },
+            "id": id.cloned().unwrap_or(Value::Null)
+        })),
+    )
+        .into_response()
+}
+
+fn request_state_error(error: request_state::RequestStateError, id: Option<&Value>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32600,
+                "message": error.message()
+            },
+            "id": id.cloned().unwrap_or(Value::Null)
+        })),
+    )
+        .into_response()
+}
+
+pub(super) fn validate_mcp_protocol_version_header(
+    state: &ProxyState,
+    headers: &HeaderMap,
+) -> Result<Option<McpProtocolVersion>, Box<Response>> {
+    let supported = state.streamable_http.supported_protocol_versions();
+
+    let Some(version_hdr) = headers.get(MCP_PROTOCOL_VERSION_HEADER) else {
+        if state.streamable_http.require_protocol_version_header {
+            tracing::warn!(
+                "Inbound request missing required {} header",
+                MCP_PROTOCOL_VERSION_HEADER
+            );
+            return Err(Box::new(protocol_version_error(
+                "Missing MCP-Protocol-Version header",
+            )));
+        }
+
+        tracing::debug!(
+            "Inbound request missing optional {} header",
+            MCP_PROTOCOL_VERSION_HEADER
+        );
+        return Ok(None);
+    };
+
+    let version = version_hdr.to_str().map_err(|_| {
+        tracing::warn!("Invalid UTF-8 in {} header", MCP_PROTOCOL_VERSION_HEADER);
+        Box::new(protocol_version_error(
+            "Invalid MCP-Protocol-Version header encoding",
+        ))
+    })?;
+
+    let parsed = version.parse::<McpProtocolVersion>().map_err(|_| {
+        tracing::warn!(
+            "Unknown MCP protocol version: '{}', supported: {:?}",
+            version,
+            supported
+        );
+        Box::new(protocol_version_error(format!(
+            "Unsupported MCP protocol version. Supported versions: {}",
+            supported.join(", ")
+        )))
+    })?;
+
+    if !state.streamable_http.allows_protocol_version(parsed) {
+        tracing::warn!(
+            "MCP protocol version '{}' is below configured floor '{}'",
+            parsed,
+            state.streamable_http.protocol_version_floor
+        );
+        return Err(Box::new(protocol_version_error(format!(
+            "MCP protocol version is below configured floor {}. Supported versions: {}",
+            state.streamable_http.protocol_version_floor,
+            supported.join(", ")
+        ))));
+    }
+
+    Ok(Some(parsed))
+}
+
+fn read_routing_header<'a>(
+    headers: &'a HeaderMap,
+    header_name: &'static str,
+) -> Result<Option<&'a str>, Box<Response>> {
+    let Some(value) = headers.get(header_name) else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_| {
+        Box::new(routing_header_error(format!(
+            "Invalid {header_name} header encoding"
+        )))
+    })?;
+    if value.is_empty() {
+        return Err(Box::new(routing_header_error(format!(
+            "{header_name} header must not be empty"
+        ))));
+    }
+    if value.len() > MAX_ROUTING_HEADER_BYTES {
+        return Err(Box::new(routing_header_error(format!(
+            "{header_name} header exceeds size limit"
+        ))));
+    }
+    if has_dangerous_chars(value) {
+        return Err(Box::new(routing_header_error(format!(
+            "{header_name} header contains control or format characters"
+        ))));
+    }
+    Ok(Some(value))
+}
+
+pub(super) fn validate_mcp_routing_headers(
+    protocol_version: McpProtocolVersion,
+    headers: &HeaderMap,
+    msg: &Value,
+    canonical: &CanonicalRequest,
+) -> Result<(), Box<Response>> {
+    let method_header = read_routing_header(headers, MCP_METHOD_HEADER)?;
+    let name_header = read_routing_header(headers, MCP_NAME_HEADER)?;
+    let must_have_routing_headers = protocol_version == McpProtocolVersion::V2026_07_28
+        && matches!(
+            canonical.kind,
+            CanonicalMessageKind::Request | CanonicalMessageKind::Notification
+        );
+
+    if must_have_routing_headers && method_header.is_none() {
+        return Err(Box::new(routing_header_error("Missing Mcp-Method header")));
+    }
+
+    if let Some(header_method) = method_header {
+        let Some(body_method) = msg.get("method").and_then(Value::as_str) else {
+            return Err(Box::new(routing_header_error(
+                "Mcp-Method header is not valid for messages without a method",
+            )));
+        };
+        if header_method != body_method {
+            tracing::warn!(
+                mcp_method_header = %header_method,
+                body_method = %body_method,
+                "MCP routing method header/body disagreement"
+            );
+            return Err(Box::new(routing_header_error(
+                "Mcp-Method header does not match JSON-RPC method",
+            )));
+        }
+    }
+
+    let body_name = msg
+        .get("params")
+        .and_then(|params| params.get("name"))
+        .and_then(Value::as_str);
+
+    if must_have_routing_headers && body_name.is_some() && name_header.is_none() {
+        return Err(Box::new(routing_header_error("Missing Mcp-Name header")));
+    }
+
+    if let Some(header_name) = name_header {
+        let Some(body_name) = body_name else {
+            return Err(Box::new(routing_header_error(
+                "Mcp-Name header is not valid for messages without params.name",
+            )));
+        };
+        if header_name != body_name {
+            tracing::warn!(
+                mcp_name_header = %header_name,
+                body_name = %body_name,
+                "MCP routing name header/body disagreement"
+            );
+            return Err(Box::new(routing_header_error(
+                "Mcp-Name header does not match JSON-RPC params.name",
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_mcp_param_header_value(header_name: &str, value: &HeaderValue) -> Result<(), String> {
+    let value = value
+        .to_str()
+        .map_err(|_| format!("{header_name} header value must be visible ASCII or encoded"))?;
+    if value.len() > MAX_MCP_PARAM_HEADER_VALUE_BYTES {
+        return Err(format!("{header_name} header value exceeds size limit"));
+    }
+    if has_dangerous_chars(value) {
+        return Err(format!(
+            "{header_name} header value contains control or format characters"
+        ));
+    }
+
+    let lower = value.to_ascii_lowercase();
+    if lower.starts_with("=?base64?") && value.ends_with("?=") {
+        let encoded = &value["=?base64?".len()..value.len() - "?=".len()];
+        BASE64_STANDARD
+            .decode(encoded)
+            .map_err(|_| format!("{header_name} header value has invalid base64 encoding"))?;
+    }
+
+    Ok(())
+}
+
+pub(super) fn validate_mcp_param_headers(
+    state: &ProxyState,
+    headers: &HeaderMap,
+    msg: &Value,
+) -> Result<ForwardedMcpParamHeaders, Box<Response>> {
+    let id = msg.get("id");
+    let allowed: HashSet<String> = state
+        .streamable_http
+        .allowed_mcp_param_headers
+        .iter()
+        .map(|name| name.to_ascii_lowercase())
+        .collect();
+    let is_tool_call = msg
+        .get("method")
+        .and_then(Value::as_str)
+        .is_some_and(|method| method == "tools/call");
+    let mut forwarded = Vec::new();
+    let mut seen = HashSet::new();
+    let mut total_bytes = 0usize;
+
+    for (name, value) in headers {
+        let header_name = name.as_str();
+        let Some(suffix) = header_name.strip_prefix(MCP_PARAM_HEADER_PREFIX) else {
+            continue;
+        };
+
+        if !is_tool_call {
+            return Err(Box::new(mcp_param_header_error(
+                "Mcp-Param headers are only valid for tools/call requests",
+                id,
+            )));
+        }
+
+        vellaveto_config::validate_mcp_param_header_name(suffix).map_err(|reason| {
+            Box::new(mcp_param_header_error(
+                format!("Invalid {header_name} header: {reason}"),
+                id,
+            ))
+        })?;
+
+        let suffix_lower = suffix.to_ascii_lowercase();
+        if !seen.insert(suffix_lower.clone()) {
+            return Err(Box::new(mcp_param_header_error(
+                format!("Duplicate {header_name} header"),
+                id,
+            )));
+        }
+
+        if !allowed.contains(&suffix_lower) {
+            return Err(Box::new(mcp_param_header_error(
+                format!("{header_name} header is not allowlisted"),
+                id,
+            )));
+        }
+
+        validate_mcp_param_header_value(header_name, value)
+            .map_err(|reason| Box::new(mcp_param_header_error(reason, id)))?;
+
+        total_bytes = total_bytes
+            .saturating_add(header_name.len())
+            .saturating_add(value.len());
+        if forwarded.len() >= MAX_MCP_PARAM_HEADERS
+            || total_bytes > MAX_MCP_PARAM_HEADER_TOTAL_BYTES
+        {
+            return Err(Box::new(mcp_param_header_error(
+                "Mcp-Param headers exceed count or size limits",
+                id,
+            )));
+        }
+
+        forwarded.push((name.clone(), value.clone()));
+    }
+
+    Ok(forwarded)
+}
+
+pub(super) fn validate_observed_mcp_param_headers(
+    state: &ProxyState,
+    session_id: &str,
+    tool_name: &str,
+    headers: &ForwardedMcpParamHeaders,
+    id: &Value,
+) -> Result<(), Box<Response>> {
+    let Some(session) = state.sessions.get_mut(session_id) else {
+        return Err(Box::new(mcp_param_header_error(
+            "Mcp-Param headers cannot be validated without session state",
+            Some(id),
+        )));
+    };
+
+    let Some(bindings) = session.tool_param_header_bindings().get(tool_name) else {
+        if headers.is_empty() {
+            return Ok(());
+        }
+        return Err(Box::new(mcp_param_header_error(
+            "Mcp-Param headers require an observed x-mcp-header tool definition",
+            Some(id),
+        )));
+    };
+
+    match bindings {
+        ToolParamHeaderBindings::Rejected(reason) => Err(Box::new(mcp_param_header_error(
+            format!("Tool definition rejected: {reason}"),
+            Some(id),
+        ))),
+        ToolParamHeaderBindings::Valid(allowed_by_schema) => {
+            for (header_name, _) in headers {
+                let suffix = header_name
+                    .as_str()
+                    .strip_prefix(MCP_PARAM_HEADER_PREFIX)
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if !allowed_by_schema.contains(&suffix) {
+                    return Err(Box::new(mcp_param_header_error(
+                        format!(
+                            "{} header was not declared by the tool's x-mcp-header schema",
+                            header_name.as_str()
+                        ),
+                        Some(id),
+                    )));
+                }
+            }
+            Ok(())
+        }
+    }
+}
 
 /// Main POST /mcp handler.
 ///
@@ -92,6 +492,8 @@ pub async fn handle_mcp_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let mut body = body;
+
     // SECURITY (R8-HTTP-2): Validate Content-Type is application/json.
     // The MCP Streamable HTTP spec requires JSON content. Rejecting other
     // content types prevents bypass of WAF rules and request smuggling.
@@ -113,58 +515,11 @@ pub async fn handle_mcp_post(
     // If Content-Type is absent, allow it for backwards compatibility with
     // clients that don't set headers (POST body is still parsed as JSON).
 
-    // MCP 2025-11-25: Validate MCP-Protocol-Version header on inbound request.
-    // Missing header is allowed for backwards compatibility (logged at debug level).
-    // Unrecognized versions are rejected with 400 Bad Request (fail-closed).
-    if let Some(version_hdr) = headers.get(MCP_PROTOCOL_VERSION_HEADER) {
-        match version_hdr.to_str() {
-            Ok(version) if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) => {
-                // Valid version, continue processing
-            }
-            Ok(version) => {
-                tracing::warn!(
-                    "Unsupported MCP protocol version: '{}', supported: {:?}",
-                    version,
-                    SUPPORTED_PROTOCOL_VERSIONS
-                );
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32600,
-                            "message": format!(
-                                "Unsupported MCP protocol version. Supported versions: {}",
-                                SUPPORTED_PROTOCOL_VERSIONS.join(", ")
-                            )
-                        },
-                        "id": null
-                    })),
-                )
-                    .into_response();
-            }
-            Err(_) => {
-                tracing::warn!("Invalid UTF-8 in {} header", MCP_PROTOCOL_VERSION_HEADER);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32600,
-                            "message": "Invalid MCP-Protocol-Version header encoding"
-                        },
-                        "id": null
-                    })),
-                )
-                    .into_response();
-            }
-        }
-    } else {
-        tracing::debug!(
-            "Inbound request missing {} header",
-            MCP_PROTOCOL_VERSION_HEADER
-        );
-    }
+    let protocol_version = match validate_mcp_protocol_version_header(&state, &headers) {
+        Ok(Some(version)) => version,
+        Ok(None) => state.streamable_http.protocol_version_floor,
+        Err(response) => return *response,
+    };
 
     // CSRF / DNS rebinding origin validation (TASK-015)
     if let Err(response) = validate_origin(&headers, &state.bind_addr, &state.allowed_origins) {
@@ -247,7 +602,7 @@ pub async fn handle_mcp_post(
     }
 
     // Parse the JSON-RPC body
-    let msg: Value = match serde_json::from_slice(&body) {
+    let mut msg: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
             tracing::debug!("JSON-RPC parse error: {}", e);
@@ -287,6 +642,38 @@ pub async fn handle_mcp_post(
         )
             .into_response();
     }
+
+    match vellaveto_mcp::wire::normalize_inbound(protocol_version, &msg) {
+        Ok(canonical) => {
+            tracing::trace!(
+                protocol_version = %canonical.protocol_version,
+                method = %canonical.method,
+                name = canonical.name.as_deref().unwrap_or(""),
+                kind = ?canonical.kind,
+                "Canonicalized inbound MCP request"
+            );
+            if let Err(response) =
+                validate_mcp_routing_headers(protocol_version, &headers, &msg, &canonical)
+            {
+                return *response;
+            }
+        }
+        Err(deny) => {
+            tracing::warn!(
+                protocol_version = %protocol_version,
+                reason = %deny.message,
+                kind = ?deny.kind,
+                "MCP wire adapter denied inbound message"
+            );
+            if deny.kind.enforce_immediately() {
+                return adapter_deny_response(&deny);
+            }
+        }
+    }
+    let mcp_param_headers = match validate_mcp_param_headers(&state, &headers, &msg) {
+        Ok(headers) => headers,
+        Err(response) => return *response,
+    };
 
     // Session management
     let session_id = state.sessions.get_or_create(client_session_id);
@@ -449,6 +836,48 @@ pub async fn handle_mcp_post(
         );
     }
 
+    let request_state_was_unwrapped = {
+        let Some(mut session) = state.sessions.get_mut(&session_id) else {
+            return attach_session_header(
+                request_state_error(
+                    request_state::RequestStateError::MissingSession,
+                    msg.get("id"),
+                ),
+                &session_id,
+            );
+        };
+        match request_state::unwrap_inbound_request_state(&mut msg, &mut session) {
+            Ok(was_unwrapped) => was_unwrapped,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    reason = error.message(),
+                    "SECURITY: Rejected invalid MCP requestState continuation"
+                );
+                return attach_session_header(
+                    request_state_error(error, msg.get("id")),
+                    &session_id,
+                );
+            }
+        }
+    };
+    if request_state_was_unwrapped {
+        body = match serde_json::to_vec(&msg) {
+            Ok(bytes) => Bytes::from(bytes),
+            Err(error) => {
+                tracing::error!(
+                    session_id = %session_id,
+                    "Failed to serialize request after requestState unwrap: {}",
+                    error
+                );
+                return attach_session_header(
+                    make_jsonrpc_error(msg.get("id"), -32603, "Internal error"),
+                    &session_id,
+                );
+            }
+        };
+    }
+
     let presented_approval_id = extract_approval_id_from_meta(&msg);
 
     // Classify the message using shared extractor
@@ -480,6 +909,16 @@ pub async fn handle_mcp_post(
                         &session_id,
                     );
                 }
+            }
+
+            if let Err(response) = validate_observed_mcp_param_headers(
+                &state,
+                &session_id,
+                &tool_name,
+                &mcp_param_headers,
+                &id,
+            ) {
+                return *response;
             }
 
             // NOTE (FIND-R44-052): validate_call_chain_header is handled by the
@@ -1929,9 +2368,11 @@ pub async fn handle_mcp_post(
                             &decision.upstream_url,
                             &session_id,
                             forward_body,
-                            auth_header_for_upstream.as_deref(),
-                            Some((gw_tp.as_str(), gw_ts.as_deref())),
-                            None,
+                            UpstreamForwardOptions::post(
+                                auth_header_for_upstream.as_deref(),
+                                Some((gw_tp.as_str(), gw_ts.as_deref())),
+                                &mcp_param_headers,
+                            ),
                         )
                         .await
                     } else {
@@ -1943,8 +2384,11 @@ pub async fn handle_mcp_post(
                             &state,
                             &session_id,
                             forward_body,
-                            auth_header_for_upstream.as_deref(),
-                            Some((up_tp.as_str(), up_ts.as_deref())),
+                            UpstreamForwardOptions::post(
+                                auth_header_for_upstream.as_deref(),
+                                Some((up_tp.as_str(), up_ts.as_deref())),
+                                &mcp_param_headers,
+                            ),
                         )
                         .await
                     };
@@ -2751,8 +3195,11 @@ pub async fn handle_mcp_post(
                         &state,
                         &session_id,
                         forward_body,
-                        auth_header_for_upstream.as_deref(),
-                        Some((up_tp.as_str(), up_ts.as_deref())),
+                        UpstreamForwardOptions::post(
+                            auth_header_for_upstream.as_deref(),
+                            Some((up_tp.as_str(), up_ts.as_deref())),
+                            &mcp_param_headers,
+                        ),
                     )
                     .await;
                     let response = attach_session_header(response, &session_id);
@@ -2902,8 +3349,11 @@ pub async fn handle_mcp_post(
                         &state,
                         &session_id,
                         forward_body,
-                        auth_header_for_upstream.as_deref(),
-                        Some((up_tp.as_str(), up_ts.as_deref())),
+                        UpstreamForwardOptions::post(
+                            auth_header_for_upstream.as_deref(),
+                            Some((up_tp.as_str(), up_ts.as_deref())),
+                            &mcp_param_headers,
+                        ),
                     )
                     .await;
                     attach_session_header(response, &session_id)
@@ -3278,8 +3728,11 @@ pub async fn handle_mcp_post(
                 &state,
                 &session_id,
                 forward_body,
-                auth_header_for_upstream.as_deref(),
-                Some((up_tp.as_str(), up_ts.as_deref())),
+                UpstreamForwardOptions::post(
+                    auth_header_for_upstream.as_deref(),
+                    Some((up_tp.as_str(), up_ts.as_deref())),
+                    &mcp_param_headers,
+                ),
             )
             .await;
 
@@ -3340,8 +3793,11 @@ pub async fn handle_mcp_post(
                         &state,
                         &session_id,
                         forward_body,
-                        auth_header_for_upstream.as_deref(),
-                        Some((up_tp.as_str(), up_ts.as_deref())),
+                        UpstreamForwardOptions::post(
+                            auth_header_for_upstream.as_deref(),
+                            Some((up_tp.as_str(), up_ts.as_deref())),
+                            &mcp_param_headers,
+                        ),
                     )
                     .await;
 
@@ -4022,8 +4478,11 @@ pub async fn handle_mcp_post(
                         &state,
                         &session_id,
                         forward_body,
-                        auth_header_for_upstream.as_deref(),
-                        Some((up_tp.as_str(), up_ts.as_deref())),
+                        UpstreamForwardOptions::post(
+                            auth_header_for_upstream.as_deref(),
+                            Some((up_tp.as_str(), up_ts.as_deref())),
+                            &mcp_param_headers,
+                        ),
                     )
                     .await;
                     let response = attach_trace_header(response, trace);
@@ -4778,8 +5237,11 @@ pub async fn handle_mcp_post(
                         &state,
                         &session_id,
                         forward_body,
-                        auth_header_for_upstream.as_deref(),
-                        Some((up_tp.as_str(), up_ts.as_deref())),
+                        UpstreamForwardOptions::post(
+                            auth_header_for_upstream.as_deref(),
+                            Some((up_tp.as_str(), up_ts.as_deref())),
+                            &mcp_param_headers,
+                        ),
                     )
                     .await;
                     attach_session_header(response, &session_id)
@@ -5300,45 +5762,8 @@ pub async fn handle_mcp_get(
             .into_response();
     }
 
-    // MCP 2025-11-25: Validate MCP-Protocol-Version header (same as POST path).
-    // SECURITY (FIND-R45-013): Use JSON-RPC error format consistent with POST.
-    if let Some(version_hdr) = headers.get(MCP_PROTOCOL_VERSION_HEADER) {
-        match version_hdr.to_str() {
-            Ok(version) if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) => {}
-            Ok(version) => {
-                tracing::warn!("GET /mcp: Unsupported MCP protocol version: '{}'", version,);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32600,
-                            "message": format!(
-                                "Unsupported MCP protocol version. Supported versions: {}",
-                                SUPPORTED_PROTOCOL_VERSIONS.join(", ")
-                            )
-                        },
-                        "id": null
-                    })),
-                )
-                    .into_response();
-            }
-            Err(_) => {
-                tracing::warn!("Invalid UTF-8 in {} header", MCP_PROTOCOL_VERSION_HEADER);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32600,
-                            "message": "Invalid MCP-Protocol-Version header encoding"
-                        },
-                        "id": null
-                    })),
-                )
-                    .into_response();
-            }
-        }
+    if let Err(response) = validate_mcp_protocol_version_header(&state, &headers) {
+        return *response;
     }
 
     // CSRF / DNS rebinding origin validation (same as POST)

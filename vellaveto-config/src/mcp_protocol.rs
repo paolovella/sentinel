@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use serde::{Deserialize, Serialize};
+use vellaveto_types::McpProtocolVersion;
 
 use crate::default_true;
 
@@ -680,6 +681,86 @@ fn default_max_event_id_length() -> usize {
     128
 }
 
+fn default_protocol_version_floor() -> McpProtocolVersion {
+    McpProtocolVersion::V2025_11_25
+}
+
+/// Maximum number of MCP parameter header names that can be allowlisted.
+pub const MAX_ALLOWED_MCP_PARAM_HEADERS: usize = 64;
+/// Maximum length of one MCP parameter header suffix, excluding `Mcp-Param-`.
+pub const MAX_MCP_PARAM_HEADER_NAME_LENGTH: usize = 128;
+
+const RESERVED_MCP_PARAM_HEADER_NAMES: &[&str] = &[
+    "authorization",
+    "proxy-authorization",
+    "host",
+    "cookie",
+    "set-cookie",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "content-length",
+    "content-type",
+    "expect",
+    "forwarded",
+    "via",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+];
+
+fn is_http_field_name_token(value: &str) -> bool {
+    !value.is_empty()
+        && value.bytes().all(|byte| {
+            matches!(
+                byte,
+                b'!' | b'#'
+                    | b'$'
+                    | b'%'
+                    | b'&'
+                    | b'\''
+                    | b'*'
+                    | b'+'
+                    | b'-'
+                    | b'.'
+                    | b'^'
+                    | b'_'
+                    | b'`'
+                    | b'|'
+                    | b'~'
+                    | b'0'..=b'9'
+                    | b'A'..=b'Z'
+                    | b'a'..=b'z'
+            )
+        })
+}
+
+fn is_reserved_mcp_param_header_name(value: &str) -> bool {
+    RESERVED_MCP_PARAM_HEADER_NAMES
+        .iter()
+        .any(|reserved| value.eq_ignore_ascii_case(reserved))
+}
+
+/// Validate the suffix used in `Mcp-Param-{name}` custom MCP routing headers.
+pub fn validate_mcp_param_header_name(value: &str) -> Result<(), String> {
+    if value.len() > MAX_MCP_PARAM_HEADER_NAME_LENGTH {
+        return Err(format!(
+            "MCP parameter header name exceeds {MAX_MCP_PARAM_HEADER_NAME_LENGTH} bytes"
+        ));
+    }
+    if !is_http_field_name_token(value) {
+        return Err("MCP parameter header name is not a valid HTTP field-name token".to_string());
+    }
+    if is_reserved_mcp_param_header_name(value) {
+        return Err("MCP parameter header name is reserved".to_string());
+    }
+    Ok(())
+}
+
 /// Streamable HTTP configuration for MCP 2025-11-25 compliance.
 ///
 /// Controls SSE resumability (GET /mcp + Last-Event-ID), strict tool name
@@ -693,6 +774,9 @@ fn default_max_event_id_length() -> usize {
 /// strict_tool_name_validation = false
 /// max_event_id_length = 128
 /// sse_retry_ms = 3000
+/// protocol_version_floor = "2025-11-25"
+/// require_protocol_version_header = true
+/// allowed_mcp_param_headers = ["Region", "TenantId"]
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -717,6 +801,26 @@ pub struct StreamableHttpConfig {
     /// Range: 100–60000 ms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sse_retry_ms: Option<u64>,
+
+    /// Minimum MCP protocol version accepted on inbound requests.
+    /// Versions below this floor are denied even if Vellaveto still knows how
+    /// to parse them for migration windows. Default: 2025-11-25.
+    #[serde(default = "default_protocol_version_floor")]
+    pub protocol_version_floor: McpProtocolVersion,
+
+    /// Require inbound HTTP requests to declare `MCP-Protocol-Version`.
+    /// Firewalls should not guess protocol semantics from an omitted header.
+    /// Default: true.
+    #[serde(default = "default_true")]
+    pub require_protocol_version_header: bool,
+
+    /// Allowed `Mcp-Param-{name}` custom routing header suffixes.
+    ///
+    /// SEP-2243 derives these suffixes from tool-schema `x-mcp-header`
+    /// annotations. Default is empty: no tool-parameter headers are accepted
+    /// or forwarded until policy explicitly allowlists each suffix.
+    #[serde(default)]
+    pub allowed_mcp_param_headers: Vec<String>,
 }
 
 impl Default for StreamableHttpConfig {
@@ -726,6 +830,9 @@ impl Default for StreamableHttpConfig {
             strict_tool_name_validation: false,
             max_event_id_length: default_max_event_id_length(),
             sse_retry_ms: None,
+            protocol_version_floor: default_protocol_version_floor(),
+            require_protocol_version_header: true,
+            allowed_mcp_param_headers: Vec::new(),
         }
     }
 }
@@ -747,7 +854,39 @@ impl StreamableHttpConfig {
                 return Err(format!("sse_retry_ms must be in [100, 60000], got {retry}"));
             }
         }
+        if self.allowed_mcp_param_headers.len() > MAX_ALLOWED_MCP_PARAM_HEADERS {
+            return Err(format!(
+                "allowed_mcp_param_headers exceeds {MAX_ALLOWED_MCP_PARAM_HEADERS} entries"
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for header_name in &self.allowed_mcp_param_headers {
+            validate_mcp_param_header_name(header_name).map_err(|error| {
+                format!("allowed_mcp_param_headers entry '{header_name}': {error}")
+            })?;
+            let normalized = header_name.to_ascii_lowercase();
+            if !seen.insert(normalized) {
+                return Err(format!(
+                    "allowed_mcp_param_headers entry '{header_name}' is duplicated case-insensitively"
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// Returns whether an inbound MCP protocol version is allowed by policy.
+    pub fn allows_protocol_version(&self, version: McpProtocolVersion) -> bool {
+        version >= self.protocol_version_floor
+    }
+
+    /// Supported protocol versions after applying the configured floor.
+    pub fn supported_protocol_versions(&self) -> Vec<&'static str> {
+        McpProtocolVersion::SUPPORTED_DESCENDING
+            .iter()
+            .copied()
+            .filter(|version| self.allows_protocol_version(*version))
+            .map(McpProtocolVersion::as_str)
+            .collect()
     }
 }
 

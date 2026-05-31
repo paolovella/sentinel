@@ -91,7 +91,7 @@ pub enum MessageType {
 /// Strips trailing slashes, null bytes, and whitespace to prevent
 /// bypass via `"tools/call/"`, `"tools/call\0"`, or `"tools/call "`.
 /// Returns the normalized lowercase form for case-insensitive comparison.
-pub(crate) fn normalize_method(method: &str) -> String {
+pub fn normalize_method(method: &str) -> String {
     // SECURITY (R33-MCP-6): Strip ALL invisible/format Unicode characters that the
     // injection scanner also strips, not just a subset. A mismatch allows bypass:
     // e.g. "tools/\u{202A}call" passes method matching (→ "tools/call") but the

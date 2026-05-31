@@ -21,7 +21,7 @@ use serde::Serialize;
 use vellaveto_config::TransportConfig;
 use vellaveto_types::{SdkCapabilities, SdkTier, TransportEndpoint, TransportProtocol};
 
-use super::{ProxyState, SUPPORTED_PROTOCOL_VERSIONS};
+use super::ProxyState;
 
 /// Vellaveto's declared SDK tier.
 ///
@@ -31,6 +31,15 @@ pub const VELLAVETO_SDK_TIER: SdkTier = SdkTier::Extended;
 
 /// Build SDK capabilities for the current Vellaveto instance.
 pub fn build_sdk_capabilities() -> SdkCapabilities {
+    let versions = vellaveto_config::StreamableHttpConfig::default()
+        .supported_protocol_versions()
+        .into_iter()
+        .map(String::from)
+        .collect();
+    build_sdk_capabilities_with_versions(versions)
+}
+
+fn build_sdk_capabilities_with_versions(supported_versions: Vec<String>) -> SdkCapabilities {
     SdkCapabilities {
         tier: VELLAVETO_SDK_TIER,
         capabilities: vec![
@@ -47,19 +56,18 @@ pub fn build_sdk_capabilities() -> SdkCapabilities {
             "transport-negotiation".to_string(),
             "backward-compatibility".to_string(),
         ],
-        supported_versions: SUPPORTED_PROTOCOL_VERSIONS
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
+        supported_versions,
     }
 }
 
 /// Build the list of available transport endpoints for the discovery response.
 pub fn build_transport_endpoints(state: &ProxyState) -> Vec<TransportEndpoint> {
     let restricted = &state.transport_config.restricted_transports;
-    let versions: Vec<String> = SUPPORTED_PROTOCOL_VERSIONS
-        .iter()
-        .map(|s| s.to_string())
+    let versions: Vec<String> = state
+        .streamable_http
+        .supported_protocol_versions()
+        .into_iter()
+        .map(String::from)
         .collect();
 
     let mut endpoints = Vec::new();
@@ -124,8 +132,15 @@ pub async fn handle_transport_discovery(State(state): State<ProxyState>) -> Resp
     }
 
     let transports = build_transport_endpoints(&state);
+    let protocol_versions: Vec<String> = state
+        .streamable_http
+        .supported_protocol_versions()
+        .into_iter()
+        .map(String::from)
+        .collect();
+
     let sdk = if state.transport_config.advertise_capabilities {
-        build_sdk_capabilities()
+        build_sdk_capabilities_with_versions(protocol_versions.clone())
     } else {
         SdkCapabilities {
             tier: VELLAVETO_SDK_TIER,
@@ -137,10 +152,7 @@ pub async fn handle_transport_discovery(State(state): State<ProxyState>) -> Resp
     let response = TransportDiscoveryResponse {
         transports,
         sdk,
-        protocol_versions: SUPPORTED_PROTOCOL_VERSIONS
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
+        protocol_versions,
     };
 
     Json(response).into_response()

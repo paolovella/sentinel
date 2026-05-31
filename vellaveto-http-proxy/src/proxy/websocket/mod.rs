@@ -55,7 +55,7 @@ use super::call_chain::{
     track_pending_tool_call,
 };
 use super::origin::validate_origin;
-use super::ProxyState;
+use super::{server_request, ProxyState};
 use crate::proxy_metrics::record_dlp_finding;
 
 const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid for this action";
@@ -100,6 +100,11 @@ const CLOSE_NORMAL: u16 = 1000;
 static WS_CONNECTIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static WS_MESSAGES_TOTAL: AtomicU64 = AtomicU64::new(0);
 
+type UpstreamWsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type UpstreamWsSink =
+    futures_util::stream::SplitSink<UpstreamWsStream, tokio_tungstenite::tungstenite::Message>;
+
 /// Record WebSocket connection metric.
 fn record_ws_connection() {
     // SECURITY (FIND-R182-003): Use saturating arithmetic to prevent overflow.
@@ -122,6 +127,45 @@ fn record_ws_message(direction: &str) {
         "direction" => direction.to_string()
     )
     .increment(1);
+}
+
+fn decrement_ws_in_flight(counter: &AtomicU64) {
+    let _ = counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+        if value == 0 {
+            None
+        } else {
+            Some(value - 1)
+        }
+    });
+}
+
+async fn send_text_to_upstream(
+    upstream_sink: &Arc<Mutex<UpstreamWsSink>>,
+    in_flight_client_requests: &Arc<AtomicU64>,
+    parsed: &Value,
+    forward_text: String,
+) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+    let tracked = server_request::json_rpc_request_info(parsed).is_some();
+    if tracked {
+        let _ =
+            in_flight_client_requests.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+                Some(value.saturating_add(1))
+            });
+    }
+
+    let result = {
+        let mut sink = upstream_sink.lock().await;
+        sink.send(tokio_tungstenite::tungstenite::Message::Text(
+            forward_text.into(),
+        ))
+        .await
+    };
+
+    if tracked && result.is_err() {
+        decrement_ws_in_flight(in_flight_client_requests);
+    }
+
+    result
 }
 
 /// Get current connection count (for testing).
@@ -480,6 +524,7 @@ async fn handle_ws_connection(
     // SECURITY (FIND-R46-WS-003): Separate rate limiter for upstream→client direction
     let upstream_rate_counter = Arc::new(AtomicU64::new(0));
     let upstream_rate_window_start = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+    let in_flight_client_requests = Arc::new(AtomicU64::new(0));
 
     let idle_timeout = Duration::from_secs(ws_config.idle_timeout_secs);
 
@@ -494,6 +539,7 @@ async fn handle_ws_connection(
         let session_id = session_id.clone();
         let client_sink = client_sink.clone();
         let upstream_sink = upstream_sink.clone();
+        let in_flight_client_requests = in_flight_client_requests.clone();
         let rate_counter = rate_counter.clone();
         let rate_window_start = rate_window_start.clone();
         let ws_config = ws_config.clone();
@@ -504,6 +550,7 @@ async fn handle_ws_connection(
             client_stream,
             client_sink,
             upstream_sink,
+            in_flight_client_requests,
             state,
             session_id,
             ws_config,
@@ -521,17 +568,21 @@ async fn handle_ws_connection(
         let state = state.clone();
         let session_id = session_id.clone();
         let client_sink = client_sink.clone();
+        let upstream_sink = upstream_sink.clone();
         let ws_config = ws_config.clone();
         let last_activity = last_activity.clone();
+        let in_flight_client_requests = in_flight_client_requests.clone();
 
         relay_upstream_to_client(
             upstream_stream,
             client_sink,
+            upstream_sink,
             state,
             session_id,
             ws_config,
             upstream_rate_counter,
             upstream_rate_window_start,
+            in_flight_client_requests,
             last_activity,
             connection_epoch,
         )
@@ -623,6 +674,7 @@ async fn relay_client_to_upstream(
             >,
         >,
     >,
+    in_flight_client_requests: Arc<AtomicU64>,
     state: ProxyState,
     session_id: String,
     ws_config: WebSocketConfig,
@@ -1990,12 +2042,13 @@ async fn relay_client_to_upstream(
                                     tool_name,
                                 );
 
-                                let mut sink = upstream_sink.lock().await;
-                                if let Err(e) = sink
-                                    .send(tokio_tungstenite::tungstenite::Message::Text(
-                                        forward_text.into(),
-                                    ))
-                                    .await
+                                if let Err(e) = send_text_to_upstream(
+                                    &upstream_sink,
+                                    &in_flight_client_requests,
+                                    &parsed,
+                                    forward_text,
+                                )
+                                .await
                                 {
                                     tracing::error!(
                                         session_id = %session_id,
@@ -2752,12 +2805,13 @@ async fn relay_client_to_upstream(
                                 } else {
                                     text.to_string()
                                 };
-                                let mut sink = upstream_sink.lock().await;
-                                if let Err(e) = sink
-                                    .send(tokio_tungstenite::tungstenite::Message::Text(
-                                        forward_text.into(),
-                                    ))
-                                    .await
+                                if let Err(e) = send_text_to_upstream(
+                                    &upstream_sink,
+                                    &in_flight_client_requests,
+                                    &parsed,
+                                    forward_text,
+                                )
+                                .await
                                 {
                                     tracing::error!("Failed to forward resource read: {}", e);
                                     break;
@@ -3000,12 +3054,17 @@ async fn relay_client_to_upstream(
                                 } else {
                                     text.to_string()
                                 };
-                                let mut sink = upstream_sink.lock().await;
-                                let _ = sink
-                                    .send(tokio_tungstenite::tungstenite::Message::Text(
-                                        forward_text.into(),
-                                    ))
-                                    .await;
+                                if let Err(e) = send_text_to_upstream(
+                                    &upstream_sink,
+                                    &in_flight_client_requests,
+                                    &parsed,
+                                    forward_text,
+                                )
+                                .await
+                                {
+                                    tracing::error!("Failed to forward sampling request: {}", e);
+                                    break;
+                                }
                             }
                             vellaveto_mcp::elicitation::SamplingVerdict::Deny { reason } => {
                                 tracing::warn!(
@@ -3579,12 +3638,13 @@ async fn relay_client_to_upstream(
                                 } else {
                                     text.to_string()
                                 };
-                                let mut sink = upstream_sink.lock().await;
-                                if let Err(e) = sink
-                                    .send(tokio_tungstenite::tungstenite::Message::Text(
-                                        forward_text.into(),
-                                    ))
-                                    .await
+                                if let Err(e) = send_text_to_upstream(
+                                    &upstream_sink,
+                                    &in_flight_client_requests,
+                                    &parsed,
+                                    forward_text,
+                                )
+                                .await
                                 {
                                     tracing::error!("Failed to forward task request: {}", e);
                                     break;
@@ -4206,12 +4266,13 @@ async fn relay_client_to_upstream(
                                 } else {
                                     text.to_string()
                                 };
-                                let mut sink = upstream_sink.lock().await;
-                                if let Err(e) = sink
-                                    .send(tokio_tungstenite::tungstenite::Message::Text(
-                                        forward_text.into(),
-                                    ))
-                                    .await
+                                if let Err(e) = send_text_to_upstream(
+                                    &upstream_sink,
+                                    &in_flight_client_requests,
+                                    &parsed,
+                                    forward_text,
+                                )
+                                .await
                                 {
                                     tracing::error!("Failed to forward extension request: {}", e);
                                     break;
@@ -4426,12 +4487,13 @@ async fn relay_client_to_upstream(
                                 } else {
                                     text.to_string()
                                 };
-                                let mut sink = upstream_sink.lock().await;
-                                if let Err(e) = sink
-                                    .send(tokio_tungstenite::tungstenite::Message::Text(
-                                        forward_text.into(),
-                                    ))
-                                    .await
+                                if let Err(e) = send_text_to_upstream(
+                                    &upstream_sink,
+                                    &in_flight_client_requests,
+                                    &parsed,
+                                    forward_text,
+                                )
+                                .await
                                 {
                                     // Rollback pre-incremented count on forward failure
                                     if let Some(mut s) = state.sessions.get_mut(&session_id) {
@@ -4828,12 +4890,13 @@ async fn relay_client_to_upstream(
                         } else {
                             text.to_string()
                         };
-                        let mut sink = upstream_sink.lock().await;
-                        if let Err(e) = sink
-                            .send(tokio_tungstenite::tungstenite::Message::Text(
-                                forward_text.into(),
-                            ))
-                            .await
+                        if let Err(e) = send_text_to_upstream(
+                            &upstream_sink,
+                            &in_flight_client_requests,
+                            &parsed,
+                            forward_text,
+                        )
+                        .await
                         {
                             tracing::error!("Failed to forward passthrough: {}", e);
                             break;
@@ -4922,11 +4985,13 @@ async fn relay_upstream_to_client(
         >,
     >,
     client_sink: Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
+    upstream_sink: Arc<Mutex<UpstreamWsSink>>,
     state: ProxyState,
     session_id: String,
     ws_config: WebSocketConfig,
     upstream_rate_counter: Arc<AtomicU64>,
     upstream_rate_window_start: Arc<std::sync::Mutex<std::time::Instant>>,
+    in_flight_client_requests: Arc<AtomicU64>,
     last_activity: Arc<AtomicU64>,
     connection_epoch: std::time::Instant,
 ) {
@@ -5015,6 +5080,38 @@ async fn relay_upstream_to_client(
             tokio_tungstenite::tungstenite::Message::Text(text) => {
                 // Try to parse for scanning
                 let forward = if let Ok(json_val) = serde_json::from_str::<Value>(&text) {
+                    if server_request::is_json_rpc_response(&json_val) {
+                        decrement_ws_in_flight(&in_flight_client_requests);
+                    }
+
+                    if let Some(info) = server_request::json_rpc_request_info(&json_val) {
+                        if in_flight_client_requests.load(Ordering::SeqCst) == 0 {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                method = %info.method,
+                                "SECURITY: Blocking unsolicited upstream WebSocket server request"
+                            );
+                            server_request::audit_unsolicited_server_request(
+                                &state,
+                                &session_id,
+                                "websocket",
+                                &info.method,
+                                "ws_proxy",
+                            )
+                            .await;
+                            let error = make_ws_error_response(
+                                Some(&info.id),
+                                -32001,
+                                "Unsolicited server request",
+                            );
+                            let mut sink = upstream_sink.lock().await;
+                            let _ = sink
+                                .send(tokio_tungstenite::tungstenite::Message::Text(error.into()))
+                                .await;
+                            continue;
+                        }
+                    }
+
                     // Resolve tracked tool context for response-side schema checks.
                     let tracked_tool_name =
                         take_tracked_tool_call(&state.sessions, &session_id, json_val.get("id"));

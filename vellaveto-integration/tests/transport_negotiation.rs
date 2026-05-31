@@ -27,27 +27,33 @@ fn test_backward_compat_no_transport_header() {
 }
 
 #[test]
-fn test_backward_compat_2025_03_26_version() {
-    // Oldest supported version must still be in the supported list.
+fn test_default_version_floor_excludes_2025_03_26() {
+    // The firewall default floor is 2025-11-25, so older protocol versions
+    // remain parseable only when policy explicitly lowers the floor.
     let caps = vellaveto_http_proxy::proxy::discovery::build_sdk_capabilities();
     assert!(
-        caps.supported_versions.contains(&"2025-03-26".to_string()),
-        "Oldest supported version (2025-03-26) must remain in supported_versions"
+        !caps.supported_versions.contains(&"2025-03-26".to_string()),
+        "2025-03-26 must not be advertised at the default version floor"
     );
 }
 
 #[test]
-fn test_highest_supported_version_is_2025_11_25() {
-    // The highest supported version must be 2025-11-25.
+fn test_highest_supported_version_is_2026_07_28() {
+    // The highest supported version must be 2026-07-28, with 2025-11-25
+    // retained for the deprecation window.
     let caps = vellaveto_http_proxy::proxy::discovery::build_sdk_capabilities();
+    assert!(
+        caps.supported_versions.contains(&"2026-07-28".to_string()),
+        "2026-07-28 must be in supported_versions"
+    );
     assert!(
         caps.supported_versions.contains(&"2025-11-25".to_string()),
         "2025-11-25 must be in supported_versions"
     );
     // It should be the first (highest priority) entry.
     assert_eq!(
-        caps.supported_versions[0], "2025-11-25",
-        "2025-11-25 should be the first supported version"
+        caps.supported_versions[0], "2026-07-28",
+        "2026-07-28 should be the first supported version"
     );
 }
 

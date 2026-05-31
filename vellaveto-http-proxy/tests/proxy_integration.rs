@@ -19,7 +19,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -52,6 +52,13 @@ fn default_test_mediation_config() -> vellaveto_mcp::mediation::MediationConfig 
         injection_enabled: false,
         injection_blocking: false,
         ..vellaveto_mcp::mediation::MediationConfig::default()
+    }
+}
+
+fn legacy_test_streamable_http_config() -> vellaveto_config::StreamableHttpConfig {
+    vellaveto_config::StreamableHttpConfig {
+        require_protocol_version_header: false,
+        ..Default::default()
     }
 }
 
@@ -170,6 +177,235 @@ async fn start_mock_upstream() -> Option<String> {
     });
 
     // Give the server a moment to start
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    Some(url)
+}
+
+async fn start_header_capture_upstream(
+    captured_region: Arc<Mutex<Option<String>>>,
+) -> Option<String> {
+    let app = axum::Router::new().route(
+        "/mcp",
+        axum::routing::post(
+            move |headers: axum::http::HeaderMap, body: axum::body::Bytes| {
+                let captured_region = captured_region.clone();
+                async move {
+                    let msg: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+                    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+                    let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
+
+                    if method == "tools/list" {
+                        return axum::Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "tools": [{
+                                    "name": "read_file",
+                                    "description": "Read a file",
+                                    "inputSchema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "path": {"type": "string"},
+                                            "region": {
+                                                "type": "string",
+                                                "x-mcp-header": "Region"
+                                            }
+                                        },
+                                        "required": ["path", "region"]
+                                    }
+                                }]
+                            }
+                        }));
+                    }
+
+                    if let Some(value) = headers
+                        .get("mcp-param-region")
+                        .and_then(|value| value.to_str().ok())
+                    {
+                        let mut guard = captured_region.lock().expect("capture lock");
+                        *guard = Some(value.to_string());
+                    }
+
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{"type": "text", "text": "captured"}]
+                        }
+                    }))
+                }
+            },
+        ),
+    );
+
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!(
+                "skipping proxy integration test: cannot bind header capture upstream: {error}"
+            );
+            return None;
+        }
+        Err(error) => panic!("bind header capture upstream: {error}"),
+    };
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}/mcp");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    Some(url)
+}
+
+async fn start_request_state_upstream(
+    captured_request_states: Arc<Mutex<Vec<Value>>>,
+) -> Option<String> {
+    let app = axum::Router::new().route(
+        "/mcp",
+        axum::routing::post(move |body: axum::body::Bytes| {
+            let captured_request_states = captured_request_states.clone();
+            async move {
+                let msg: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+                let id = msg.get("id").cloned().unwrap_or(Value::Null);
+                let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
+
+                if method == "demo/start" {
+                    return axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "requestState": "server-state",
+                            "message": "input required"
+                        }
+                    }));
+                }
+
+                if method == "demo/continue" {
+                    let state_value = msg
+                        .get("params")
+                        .and_then(|params| params.get("requestState"))
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    captured_request_states
+                        .lock()
+                        .expect("capture lock")
+                        .push(state_value);
+                }
+
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {"ok": true}
+                }))
+            }
+        }),
+    );
+
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!(
+                "skipping proxy integration test: cannot bind requestState upstream: {error}"
+            );
+            return None;
+        }
+        Err(error) => panic!("bind requestState upstream: {error}"),
+    };
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}/mcp");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    Some(url)
+}
+
+async fn start_get_sse_server_request_upstream() -> Option<String> {
+    let app = axum::Router::new().route(
+        "/mcp",
+        axum::routing::get(|| async {
+            (
+                [("content-type", "text/event-stream")],
+                "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"srv-1\",\"method\":\"elicitation/create\",\"params\":{\"message\":\"continue?\"}}\n\n",
+            )
+        }),
+    );
+
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!("skipping proxy integration test: cannot bind GET SSE upstream: {error}");
+            return None;
+        }
+        Err(error) => panic!("bind GET SSE upstream: {error}"),
+    };
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}/mcp");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    Some(url)
+}
+
+async fn unsolicited_ws_upstream_handler(
+    ws: axum::extract::ws::WebSocketUpgrade,
+    captured_error: Arc<Mutex<Option<Value>>>,
+) -> axum::response::Response {
+    ws.on_upgrade(move |mut socket| async move {
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": "srv-1",
+            "method": "elicitation/create",
+            "params": {"message": "continue?"}
+        });
+        let _ = socket
+            .send(axum::extract::ws::Message::Text(request.to_string().into()))
+            .await;
+
+        if let Some(Ok(axum::extract::ws::Message::Text(text))) = socket.recv().await {
+            let parsed: Value = serde_json::from_str(&text).unwrap_or(json!({}));
+            *captured_error.lock().expect("capture lock") = Some(parsed);
+        }
+    })
+}
+
+async fn start_unsolicited_server_request_ws_upstream(
+    captured_error: Arc<Mutex<Option<Value>>>,
+) -> Option<String> {
+    let app = axum::Router::new().route(
+        "/mcp",
+        axum::routing::get({
+            let captured_error = captured_error.clone();
+            move |ws: axum::extract::ws::WebSocketUpgrade| {
+                unsolicited_ws_upstream_handler(ws, captured_error.clone())
+            }
+        }),
+    );
+
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!(
+                "skipping proxy integration test: cannot bind unsolicited WS upstream: {error}"
+            );
+            return None;
+        }
+        Err(error) => panic!("bind unsolicited WS upstream: {error}"),
+    };
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}/mcp");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     Some(url)
@@ -473,7 +709,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -518,6 +754,7 @@ fn build_router(state: ProxyState) -> axum::Router {
         .route(
             "/mcp",
             axum::routing::post(vellaveto_http_proxy::proxy::handle_mcp_post)
+                .get(vellaveto_http_proxy::proxy::handle_mcp_get)
                 .delete(vellaveto_http_proxy::proxy::handle_mcp_delete),
         )
         .route("/health", axum::routing::get(|| async { "ok" }))
@@ -529,6 +766,7 @@ fn build_ws_router(state: ProxyState) -> axum::Router {
         .route(
             "/mcp",
             axum::routing::post(vellaveto_http_proxy::proxy::handle_mcp_post)
+                .get(vellaveto_http_proxy::proxy::handle_mcp_get)
                 .delete(vellaveto_http_proxy::proxy::handle_mcp_delete),
         )
         .route(
@@ -802,6 +1040,7 @@ async fn tool_call_allowed_forwards_to_upstream() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2025-11-25")
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -820,6 +1059,263 @@ async fn tool_call_allowed_forwards_to_upstream() {
         .as_str()
         .unwrap()
         .contains("read_file"));
+}
+
+#[tokio::test]
+async fn mcp_param_header_allowlisted_is_forwarded_to_upstream() {
+    let captured_region = Arc::new(Mutex::new(None));
+    let Some(upstream_url) = start_header_capture_upstream(captured_region.clone()).await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    state.streamable_http.require_protocol_version_header = true;
+    state.streamable_http.allowed_mcp_param_headers = vec!["Region".to_string()];
+    let app = build_router(state);
+
+    let list_body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    }))
+    .unwrap();
+
+    let list_resp = app
+        .clone()
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2026-07-28")
+                .header("mcp-method", "tools/list")
+                .body(Body::from(list_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let session_id = list_resp
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session id")
+        .to_string();
+    let list_json = json_body(list_resp).await;
+    assert_eq!(list_json["result"]["tools"][0]["name"], "read_file");
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {
+                "path": "/tmp/test",
+                "region": "us-west1"
+            }
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2026-07-28")
+                .header("mcp-session-id", session_id)
+                .header("mcp-method", "tools/call")
+                .header("mcp-name", "read_file")
+                .header("mcp-param-region", "us-west1")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert_eq!(json["id"], 2);
+    assert_eq!(
+        captured_region.lock().expect("capture lock").as_deref(),
+        Some("us-west1")
+    );
+}
+
+#[tokio::test]
+async fn request_state_is_sealed_unwrapped_and_replay_blocked() {
+    let captured_request_states = Arc::new(Mutex::new(Vec::new()));
+    let Some(upstream_url) = start_request_state_upstream(captured_request_states.clone()).await
+    else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    state.streamable_http.require_protocol_version_header = true;
+    let app = build_router(state);
+
+    let start_body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "demo/start",
+        "params": {}
+    }))
+    .unwrap();
+    let start_resp = app
+        .clone()
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2026-07-28")
+                .header("mcp-method", "demo/start")
+                .body(Body::from(start_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(start_resp.status(), StatusCode::OK);
+    let session_id = start_resp
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session id")
+        .to_string();
+    let start_json = json_body(start_resp).await;
+    let sealed = start_json["result"]["requestState"]
+        .as_str()
+        .expect("sealed requestState")
+        .to_string();
+    assert!(sealed.starts_with("vvrs1."));
+    assert_ne!(sealed, "server-state");
+
+    let continue_body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "demo/continue",
+        "params": {"requestState": sealed}
+    }))
+    .unwrap();
+    let continue_resp = app
+        .clone()
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2026-07-28")
+                .header("mcp-session-id", session_id.as_str())
+                .header("mcp-method", "demo/continue")
+                .body(Body::from(continue_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(continue_resp.status(), StatusCode::OK);
+    let captured = captured_request_states
+        .lock()
+        .expect("capture lock")
+        .clone();
+    assert_eq!(captured, vec![json!("server-state")]);
+
+    let replay_resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2026-07-28")
+                .header("mcp-session-id", session_id.as_str())
+                .header("mcp-method", "demo/continue")
+                .body(Body::from(continue_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(replay_resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        captured_request_states.lock().expect("capture lock").len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn get_sse_unsolicited_server_request_is_blocked() {
+    let Some(upstream_url) = start_get_sse_server_request_upstream().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    state.streamable_http.require_protocol_version_header = true;
+    state.streamable_http.resumability_enabled = true;
+    let app = build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/mcp")
+                .header("accept", "text/event-stream")
+                .header("mcp-protocol-version", "2026-07-28")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = json_body(resp).await;
+    assert_eq!(body["id"], json!("srv-1"));
+    assert_eq!(body["error"]["code"], -32001);
+    assert_eq!(
+        body["error"]["message"],
+        "SSE response blocked: unsolicited server request"
+    );
+}
+
+#[tokio::test]
+async fn websocket_unsolicited_server_request_is_not_forwarded_to_client() {
+    let captured_error = Arc::new(Mutex::new(None));
+    let Some(upstream_url) =
+        start_unsolicited_server_request_ws_upstream(captured_error.clone()).await
+    else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let Some(proxy_ws_url) = start_proxy_ws_server(state).await else {
+        return;
+    };
+
+    let (mut client_ws, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(proxy_ws_url.as_str()),
+    )
+    .await
+    .expect("websocket connect timeout")
+    .expect("websocket connect");
+
+    for _ in 0..20 {
+        if captured_error.lock().expect("capture lock").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    let upstream_error = captured_error
+        .lock()
+        .expect("capture lock")
+        .clone()
+        .expect("upstream error response");
+    assert_eq!(upstream_error["id"], json!("srv-1"));
+    assert_eq!(upstream_error["error"]["code"], -32001);
+    assert_eq!(
+        upstream_error["error"]["message"],
+        "Unsolicited server request"
+    );
+
+    let maybe_client_message =
+        tokio::time::timeout(Duration::from_millis(100), client_ws.next()).await;
+    if let Ok(Some(Ok(WsMessage::Text(text)))) = maybe_client_message {
+        let parsed: Value = serde_json::from_str(&text).unwrap_or(json!({}));
+        assert_ne!(parsed["method"], "elicitation/create");
+    }
 }
 
 #[tokio::test]
@@ -875,6 +1371,7 @@ async fn tool_call_with_blocked_target_domain_is_denied_before_upstream() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2025-11-25")
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -1603,6 +2100,7 @@ async fn initialize_extracts_protocol_version() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2025-11-25")
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -2404,7 +2902,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -2826,7 +3324,7 @@ async fn trace_resource_read_denied_includes_trace() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -2943,7 +3441,7 @@ async fn trace_constraint_details_visible() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -3408,7 +3906,7 @@ fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -4573,7 +5071,7 @@ fn build_api_key_test_state(
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -5098,7 +5596,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -5253,7 +5751,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -5359,7 +5857,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -5464,7 +5962,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -5575,7 +6073,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -5684,7 +6182,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -5797,7 +6295,7 @@ async fn extension_method_fail_closed_no_matching_policy() {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -6130,7 +6628,7 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,
@@ -6701,7 +7199,7 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: legacy_test_streamable_http_config(),
         federation: None,
         #[cfg(feature = "discovery")]
         discovery_engine: None,

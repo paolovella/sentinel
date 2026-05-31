@@ -91,10 +91,11 @@ pub use manifest::{
 };
 
 pub use mcp_protocol::{
-    AsyncTaskConfig, CimdConfig, ElicitationConfig, ResourceIndicatorConfig, SamplingConfig,
-    SecretSubstitution, StepUpAuthConfig, StreamableHttpConfig, ToolQuota, MAX_ALLOWED_MODELS,
+    validate_mcp_param_header_name, AsyncTaskConfig, CimdConfig, ElicitationConfig,
+    ResourceIndicatorConfig, SamplingConfig, SecretSubstitution, StepUpAuthConfig,
+    StreamableHttpConfig, ToolQuota, MAX_ALLOWED_MCP_PARAM_HEADERS, MAX_ALLOWED_MODELS,
     MAX_ALLOWED_RESOURCES, MAX_ALLOW_CANCELLATION, MAX_BLOCKED_FIELD_TYPES, MAX_CAPABILITIES,
-    MAX_SECRET_SUBSTITUTIONS, MAX_TOOL_QUOTAS, MAX_TRIGGER_TOOLS,
+    MAX_MCP_PARAM_HEADER_NAME_LENGTH, MAX_SECRET_SUBSTITUTIONS, MAX_TOOL_QUOTAS, MAX_TRIGGER_TOOLS,
 };
 
 pub use etdi::{AllowedSignersConfig, AttestationConfig, EtdiConfig, VersionPinningConfig};

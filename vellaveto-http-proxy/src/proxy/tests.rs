@@ -2890,6 +2890,10 @@ async fn test_http_unknown_tool_approval_persists_clamped_transport_provenance()
         "application/json".parse().expect("content type header"),
     );
     headers.insert(
+        super::MCP_PROTOCOL_VERSION_HEADER,
+        "2025-11-25".parse().expect("protocol version header"),
+    );
+    headers.insert(
         super::MCP_SESSION_ID,
         session_id.parse().expect("session header"),
     );
@@ -3031,6 +3035,10 @@ async fn test_http_untrusted_tool_approval_persists_clamped_transport_provenance
     headers.insert(
         "content-type",
         "application/json".parse().expect("content type header"),
+    );
+    headers.insert(
+        super::MCP_PROTOCOL_VERSION_HEADER,
+        "2025-11-25".parse().expect("protocol version header"),
     );
     headers.insert(
         super::MCP_SESSION_ID,
@@ -5048,7 +5056,10 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
-        streamable_http: Default::default(),
+        streamable_http: vellaveto_config::StreamableHttpConfig {
+            require_protocol_version_header: false,
+            ..Default::default()
+        },
         // Phase 39: Federation
         federation: None,
         #[cfg(feature = "discovery")]
@@ -5246,9 +5257,12 @@ fn test_injection_in_error_data_json_object() {
 
 #[test]
 fn test_mcp_protocol_version_constants() {
-    assert_eq!(MCP_PROTOCOL_VERSION_VALUE, "2025-11-25");
+    assert_eq!(MCP_PROTOCOL_VERSION_VALUE, "2026-07-28");
     assert_eq!(MCP_PROTOCOL_VERSION_HEADER, "mcp-protocol-version");
+    assert_eq!(MCP_METHOD_HEADER, "mcp-method");
+    assert_eq!(MCP_NAME_HEADER, "mcp-name");
     // Verify all supported versions are documented
+    assert!(SUPPORTED_PROTOCOL_VERSIONS.contains(&"2026-07-28"));
     assert!(SUPPORTED_PROTOCOL_VERSIONS.contains(&"2025-11-25"));
     assert!(SUPPORTED_PROTOCOL_VERSIONS.contains(&"2025-06-18"));
     assert!(SUPPORTED_PROTOCOL_VERSIONS.contains(&"2025-03-26"));
@@ -5269,6 +5283,474 @@ fn test_attach_session_header_includes_protocol_version() {
         proto_hdr.unwrap().to_str().unwrap(),
         MCP_PROTOCOL_VERSION_VALUE
     );
+}
+
+#[test]
+fn test_protocol_version_header_required_by_default() {
+    let mut state = make_test_proxy_state(false);
+    state.streamable_http.require_protocol_version_header = true;
+    let headers = HeaderMap::new();
+    let result = super::handlers::validate_mcp_protocol_version_header(&state, &headers);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_protocol_version_floor_rejects_legacy_version() {
+    let state = make_test_proxy_state(false);
+    let mut headers = HeaderMap::new();
+    headers.insert(MCP_PROTOCOL_VERSION_HEADER, "2025-06-18".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_protocol_version_header(&state, &headers);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_protocol_version_accepts_dual_version_window() {
+    let state = make_test_proxy_state(false);
+    for version in ["2025-11-25", "2026-07-28"] {
+        let mut headers = HeaderMap::new();
+        headers.insert(MCP_PROTOCOL_VERSION_HEADER, version.parse().unwrap());
+
+        let parsed = super::handlers::validate_mcp_protocol_version_header(&state, &headers)
+            .expect("version should pass floor")
+            .expect("version should be present");
+        assert_eq!(parsed.as_str(), version);
+    }
+}
+
+#[test]
+fn test_routing_headers_2026_require_method() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list"
+    });
+    let canonical = vellaveto_mcp::wire::normalize_inbound(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &msg,
+    )
+    .expect("canonical request");
+    let headers = HeaderMap::new();
+
+    let result = super::handlers::validate_mcp_routing_headers(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &headers,
+        &msg,
+        &canonical,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_routing_headers_2026_accept_matching_tool_call() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/a"}
+        }
+    });
+    let canonical = vellaveto_mcp::wire::normalize_inbound(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &msg,
+    )
+    .expect("canonical request");
+    let mut headers = HeaderMap::new();
+    headers.insert(MCP_METHOD_HEADER, "tools/call".parse().unwrap());
+    headers.insert(MCP_NAME_HEADER, "read_file".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_routing_headers(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &headers,
+        &msg,
+        &canonical,
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_routing_headers_2026_require_name_for_named_request() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {}
+        }
+    });
+    let canonical = vellaveto_mcp::wire::normalize_inbound(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &msg,
+    )
+    .expect("canonical request");
+    let mut headers = HeaderMap::new();
+    headers.insert(MCP_METHOD_HEADER, "tools/call".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_routing_headers(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &headers,
+        &msg,
+        &canonical,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_routing_headers_reject_method_desync() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {}}
+    });
+    let canonical = vellaveto_mcp::wire::normalize_inbound(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &msg,
+    )
+    .expect("canonical request");
+    let mut headers = HeaderMap::new();
+    headers.insert(MCP_METHOD_HEADER, "resources/read".parse().unwrap());
+    headers.insert(MCP_NAME_HEADER, "read_file".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_routing_headers(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &headers,
+        &msg,
+        &canonical,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_routing_headers_reject_name_desync() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {}}
+    });
+    let canonical = vellaveto_mcp::wire::normalize_inbound(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &msg,
+    )
+    .expect("canonical request");
+    let mut headers = HeaderMap::new();
+    headers.insert(MCP_METHOD_HEADER, "tools/call".parse().unwrap());
+    headers.insert(MCP_NAME_HEADER, "write_file".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_routing_headers(
+        vellaveto_types::McpProtocolVersion::V2026_07_28,
+        &headers,
+        &msg,
+        &canonical,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_routing_headers_legacy_absent_ok_but_present_must_match() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list"
+    });
+    let canonical = vellaveto_mcp::wire::normalize_inbound(
+        vellaveto_types::McpProtocolVersion::V2025_11_25,
+        &msg,
+    )
+    .expect("canonical request");
+    let headers = HeaderMap::new();
+    assert!(super::handlers::validate_mcp_routing_headers(
+        vellaveto_types::McpProtocolVersion::V2025_11_25,
+        &headers,
+        &msg,
+        &canonical,
+    )
+    .is_ok());
+
+    let mut desync_headers = HeaderMap::new();
+    desync_headers.insert(MCP_METHOD_HEADER, "tools/call".parse().unwrap());
+    assert!(super::handlers::validate_mcp_routing_headers(
+        vellaveto_types::McpProtocolVersion::V2025_11_25,
+        &desync_headers,
+        &msg,
+        &canonical,
+    )
+    .is_err());
+}
+
+#[test]
+fn test_mcp_param_headers_default_deny() {
+    let state = make_test_proxy_state(false);
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"region": "us-west1"}
+        }
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert("mcp-param-region", "us-west1".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_param_headers(&state, &headers, &msg);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mcp_param_headers_allowlisted_forwardable() {
+    let mut state = make_test_proxy_state(false);
+    state.streamable_http.allowed_mcp_param_headers = vec!["Region".to_string()];
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"region": "us-west1"}
+        }
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert("mcp-param-region", "us-west1".parse().unwrap());
+
+    let forwarded = super::handlers::validate_mcp_param_headers(&state, &headers, &msg).unwrap();
+
+    assert_eq!(forwarded.len(), 1);
+    assert_eq!(forwarded[0].0.as_str(), "mcp-param-region");
+    assert_eq!(forwarded[0].1.to_str().unwrap(), "us-west1");
+}
+
+#[test]
+fn test_mcp_param_headers_reject_reserved_suffix() {
+    let mut state = make_test_proxy_state(false);
+    state.streamable_http.allowed_mcp_param_headers = vec!["Authorization".to_string()];
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"authorization": "Bearer token"}
+        }
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert("mcp-param-authorization", "Bearer token".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_param_headers(&state, &headers, &msg);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mcp_param_headers_reject_non_tool_call() {
+    let mut state = make_test_proxy_state(false);
+    state.streamable_http.allowed_mcp_param_headers = vec!["Region".to_string()];
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "resources/read",
+        "params": {"uri": "file:///tmp/test"}
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert("mcp-param-region", "us-west1".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_param_headers(&state, &headers, &msg);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mcp_param_headers_reject_invalid_base64_wrapper() {
+    let mut state = make_test_proxy_state(false);
+    state.streamable_http.allowed_mcp_param_headers = vec!["Text".to_string()];
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"text": "hello"}
+        }
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert("mcp-param-text", "=?base64?SGVs!!!?=".parse().unwrap());
+
+    let result = super::handlers::validate_mcp_param_headers(&state, &headers, &msg);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_observed_mcp_param_headers_accept_declared_header() {
+    let state = make_test_proxy_state(false);
+    let session_id = state.sessions.get_or_create(None);
+    {
+        let mut session = state.sessions.get_mut(&session_id).unwrap();
+        let mut bindings = std::collections::HashSet::new();
+        bindings.insert("region".to_string());
+        assert!(session.insert_tool_param_header_bindings(
+            "read_file".to_string(),
+            crate::session::ToolParamHeaderBindings::Valid(bindings),
+        ));
+    }
+    let forwarded = vec![(
+        "mcp-param-region".parse().unwrap(),
+        "us-west1".parse().unwrap(),
+    )];
+
+    let result = super::handlers::validate_observed_mcp_param_headers(
+        &state,
+        &session_id,
+        "read_file",
+        &forwarded,
+        &json!(1),
+    );
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_observed_mcp_param_headers_reject_undeclared_header() {
+    let state = make_test_proxy_state(false);
+    let session_id = state.sessions.get_or_create(None);
+    {
+        let mut session = state.sessions.get_mut(&session_id).unwrap();
+        let mut bindings = std::collections::HashSet::new();
+        bindings.insert("region".to_string());
+        assert!(session.insert_tool_param_header_bindings(
+            "read_file".to_string(),
+            crate::session::ToolParamHeaderBindings::Valid(bindings),
+        ));
+    }
+    let forwarded = vec![("mcp-param-tenant".parse().unwrap(), "prod".parse().unwrap())];
+
+    let result = super::handlers::validate_observed_mcp_param_headers(
+        &state,
+        &session_id,
+        "read_file",
+        &forwarded,
+        &json!(1),
+    );
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_observed_mcp_param_headers_reject_invalid_tool_definition() {
+    let state = make_test_proxy_state(false);
+    let session_id = state.sessions.get_or_create(None);
+    {
+        let mut session = state.sessions.get_mut(&session_id).unwrap();
+        assert!(session.insert_tool_param_header_bindings(
+            "read_file".to_string(),
+            crate::session::ToolParamHeaderBindings::Rejected(
+                "region x-mcp-header is only valid on primitive types".to_string(),
+            ),
+        ));
+    }
+
+    let result = super::handlers::validate_observed_mcp_param_headers(
+        &state,
+        &session_id,
+        "read_file",
+        &Vec::new(),
+        &json!(1),
+    );
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_tools_list_records_mcp_param_header_bindings() {
+    let state = make_test_proxy_state(false);
+    let session_id = state.sessions.get_or_create(None);
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [{
+                "name": "read_file",
+                "description": "Read a file",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "region": {"type": "string", "x-mcp-header": "Region"}
+                    }
+                }
+            }]
+        }
+    });
+
+    super::helpers::extract_annotations_from_response(
+        &response,
+        &session_id,
+        &state.sessions,
+        &state.audit,
+        &state.known_tools,
+    )
+    .await;
+
+    let session = state.sessions.get_mut(&session_id).unwrap();
+    let bindings = session
+        .tool_param_header_bindings()
+        .get("read_file")
+        .unwrap();
+    assert!(matches!(
+        bindings,
+        crate::session::ToolParamHeaderBindings::Valid(headers) if headers.contains("region")
+    ));
+}
+
+#[tokio::test]
+async fn test_tools_list_records_rejected_mcp_param_header_binding() {
+    let state = make_test_proxy_state(false);
+    let session_id = state.sessions.get_or_create(None);
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [{
+                "name": "read_file",
+                "description": "Read a file",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "regions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "x-mcp-header": "Region"
+                        }
+                    }
+                }
+            }]
+        }
+    });
+
+    super::helpers::extract_annotations_from_response(
+        &response,
+        &session_id,
+        &state.sessions,
+        &state.audit,
+        &state.known_tools,
+    )
+    .await;
+
+    let session = state.sessions.get_mut(&session_id).unwrap();
+    let bindings = session
+        .tool_param_header_bindings()
+        .get("read_file")
+        .unwrap();
+    assert!(matches!(
+        bindings,
+        crate::session::ToolParamHeaderBindings::Rejected(reason)
+            if reason.contains("primitive")
+    ));
 }
 
 // --- R38-PROXY-1: extract_text_from_result scans full annotations ---
@@ -6027,13 +6509,13 @@ use super::discovery::{
 use vellaveto_types::{SdkTier, TransportEndpoint, TransportProtocol};
 
 #[test]
-fn test_supported_protocol_versions_highest_is_2025_11_25() {
+fn test_supported_protocol_versions_highest_is_2026_07_28() {
     assert!(
-        SUPPORTED_PROTOCOL_VERSIONS.contains(&"2025-11-25"),
-        "2025-11-25 must be in SUPPORTED_PROTOCOL_VERSIONS"
+        SUPPORTED_PROTOCOL_VERSIONS.contains(&"2026-07-28"),
+        "2026-07-28 must be in SUPPORTED_PROTOCOL_VERSIONS"
     );
     // Must be the first (highest priority) entry
-    assert_eq!(SUPPORTED_PROTOCOL_VERSIONS[0], "2025-11-25");
+    assert_eq!(SUPPORTED_PROTOCOL_VERSIONS[0], "2026-07-28");
 }
 
 #[test]
@@ -6167,7 +6649,9 @@ fn test_sdk_capabilities_tier() {
     let caps = build_sdk_capabilities();
     assert_eq!(caps.tier, SdkTier::Extended);
     assert!(caps.capabilities.len() >= 8);
+    assert!(caps.supported_versions.contains(&"2026-07-28".to_string()));
     assert!(caps.supported_versions.contains(&"2025-11-25".to_string()));
+    assert!(!caps.supported_versions.contains(&"2025-06-18".to_string()));
 }
 
 #[test]

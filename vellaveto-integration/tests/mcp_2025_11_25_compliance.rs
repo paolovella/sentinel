@@ -89,6 +89,11 @@ fn test_streamable_http_config_defaults_correct() {
     assert!(!config.strict_tool_name_validation);
     assert_eq!(config.max_event_id_length, 128);
     assert_eq!(config.sse_retry_ms, None);
+    assert_eq!(
+        config.protocol_version_floor,
+        vellaveto_types::McpProtocolVersion::V2025_11_25
+    );
+    assert!(config.require_protocol_version_header);
     assert!(config.validate().is_ok());
 }
 
@@ -178,7 +183,8 @@ fn test_policy_config_without_streamable_http_uses_defaults() {
 fn test_protocol_version_2025_11_25_recognized() {
     // This version string should be accepted by the proxy.
     // We verify that the constant is correctly defined in the types/config.
-    let supported = ["2025-11-25", "2025-06-18", "2025-03-26"];
+    let supported = ["2026-07-28", "2025-11-25"];
+    assert!(supported.contains(&"2026-07-28"));
     assert!(supported.contains(&"2025-11-25"));
 }
 
@@ -290,6 +296,9 @@ fn test_streamable_http_config_json_roundtrip() {
         strict_tool_name_validation: true,
         max_event_id_length: 256,
         sse_retry_ms: Some(5000),
+        protocol_version_floor: vellaveto_types::McpProtocolVersion::V2025_11_25,
+        require_protocol_version_header: true,
+        allowed_mcp_param_headers: Vec::new(),
     };
     let json = serde_json::to_string(&config).expect("serialize");
     let deser: vellaveto_config::StreamableHttpConfig =

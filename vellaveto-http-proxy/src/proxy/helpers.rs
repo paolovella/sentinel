@@ -17,6 +17,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use vellaveto_approval::{
     review_safe_provenance_summary, ApprovalContainmentContext, ApprovalStatus,
@@ -40,7 +41,7 @@ use vellaveto_types::{
 use super::auth::OAuthValidationEvidence;
 use super::ProxyState;
 use crate::proxy::X_REQUEST_SIGNATURE;
-use crate::session::SessionStore;
+use crate::session::{SessionStore, ToolParamHeaderBindings};
 
 const MAX_REQUEST_SIGNATURE_HEADER_BYTES: usize = 8192;
 
@@ -2500,6 +2501,94 @@ pub(super) async fn read_bounded_response(
 // vellaveto_mcp::extractor module to ensure identical behavior
 // between the stdio and HTTP proxies (Challenge 3 fix).
 
+const MAX_MCP_PARAM_SCHEMA_PROPERTIES: usize = 256;
+const MAX_MCP_PARAM_SCHEMA_HEADERS_PER_TOOL: usize = 32;
+
+fn is_primitive_mcp_header_type(property_schema: &Value) -> bool {
+    matches!(
+        property_schema.get("type").and_then(Value::as_str),
+        Some("string" | "number" | "integer" | "boolean")
+    )
+}
+
+fn extract_mcp_param_header_bindings_from_response(
+    response: &Value,
+) -> Option<HashMap<String, ToolParamHeaderBindings>> {
+    let tools = response
+        .get("result")
+        .and_then(|result| result.get("tools"))
+        .and_then(Value::as_array)?;
+    let mut bindings = HashMap::new();
+
+    for tool in tools {
+        let Some(name) = tool.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let normalized_name = vellaveto_mcp::extractor::normalize_method(name);
+        if normalized_name.is_empty() {
+            continue;
+        }
+
+        let mut header_names = HashSet::new();
+        let mut rejected_reason = None;
+        let properties = tool
+            .get("inputSchema")
+            .and_then(|schema| schema.get("properties"))
+            .and_then(Value::as_object);
+
+        if let Some(properties) = properties {
+            if properties.len() > MAX_MCP_PARAM_SCHEMA_PROPERTIES {
+                rejected_reason = Some(format!(
+                    "inputSchema.properties exceeds {MAX_MCP_PARAM_SCHEMA_PROPERTIES} entries"
+                ));
+            } else {
+                for (property_name, property_schema) in properties {
+                    let Some(header_name) =
+                        property_schema.get("x-mcp-header").and_then(Value::as_str)
+                    else {
+                        continue;
+                    };
+
+                    if let Err(reason) =
+                        vellaveto_config::validate_mcp_param_header_name(header_name)
+                    {
+                        rejected_reason =
+                            Some(format!("{property_name} x-mcp-header invalid: {reason}"));
+                        break;
+                    }
+                    if !is_primitive_mcp_header_type(property_schema) {
+                        rejected_reason = Some(format!(
+                            "{property_name} x-mcp-header is only valid on primitive types"
+                        ));
+                        break;
+                    }
+                    if header_names.len() >= MAX_MCP_PARAM_SCHEMA_HEADERS_PER_TOOL {
+                        rejected_reason = Some(format!(
+                            "x-mcp-header count exceeds {MAX_MCP_PARAM_SCHEMA_HEADERS_PER_TOOL}"
+                        ));
+                        break;
+                    }
+                    let normalized_header = header_name.to_ascii_lowercase();
+                    if !header_names.insert(normalized_header) {
+                        rejected_reason = Some(format!(
+                            "{property_name} x-mcp-header duplicates another header name"
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        let entry = match rejected_reason {
+            Some(reason) => ToolParamHeaderBindings::Rejected(reason),
+            None => ToolParamHeaderBindings::Valid(header_names),
+        };
+        bindings.insert(normalized_name, entry);
+    }
+
+    Some(bindings)
+}
+
 /// Extract tool annotations from a tools/list response and update session state.
 ///
 /// Delegates to the shared `vellaveto_mcp::rug_pull` module for detection logic,
@@ -2511,6 +2600,8 @@ pub(super) async fn extract_annotations_from_response(
     audit: &AuditLogger,
     known_tools: &std::collections::HashSet<String>,
 ) {
+    let param_header_bindings = extract_mcp_param_header_bindings_from_response(response);
+
     // Extract current known tools and first-list flag from session
     let (known, is_first_list) = match sessions.get_mut(session_id) {
         Some(mut s) => {
@@ -2543,6 +2634,18 @@ pub(super) async fn extract_annotations_from_response(
                     "Known tools capacity reached during rug-pull update; truncating"
                 );
                 break;
+            }
+        }
+        if let Some(bindings) = param_header_bindings {
+            s.tool_param_header_bindings.clear();
+            for (name, binding) in bindings {
+                if !s.insert_tool_param_header_bindings(name, binding) {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "Tool parameter-header binding capacity reached during tools/list update; truncating"
+                    );
+                    break;
+                }
             }
         }
         for name in result.flagged_tool_names() {

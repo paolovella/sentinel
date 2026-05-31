@@ -12,7 +12,10 @@
 
 use axum::{
     body::Body,
-    http::StatusCode,
+    http::{
+        header::{HeaderName, HeaderValue},
+        StatusCode,
+    },
     response::{IntoResponse, Response},
     Json,
 };
@@ -36,10 +39,34 @@ use super::inspection::{
     check_sse_for_rug_pull_and_manifest, extract_text_from_result, register_schemas_from_sse,
     scan_sse_events_for_dlp, scan_sse_events_for_injection, scan_sse_events_for_output_schema,
 };
+use super::request_state;
+use super::server_request;
 use vellaveto_mcp::output_validation::ValidationResult;
 
 use super::{ProxyState, MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE, MCP_SESSION_ID};
 use crate::proxy_metrics::record_dlp_finding;
+
+pub(super) struct UpstreamForwardOptions<'a> {
+    pub auth_header: Option<&'a str>,
+    pub trace_ctx: Option<(&'a str, Option<&'a str>)>,
+    pub mcp_param_headers: &'a [(HeaderName, HeaderValue)],
+    pub last_event_id: Option<&'a str>,
+}
+
+impl<'a> UpstreamForwardOptions<'a> {
+    pub fn post(
+        auth_header: Option<&'a str>,
+        trace_ctx: Option<(&'a str, Option<&'a str>)>,
+        mcp_param_headers: &'a [(HeaderName, HeaderValue)],
+    ) -> Self {
+        Self {
+            auth_header,
+            trace_ctx,
+            mcp_param_headers,
+            last_event_id: None,
+        }
+    }
+}
 
 /// If canonicalize mode is enabled, re-serialize the parsed JSON to canonical
 /// form before forwarding. This ensures upstream sees exactly what was evaluated,
@@ -91,19 +118,9 @@ pub(super) async fn forward_to_upstream(
     state: &ProxyState,
     session_id: &str,
     body: Bytes,
-    auth_header: Option<&str>,
-    trace_ctx: Option<(&str, Option<&str>)>,
+    options: UpstreamForwardOptions<'_>,
 ) -> Response {
-    forward_to_upstream_url(
-        state,
-        &state.upstream_url,
-        session_id,
-        body,
-        auth_header,
-        trace_ctx,
-        None,
-    )
-    .await
+    forward_to_upstream_url(state, &state.upstream_url, session_id, body, options).await
 }
 
 /// Forward a GET request to the upstream MCP server for SSE resumability.
@@ -203,6 +220,66 @@ pub(super) async fn forward_get_to_upstream(
             .await
             {
                 Ok(sse_bytes) => {
+                    match server_request::find_server_request_in_sse(
+                        &sse_bytes,
+                        state.limits.max_sse_event_bytes,
+                    ) {
+                        Ok(Some(info)) => {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                method = %info.method,
+                                "SECURITY: Blocking unsolicited server request on GET SSE stream"
+                            );
+                            server_request::audit_unsolicited_server_request(
+                                state,
+                                session_id,
+                                "sse",
+                                &info.method,
+                                "http_proxy",
+                            )
+                            .await;
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "SSE response blocked: unsolicited server request",
+                                    },
+                                    "id": info.id,
+                                })),
+                            )
+                                .into_response();
+                        }
+                        Ok(None) => {}
+                        Err(server_request::SseServerRequestScanError::OversizedEvent) => {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                "SECURITY: Blocking GET SSE stream with oversized event before server-request validation"
+                            );
+                            server_request::audit_unsolicited_server_request(
+                                state,
+                                session_id,
+                                "sse",
+                                "unknown",
+                                "http_proxy",
+                            )
+                            .await;
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "SSE response blocked: invalid event",
+                                    },
+                                    "id": null,
+                                })),
+                            )
+                                .into_response();
+                        }
+                    }
+
                     // SECURITY: Injection scanning on SSE events (same as POST path)
                     let injection_found = if !state.injection_disabled {
                         scan_sse_events_for_injection(&sse_bytes, session_id, state).await
@@ -338,9 +415,7 @@ pub(super) async fn forward_to_upstream_url(
     upstream_url: &str,
     session_id: &str,
     body: Bytes,
-    auth_header: Option<&str>,
-    trace_ctx: Option<(&str, Option<&str>)>,
-    last_event_id: Option<&str>,
+    options: UpstreamForwardOptions<'_>,
 ) -> Response {
     // SECURITY (R240-PROXY-2): Enforce HTTPS for non-local upstream URLs.
     // This is the primary forwarding path — the R239 fix only covered the
@@ -366,20 +441,24 @@ pub(super) async fn forward_to_upstream_url(
         .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE);
 
     // Forward Authorization header in OAuth pass-through mode
-    if let Some(auth) = auth_header {
+    if let Some(auth) = options.auth_header {
         request_builder = request_builder.header("authorization", auth);
     }
 
     // Phase 28: Inject W3C Trace Context headers for distributed tracing
-    if let Some((traceparent, tracestate)) = trace_ctx {
+    if let Some((traceparent, tracestate)) = options.trace_ctx {
         request_builder = request_builder.header("traceparent", traceparent);
         if let Some(ts) = tracestate {
             request_builder = request_builder.header("tracestate", ts);
         }
     }
 
+    for (name, value) in options.mcp_param_headers {
+        request_builder = request_builder.header(name.clone(), value.clone());
+    }
+
     // MCP 2025-11-25: Forward Last-Event-ID for SSE resumption on POST
-    if let Some(event_id) = last_event_id {
+    if let Some(event_id) = options.last_event_id {
         request_builder = request_builder.header("last-event-id", event_id);
     }
 
@@ -1145,12 +1224,72 @@ pub(super) async fn forward_to_upstream_url(
                             }
                         }
 
-                        // SECURITY: Content-bound attestation — sign scan results + content hash.
-                        // Attached AFTER all scanning but BEFORE forwarding to the client.
-                        let final_body = if let Some(ref hmac_key) = state.attestation_hmac_key {
-                            if let Ok(mut response_json) =
-                                serde_json::from_slice::<Value>(&body_bytes)
-                            {
+                        // SECURITY: Seal multi-round-trip requestState before it
+                        // reaches the model-visible channel, then attach optional
+                        // content-bound attestation to the same JSON envelope.
+                        let final_body = if let Ok(mut response_json) =
+                            serde_json::from_slice::<Value>(&body_bytes)
+                        {
+                            let has_request_state = response_json
+                                .get("result")
+                                .and_then(Value::as_object)
+                                .is_some_and(|result| result.contains_key("requestState"));
+                            if has_request_state {
+                                let Some(mut session) = state.sessions.get_mut(session_id) else {
+                                    tracing::warn!(
+                                        session_id = %session_id,
+                                        "SECURITY: Upstream emitted requestState without session state"
+                                    );
+                                    return (
+                                        StatusCode::BAD_GATEWAY,
+                                        Json(json!({
+                                            "jsonrpc": "2.0",
+                                            "error": {
+                                                "code": -32000,
+                                                "message": "Upstream response rejected"
+                                            },
+                                            "id": null
+                                        })),
+                                    )
+                                        .into_response();
+                                };
+                                match request_state::seal_response_request_state(
+                                    &mut response_json,
+                                    &mut session,
+                                ) {
+                                    Ok(true) => {
+                                        tracing::debug!(
+                                            session_id = %session_id,
+                                            "Sealed upstream requestState continuation"
+                                        );
+                                    }
+                                    Ok(false) => {}
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            session_id = %session_id,
+                                            reason = error.message(),
+                                            "SECURITY: Rejecting upstream requestState"
+                                        );
+                                        return (
+                                            StatusCode::BAD_GATEWAY,
+                                            Json(json!({
+                                                "jsonrpc": "2.0",
+                                                "error": {
+                                                    "code": -32000,
+                                                    "message": "Upstream response rejected"
+                                                },
+                                                "id": null
+                                            })),
+                                        )
+                                            .into_response();
+                                    }
+                                }
+                            }
+
+                            // SECURITY: Content-bound attestation — sign scan
+                            // results + content hash. Attached AFTER all scanning
+                            // but BEFORE forwarding to the client.
+                            if let Some(ref hmac_key) = state.attestation_hmac_key {
                                 use vellaveto_types::security_context_token::{
                                     hash_content, mint_attestation,
                                 };
@@ -1187,13 +1326,29 @@ pub(super) async fn forward_to_upstream_url(
                                         }
                                     }
                                 }
+                            }
 
-                                match serde_json::to_vec(&response_json) {
-                                    Ok(bytes) => Bytes::from(bytes),
-                                    Err(_) => body_bytes,
+                            match serde_json::to_vec(&response_json) {
+                                Ok(bytes) => Bytes::from(bytes),
+                                Err(error) => {
+                                    tracing::error!(
+                                        session_id = %session_id,
+                                        "Failed to serialize sealed upstream response: {}",
+                                        error
+                                    );
+                                    return (
+                                        StatusCode::BAD_GATEWAY,
+                                        Json(json!({
+                                            "jsonrpc": "2.0",
+                                            "error": {
+                                                "code": -32000,
+                                                "message": "Upstream response rejected"
+                                            },
+                                            "id": null
+                                        })),
+                                    )
+                                        .into_response();
                                 }
-                            } else {
-                                body_bytes
                             }
                         } else {
                             body_bytes

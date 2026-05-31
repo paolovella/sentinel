@@ -4748,6 +4748,16 @@ fn test_streamable_http_config_defaults() {
     assert!(!config.strict_tool_name_validation);
     assert_eq!(config.max_event_id_length, 128);
     assert_eq!(config.sse_retry_ms, None);
+    assert_eq!(
+        config.protocol_version_floor,
+        vellaveto_types::McpProtocolVersion::V2025_11_25
+    );
+    assert!(config.require_protocol_version_header);
+    assert!(config.allowed_mcp_param_headers.is_empty());
+    assert_eq!(
+        config.supported_protocol_versions(),
+        vec!["2026-07-28", "2025-11-25"]
+    );
     assert!(config.validate().is_ok());
 }
 
@@ -4815,6 +4825,9 @@ fn test_streamable_http_config_serde_roundtrip() {
         strict_tool_name_validation: true,
         max_event_id_length: 256,
         sse_retry_ms: Some(5000),
+        protocol_version_floor: vellaveto_types::McpProtocolVersion::V2025_11_25,
+        require_protocol_version_header: true,
+        allowed_mcp_param_headers: vec!["Region".to_string(), "TenantId".to_string()],
     };
     let json = serde_json::to_string(&config).expect("serialize");
     let deser: crate::StreamableHttpConfig = serde_json::from_str(&json).expect("deserialize");
@@ -4835,12 +4848,84 @@ fn test_streamable_http_config_in_policy_config() {
         strict_tool_name_validation = true
         max_event_id_length = 256
         sse_retry_ms = 3000
+        protocol_version_floor = "2025-11-25"
+        require_protocol_version_header = true
+        allowed_mcp_param_headers = ["Region", "TenantId"]
     "#;
     let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
     assert!(config.streamable_http.resumability_enabled);
     assert!(config.streamable_http.strict_tool_name_validation);
     assert_eq!(config.streamable_http.max_event_id_length, 256);
     assert_eq!(config.streamable_http.sse_retry_ms, Some(3000));
+    assert_eq!(
+        config.streamable_http.protocol_version_floor,
+        vellaveto_types::McpProtocolVersion::V2025_11_25
+    );
+    assert!(config.streamable_http.require_protocol_version_header);
+    assert_eq!(
+        config.streamable_http.allowed_mcp_param_headers,
+        vec!["Region", "TenantId"]
+    );
+}
+
+#[test]
+fn test_streamable_http_config_protocol_version_floor_rejects_legacy() {
+    let config = crate::StreamableHttpConfig::default();
+    assert!(config.allows_protocol_version(vellaveto_types::McpProtocolVersion::V2025_11_25));
+    assert!(config.allows_protocol_version(vellaveto_types::McpProtocolVersion::V2026_07_28));
+    assert!(!config.allows_protocol_version(vellaveto_types::McpProtocolVersion::V2025_06_18));
+    assert!(!config.allows_protocol_version(vellaveto_types::McpProtocolVersion::V2025_03_26));
+}
+
+#[test]
+fn test_streamable_http_config_protocol_version_floor_can_be_lowered_explicitly() {
+    let config = crate::StreamableHttpConfig {
+        protocol_version_floor: vellaveto_types::McpProtocolVersion::V2025_03_26,
+        ..Default::default()
+    };
+    assert_eq!(
+        config.supported_protocol_versions(),
+        vec!["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"]
+    );
+}
+
+#[test]
+fn test_streamable_http_config_allowed_mcp_param_headers_validate() {
+    let config = crate::StreamableHttpConfig {
+        allowed_mcp_param_headers: vec!["Region".to_string(), "TenantId".to_string()],
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_streamable_http_config_allowed_mcp_param_headers_reject_invalid_token() {
+    let config = crate::StreamableHttpConfig {
+        allowed_mcp_param_headers: vec!["Bad Header".to_string()],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("HTTP field-name token"), "got: {err}");
+}
+
+#[test]
+fn test_streamable_http_config_allowed_mcp_param_headers_reject_reserved() {
+    let config = crate::StreamableHttpConfig {
+        allowed_mcp_param_headers: vec!["Authorization".to_string()],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("reserved"), "got: {err}");
+}
+
+#[test]
+fn test_streamable_http_config_allowed_mcp_param_headers_reject_duplicate() {
+    let config = crate::StreamableHttpConfig {
+        allowed_mcp_param_headers: vec!["Region".to_string(), "REGION".to_string()],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("duplicated"), "got: {err}");
 }
 
 #[test]

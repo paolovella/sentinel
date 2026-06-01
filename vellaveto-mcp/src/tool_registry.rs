@@ -745,49 +745,32 @@ impl ToolRegistry {
 pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
     if schema.is_null() {
         // Hash of empty string for null schemas
-        let mut hasher = Sha256::new();
-        hasher.update(b"");
-        let hex: String = hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        return hex;
+        return sha256_hex(b"");
     }
 
-    // Use canonical JSON serialization (RFC 8785).
-    // SECURITY (R30-MCP-3): If both canonicalization and regular serialization
-    // fail, return a deterministic vellaveto hash rather than hashing an empty
-    // string. An empty string hash is identical across all failing schemas,
-    // masking rug-pull mutations (attacker mutates schema, both old and new
-    // fail serialization, producing the same hash → no rug-pull detected).
-    let canonical = match serde_json_canonicalizer::to_string(schema) {
-        Ok(s) => s,
-        Err(_) => match serde_json::to_string(schema) {
-            Ok(s) => s,
-            Err(_) => {
-                // Fail-closed: return a unique hash based on schema debug repr
-                // so that any schema that can't be serialized gets a distinct hash.
-                let debug_repr = format!("{schema:?}");
-                let mut hasher = Sha256::new();
-                hasher.update(b"__SERIALIZATION_FAILED__");
-                hasher.update(debug_repr.as_bytes());
-                let hex: String = hasher
-                    .finalize()
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
-                return hex;
-            }
-        },
-    };
+    // Use the same schema canonicalizer as manifest pinning and rug-pull
+    // detection so trust scoring cannot disagree on internal `$ref` expansion.
+    match vellaveto_config::canonical_schema_hash(schema) {
+        Ok(hash) => hash,
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "SECURITY: Tool registry schema failed canonicalization"
+            );
+            let debug_repr = format!("{schema:?}");
+            let mut hasher = Sha256::new();
+            hasher.update(b"__SCHEMA_CANONICALIZATION_FAILED__");
+            hasher.update(err.to_string().as_bytes());
+            hasher.update(debug_repr.as_bytes());
+            hex::encode(hasher.finalize())
+        }
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(canonical.as_bytes());
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(test)]
@@ -952,6 +935,40 @@ mod tests {
         let h1 = compute_schema_hash(&schema1);
         let h2 = compute_schema_hash(&schema2);
         assert_eq!(h1, h2, "Canonical hash should be key-order independent");
+    }
+
+    #[test]
+    fn test_compute_schema_hash_inlines_local_refs() {
+        let referenced = json!({
+            "$defs": {
+                "Path": {"type": "string", "minLength": 1}
+            },
+            "type": "object",
+            "properties": {
+                "path": {"$ref": "#/$defs/Path"}
+            }
+        });
+        let inline = json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "minLength": 1}
+            }
+        });
+        assert_eq!(
+            compute_schema_hash(&referenced),
+            compute_schema_hash(&inline)
+        );
+    }
+
+    #[test]
+    fn test_compute_schema_hash_external_ref_is_deterministic_error_hash() {
+        let schema = json!({"$ref": "https://metadata.internal/schema.json"});
+        let h1 = compute_schema_hash(&schema);
+        let h2 = compute_schema_hash(&schema);
+
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+        assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     // --- Registry Persistence Tests ---

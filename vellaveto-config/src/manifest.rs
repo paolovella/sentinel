@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::default_true;
+use crate::schema_canonical::manifest_input_schema_hash;
 
 const MAX_MANIFEST_SCHEMA_VERSION_LEN: usize = 32;
 const MAX_MANIFEST_TOOL_NAME_LEN: usize = 256;
@@ -122,63 +123,65 @@ impl ToolManifest {
             return None;
         }
 
-        let mut entries: Vec<ManifestToolEntry> = tools_array
-            .iter()
-            .filter_map(|tool| {
-                let name = tool.get("name")?.as_str()?.to_string();
-                let schema_json = tool
-                    .get("inputSchema")
-                    .map(|s| serde_json::to_string(s).unwrap_or_default())
-                    .unwrap_or_default();
+        let mut entries: Vec<ManifestToolEntry> = Vec::with_capacity(tools_array.len());
+        for tool in tools_array {
+            let name = tool.get("name")?.as_str()?.to_string();
+            let input_schema_hash = match manifest_input_schema_hash(tool.get("inputSchema")) {
+                Ok(hash) => hash,
+                Err(err) => {
+                    tracing::warn!(
+                        tool = %name,
+                        error = %err,
+                        "SECURITY: rejecting tools/list manifest with invalid inputSchema"
+                    );
+                    return None;
+                }
+            };
 
+            // Hash the description if present
+            let description_hash = tool.get("description").and_then(|d| d.as_str()).map(|d| {
                 use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(schema_json.as_bytes());
-                let input_schema_hash = hex::encode(hasher.finalize());
+                let mut h = Sha256::new();
+                h.update(d.as_bytes());
+                hex::encode(h.finalize())
+            });
 
-                // Hash the description if present
-                let description_hash = tool.get("description").and_then(|d| d.as_str()).map(|d| {
-                    let mut h = Sha256::new();
-                    h.update(d.as_bytes());
-                    hex::encode(h.finalize())
-                });
+            // Hash the title if present (MCP 2025-06-18)
+            let title_hash = tool.get("title").and_then(|t| t.as_str()).map(|t| {
+                use sha2::{Digest, Sha256};
+                let mut h = Sha256::new();
+                h.update(t.as_bytes());
+                hex::encode(h.finalize())
+            });
 
-                // Hash the title if present (MCP 2025-06-18)
-                let title_hash = tool.get("title").and_then(|t| t.as_str()).map(|t| {
-                    let mut h = Sha256::new();
-                    h.update(t.as_bytes());
-                    hex::encode(h.finalize())
-                });
+            // Snapshot annotations if present
+            let annotations = tool.get("annotations").and_then(|a| {
+                let ann = ManifestAnnotations {
+                    read_only_hint: a.get("readOnlyHint").and_then(|v| v.as_bool()),
+                    destructive_hint: a.get("destructiveHint").and_then(|v| v.as_bool()),
+                    idempotent_hint: a.get("idempotentHint").and_then(|v| v.as_bool()),
+                    open_world_hint: a.get("openWorldHint").and_then(|v| v.as_bool()),
+                };
+                // Only include if at least one field is set
+                if ann.read_only_hint.is_some()
+                    || ann.destructive_hint.is_some()
+                    || ann.idempotent_hint.is_some()
+                    || ann.open_world_hint.is_some()
+                {
+                    Some(ann)
+                } else {
+                    None
+                }
+            });
 
-                // Snapshot annotations if present
-                let annotations = tool.get("annotations").and_then(|a| {
-                    let ann = ManifestAnnotations {
-                        read_only_hint: a.get("readOnlyHint").and_then(|v| v.as_bool()),
-                        destructive_hint: a.get("destructiveHint").and_then(|v| v.as_bool()),
-                        idempotent_hint: a.get("idempotentHint").and_then(|v| v.as_bool()),
-                        open_world_hint: a.get("openWorldHint").and_then(|v| v.as_bool()),
-                    };
-                    // Only include if at least one field is set
-                    if ann.read_only_hint.is_some()
-                        || ann.destructive_hint.is_some()
-                        || ann.idempotent_hint.is_some()
-                        || ann.open_world_hint.is_some()
-                    {
-                        Some(ann)
-                    } else {
-                        None
-                    }
-                });
-
-                Some(ManifestToolEntry {
-                    name,
-                    input_schema_hash,
-                    description_hash,
-                    title_hash,
-                    annotations,
-                })
-            })
-            .collect();
+            entries.push(ManifestToolEntry {
+                name,
+                input_schema_hash,
+                description_hash,
+                title_hash,
+                annotations,
+            });
+        }
 
         // Sort by name for deterministic comparison
         entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -833,6 +836,80 @@ mod tests {
             .discrepancies
             .iter()
             .any(|d| d.contains("schema changed")));
+    }
+
+    #[test]
+    fn test_manifest_schema_hash_ignores_equivalent_key_order() {
+        let left = make_tools_list_response(&[(
+            "tool_a",
+            serde_json::json!({
+                "type": "object",
+                "required": ["path", "mode"],
+                "properties": {
+                    "path": {"type": "string"},
+                    "mode": {"type": "string"}
+                }
+            }),
+        )]);
+        let right = make_tools_list_response(&[(
+            "tool_a",
+            serde_json::json!({
+                "properties": {
+                    "mode": {"type": "string"},
+                    "path": {"type": "string"}
+                },
+                "required": ["mode", "path"],
+                "type": "object"
+            }),
+        )]);
+
+        let left_manifest = ToolManifest::from_tools_list(&left).unwrap();
+        let right_manifest = ToolManifest::from_tools_list(&right).unwrap();
+        assert_eq!(
+            left_manifest.tools[0].input_schema_hash,
+            right_manifest.tools[0].input_schema_hash
+        );
+    }
+
+    #[test]
+    fn test_manifest_schema_hash_inlines_local_refs() {
+        let referenced = make_tools_list_response(&[(
+            "tool_a",
+            serde_json::json!({
+                "$defs": {
+                    "Path": {"type": "string", "minLength": 1}
+                },
+                "type": "object",
+                "properties": {
+                    "path": {"$ref": "#/$defs/Path"}
+                }
+            }),
+        )]);
+        let inline = make_tools_list_response(&[(
+            "tool_a",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "minLength": 1}
+                }
+            }),
+        )]);
+
+        let referenced_manifest = ToolManifest::from_tools_list(&referenced).unwrap();
+        let inline_manifest = ToolManifest::from_tools_list(&inline).unwrap();
+        assert_eq!(
+            referenced_manifest.tools[0].input_schema_hash,
+            inline_manifest.tools[0].input_schema_hash
+        );
+    }
+
+    #[test]
+    fn test_manifest_rejects_external_schema_refs() {
+        let response = make_tools_list_response(&[(
+            "tool_a",
+            serde_json::json!({"$ref": "https://metadata.internal/schema.json"}),
+        )]);
+        assert!(ToolManifest::from_tools_list(&response).is_none());
     }
 
     #[test]

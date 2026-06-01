@@ -58,6 +58,7 @@ pub mod metering;
 pub mod policy_lifecycle;
 pub mod policy_rule;
 pub mod projector;
+pub mod schema_canonical;
 pub mod tool_registry;
 pub mod topology;
 pub mod zk_audit;
@@ -88,6 +89,10 @@ pub use supply_chain::{SupplyChainConfig, MAX_BINARY_SIZE};
 pub use manifest::{
     ManifestAnnotations, ManifestConfig, ManifestEnforcement, ManifestToolEntry,
     ManifestVerification, ToolManifest,
+};
+
+pub use schema_canonical::{
+    canonical_schema_bytes, canonical_schema_hash, manifest_input_schema_hash, SchemaCanonicalError,
 };
 
 pub use mcp_protocol::{

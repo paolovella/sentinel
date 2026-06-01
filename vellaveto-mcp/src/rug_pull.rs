@@ -21,9 +21,9 @@
 
 use crate::inspection::{scan_tool_descriptions, ToolDescriptionFinding};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use vellaveto_audit::AuditLogger;
+use vellaveto_config::{canonical_schema_hash, SchemaCanonicalError};
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::{Action, Verdict};
@@ -141,6 +141,11 @@ pub struct RugPullResult {
     pub tool_count: usize,
     /// Tool squatting alerts detected during analysis.
     pub squatting_alerts: Vec<SquattingAlert>,
+    /// Tools whose schema could not be canonicalized safely.
+    ///
+    /// External `$ref`, invalid pointers, cycles, and over-bound schemas are
+    /// treated as tool-integrity failures and flagged for blocking.
+    pub invalid_schema_tools: Vec<String>,
     /// Tool description injection findings (MCPTox defense).
     ///
     /// SECURITY: Tool descriptions are consumed by the LLM agent and represent
@@ -169,6 +174,7 @@ impl RugPullResult {
             .iter()
             .chain(self.new_tools.iter())
             .chain(self.removed_tools.iter())
+            .chain(self.invalid_schema_tools.iter())
             .map(|s| s.as_str())
             .chain(
                 self.squatting_alerts
@@ -185,6 +191,7 @@ impl RugPullResult {
         !self.changed_tools.is_empty()
             || !self.new_tools.is_empty()
             || !self.removed_tools.is_empty()
+            || !self.invalid_schema_tools.is_empty()
             || !self.squatting_alerts.is_empty()
             || !self.injection_findings.is_empty()
     }
@@ -217,25 +224,24 @@ pub fn parse_annotations(ann: &serde_json::Value) -> ToolAnnotations {
     }
 }
 
-/// Compute a SHA-256 hash of a JSON value's RFC 8785 canonical representation.
+/// Compute a SHA-256 hash of a schema's normalized canonical representation.
 ///
-/// SECURITY (R18-SCHEMA-1): Uses RFC 8785 (JCS) canonicalization instead of
-/// serde_json::to_string(). This ensures identical schemas from different JSON
-/// producers (which may serialize keys in different orders) produce the same
-/// hash, preventing false-positive rug-pull alerts.
+/// SECURITY (R18-SCHEMA-1): Uses the same canonicalizer as tool manifests:
+/// internal `$defs`/`$ref` are normalized, key order is deterministic, and
+/// external `$ref` is rejected by the fallible variant.
 ///
 /// Returns `None` if the value is `Null`.
 pub fn compute_schema_hash(schema: &serde_json::Value) -> Option<String> {
+    compute_schema_hash_result(schema).ok().flatten()
+}
+
+fn compute_schema_hash_result(
+    schema: &serde_json::Value,
+) -> Result<Option<String>, SchemaCanonicalError> {
     if schema.is_null() {
-        return None;
+        return Ok(None);
     }
-    // RFC 8785 canonical JSON serialization — key order is deterministic
-    let canonical = serde_json_canonicalizer::to_string(schema).ok()?;
-    let mut hasher = Sha256::new();
-    hasher.update(canonical.as_bytes());
-    let digest = hasher.finalize();
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    Some(hex)
+    canonical_schema_hash(schema).map(Some)
 }
 
 /// Analyze a `tools/list` response for rug-pull indicators.
@@ -288,7 +294,18 @@ pub fn detect_rug_pull(
 
         // Compute inputSchema hash for schema change detection (Phase 4C)
         if let Some(schema) = tool.get("inputSchema") {
-            annotations.input_schema_hash = compute_schema_hash(schema);
+            match compute_schema_hash_result(schema) {
+                Ok(hash) => annotations.input_schema_hash = hash,
+                Err(err) => {
+                    tracing::warn!(
+                        tool = %name,
+                        error = %err,
+                        "SECURITY: Tool inputSchema failed canonicalization"
+                    );
+                    result.invalid_schema_tools.push(name.clone());
+                    annotations.input_schema_hash = None;
+                }
+            }
         }
 
         // Annotation change detection (includes inputSchema hash via PartialEq)
@@ -400,6 +417,45 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
             .await
         {
             tracing::warn!("Failed to audit annotation change: {}", e);
+        }
+    }
+
+    if !result.invalid_schema_tools.is_empty() {
+        let action = Action::new(
+            "vellaveto",
+            "tool_schema_invalid",
+            json!({
+                "invalid_schema_tools": result.invalid_schema_tools,
+                "total_tools": result.tool_count,
+            }),
+        );
+        let verdict = Verdict::Deny {
+            reason: format!(
+                "Invalid tool schema(s): {}",
+                result.invalid_schema_tools.join(", ")
+            ),
+        };
+        let envelope = crate::mediation::build_secondary_acis_envelope(
+            &action,
+            &verdict,
+            DecisionOrigin::CapabilityEnforcement,
+            source,
+            None,
+        );
+        if let Err(e) = audit
+            .log_entry_with_acis(
+                &action,
+                &verdict,
+                json!({
+                    "source": source,
+                    "event": "tool_schema_invalid",
+                    "invalid_schema_tools": result.invalid_schema_tools,
+                }),
+                envelope,
+            )
+            .await
+        {
+            tracing::warn!("Failed to audit invalid schema detection: {}", e);
         }
     }
 
@@ -1041,6 +1097,48 @@ mod tests {
             h.chars().all(|c| c.is_ascii_hexdigit()),
             "Hash should be hex"
         );
+    }
+
+    #[test]
+    fn test_schema_hash_inlines_local_refs() {
+        let referenced = json!({
+            "$defs": {
+                "Path": {"type": "string", "minLength": 1}
+            },
+            "type": "object",
+            "properties": {
+                "path": {"$ref": "#/$defs/Path"}
+            }
+        });
+        let inline = json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "minLength": 1}
+            }
+        });
+
+        assert_eq!(
+            compute_schema_hash(&referenced),
+            compute_schema_hash(&inline)
+        );
+    }
+
+    #[test]
+    fn test_external_schema_ref_is_flagged() {
+        let response = json!({
+            "result": {
+                "tools": [{
+                    "name": "lookup",
+                    "inputSchema": {"$ref": "https://metadata.internal/schema.json"}
+                }]
+            }
+        });
+        let known = HashMap::new();
+        let result = detect_rug_pull(&response, &known, true);
+
+        assert!(result.has_detections());
+        assert_eq!(result.invalid_schema_tools, vec!["lookup"]);
+        assert_eq!(result.flagged_tool_names(), vec!["lookup"]);
     }
 
     // --- Unicode normalization tests ---

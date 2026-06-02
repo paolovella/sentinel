@@ -8,7 +8,7 @@
 #   docker run --rm vellaveto-bench
 #   docker run --rm -v $(pwd)/target:/app/target vellaveto-bench  # persist results
 
-FROM rust:1.95-alpine@sha256:606fd313a0f49743ee2a7bd49a0914bab7deedb12791f3a846a34a4711db7ed2 AS builder
+FROM rust:1.96-alpine@sha256:66f48b19d6e88519e2e58bebe0d945779a6a4ca41c2db17db78c9569655b50ac AS builder
 
 RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static perl make
 
@@ -51,7 +51,7 @@ RUN cargo build --release --workspace && \
     cargo bench --workspace --no-run
 
 # Runtime stage — just run benchmarks
-FROM rust:1.95-alpine@sha256:606fd313a0f49743ee2a7bd49a0914bab7deedb12791f3a846a34a4711db7ed2
+FROM rust:1.96-alpine@sha256:66f48b19d6e88519e2e58bebe0d945779a6a4ca41c2db17db78c9569655b50ac
 
 RUN apk add --no-cache bash bc jq
 

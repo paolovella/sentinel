@@ -22,6 +22,14 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+      - name: Install dependency monitor tools
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo install cargo-deny --version 0.19.8 --locked
+          cargo install cargo-vet --version 0.10.2 --locked
       - name: Run dependency monitor
         run: |
           chmod +x scripts/run-dependency-monitor.sh

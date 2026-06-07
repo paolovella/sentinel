@@ -15,6 +15,7 @@ use chacha20poly1305::{
 };
 use rand::Rng;
 use std::path::PathBuf;
+use zeroize::Zeroize;
 
 /// File format version byte.
 const FORMAT_VERSION: u8 = 1;
@@ -311,11 +312,8 @@ impl std::fmt::Debug for EncryptedAuditStore {
 
 impl Drop for EncryptedAuditStore {
     fn drop(&mut self) {
-        // SECURITY (R256-SHIELD-1): Use write_volatile to prevent the compiler
-        // from optimizing away the key zeroization. Plain fill(0) can be elided
-        // by the optimizer since the value is never read after the write.
-        self.key
-            .iter_mut()
-            .for_each(|b| unsafe { std::ptr::write_volatile(b, 0) });
+        // SECURITY (R256-SHIELD-1): zeroize avoids optimizer-elided key clearing
+        // without requiring manual unsafe volatile writes in this crate.
+        self.key.zeroize();
     }
 }

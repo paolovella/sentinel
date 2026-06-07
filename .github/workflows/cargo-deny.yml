@@ -35,8 +35,11 @@ jobs:
       - name: Verify lockfile
         run: cargo metadata --locked --format-version=1 > /dev/null
 
+      - name: Check duplicate crate baseline
+        run: bash scripts/check-cargo-duplicates.sh
+
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+        run: cargo install cargo-deny --version 0.19.8 --locked
 
       - name: Run cargo-deny checks
-        run: cargo deny --locked check advisories bans sources licenses
+        run: cargo deny --locked check -A duplicate advisories bans sources licenses

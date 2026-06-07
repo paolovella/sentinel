@@ -24,6 +24,7 @@ on:
       - "vellaveto-http-proxy/**"
       - "vellaveto-tls/**"
       - ".github/workflows/docker-publish.yml"
+      - "scripts/check-docker-defaults.sh"
   pull_request:
     branches: [main]
     paths:
@@ -45,6 +46,7 @@ on:
       - "vellaveto-http-proxy/**"
       - "vellaveto-tls/**"
       - ".github/workflows/docker-publish.yml"
+      - "scripts/check-docker-defaults.sh"
   workflow_dispatch:
 
 permissions:
@@ -78,6 +80,12 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Check Docker secure defaults
+        run: bash scripts/check-docker-defaults.sh
+
+      - name: Check Dockerfile syntax
+        run: docker build --check .
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'

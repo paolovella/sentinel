@@ -136,6 +136,31 @@ paths:
               schema:
                 type: string
 
+  /api/metrics:
+    get:
+      operationId: getMetricsJson
+      summary: JSON operational metrics
+      description: Returns uptime, evaluation counters, loaded policy count, and scanner availability.
+      tags: [Health]
+      responses:
+        "200":
+          description: JSON metrics payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uptime_seconds:
+                    type: integer
+                  policies_loaded:
+                    type: integer
+                  evaluations:
+                    type: object
+                    additionalProperties: true
+                  scanning:
+                    type: object
+                    additionalProperties: true
+
   # ═══════════════════════════════════════════════════════════════════════════
   # EVALUATION
   # ═══════════════════════════════════════════════════════════════════════════
@@ -577,6 +602,43 @@ paths:
         "200":
           description: Chain integrity result
 
+  /api/audit/otel-spans:
+    get:
+      operationId: getAuditOtelSpans
+      summary: Export audit entries as OpenTelemetry-compatible spans
+      description: |
+        Returns recent audit activity converted to OTel-compatible span records.
+        The current implementation returns an empty span set until the audit
+        query backend is connected.
+      tags: [Audit]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Maximum number of spans to return.
+      responses:
+        "200":
+          description: OTel span export payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spans:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  count:
+                    type: integer
+                  limit:
+                    type: integer
+                  note:
+                    type: string
+
   /api/audit/search:
     get:
       operationId: searchAudit
@@ -785,6 +847,84 @@ paths:
       responses:
         "200":
           description: Evidence pack
+
+  /api/compliance/annex-iv:
+    get:
+      operationId: getAnnexIvPackage
+      summary: EU AI Act Annex IV technical documentation package
+      tags: [Compliance]
+      responses:
+        "200":
+          description: Annex IV documentation package
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/compliance/incident-report:
+    post:
+      operationId: createComplianceIncidentReport
+      summary: Create a compliance incident report
+      tags: [Compliance]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Incident report
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/compliance/fria:
+    get:
+      operationId: getFriaExport
+      summary: Fundamental Rights Impact Assessment data export
+      description: Returns structured FRIA data for EU AI Act Article 27 deployer workflows.
+      tags: [Compliance]
+      responses:
+        "200":
+          description: FRIA export package
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at:
+                    type: string
+                    format: date-time
+                  system_id:
+                    type: string
+                  scope:
+                    type: object
+                    additionalProperties: true
+                  controls:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  monitoring:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  data_protection:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  oversight:
+                    type: object
+                    additionalProperties: true
 
   # ═══════════════════════════════════════════════════════════════════════════
   # TENANTS
@@ -1789,6 +1929,24 @@ paths:
                     type: array
                     items:
                       type: object
+
+  /api/inventory/assets:
+    get:
+      operationId: inventoryAssets
+      summary: Get canonical AI asset inventory
+      description: Returns the canonical `AiAssetInventory` representation for interoperability.
+      tags: [Inventory]
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Canonical AI asset inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 
   # ═══════════════════════════════════════════════════════════════════════════
   # AUTH (M2M)

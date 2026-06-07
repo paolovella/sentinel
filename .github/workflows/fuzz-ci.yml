@@ -81,7 +81,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: cargo install cargo-fuzz --version 0.13.1 --locked
 
       - name: "Run fuzzer: ${{ matrix.target }}"
         working-directory: fuzz

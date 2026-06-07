@@ -4,11 +4,11 @@
 # Vellaveto Multi-Stage Dockerfile
 # Builds optimized production binaries for the MCP firewall
 #
-# Zero-config usage (deny-by-default policy baked in):
-#   docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
+# Authenticated usage (deny-by-default policy baked in):
+#   docker run -p 3000:3000 -e VELLAVETO_API_KEY=your-secret-key ghcr.io/paolovella/vellaveto:latest
 #
 # With custom policy:
-#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
+#   docker run -p 3000:3000 -e VELLAVETO_API_KEY=your-secret-key -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
 
 # Build stage: Compile Rust binaries with musl for static linking
 FROM rust:1.96-alpine@sha256:66f48b19d6e88519e2e58bebe0d945779a6a4ca41c2db17db78c9569655b50ac AS builder
@@ -178,6 +178,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
-# Default: serve with baked-in policy, bind all interfaces, allow anonymous access
+# Default: serve with baked-in policy and require VELLAVETO_API_KEY.
 ENTRYPOINT ["vellaveto"]
-CMD ["serve", "--config", "/etc/vellaveto/config.toml", "--bind", "0.0.0.0", "--allow-anonymous"]
+CMD ["serve", "--config", "/etc/vellaveto/config.toml", "--bind", "0.0.0.0"]

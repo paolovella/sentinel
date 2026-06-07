@@ -31,14 +31,21 @@ jobs:
           components: clippy
 
       - name: Install required cargo tools
-        run: cargo install clippy-sarif sarif-fmt
+        run: |
+          cargo install clippy-sarif --version 0.8.0 --locked
+          cargo install sarif-fmt --version 0.8.0 --locked
 
       - name: Run rust-clippy
-        run:
-          cargo clippy
-          --all-features
-          --message-format=json
-          -- -A clippy::uninlined_format_args | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        id: clippy
+        run: |
+          set -o pipefail
+          cargo clippy \
+            --workspace \
+            --all-targets \
+            --locked \
+            --message-format=json \
+            -- -D warnings -D unsafe-code -A clippy::uninlined_format_args -A clippy::field_reassign_with_default -A clippy::const_is_empty -A clippy::unnecessary_literal_unwrap -A clippy::assertions_on_constants \
+            | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
 
       - name: Upload analysis results to GitHub
@@ -46,3 +53,7 @@ jobs:
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
+
+      - name: Fail on clippy policy violations
+        if: steps.clippy.outcome == 'failure'
+        run: exit 1

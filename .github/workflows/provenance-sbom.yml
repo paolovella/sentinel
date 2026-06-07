@@ -81,7 +81,8 @@ jobs:
           for artifact in \
             target/release/vellaveto \
             target/release/vellaveto-proxy \
-            target/release/vellaveto-http-proxy; do
+            target/release/vellaveto-http-proxy \
+            target/release/vellaveto-shield; do
             if [ ! -f "$artifact" ]; then
               echo "::error::Expected build artifact missing: $artifact"
               exit 1

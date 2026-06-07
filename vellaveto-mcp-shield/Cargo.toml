@@ -29,6 +29,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
 ed25519-dalek = { workspace = true }
+zeroize = "1.8"
 
 [features]
 zk-audit = ["vellaveto-audit/zk-audit"]

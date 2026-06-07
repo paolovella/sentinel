@@ -18,10 +18,12 @@ spec:
         {{- range .Values.networkPolicy.allowedNamespaces }}
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ . }}
+              kubernetes.io/metadata.name: {{ . | quote }}
         {{- end }}
+        {{- else if .Values.networkPolicy.allowAllNamespaces }}
+        - {} # Explicitly allow from all namespaces.
         {{- else }}
-        - {} # Allow from all namespaces by default
+        - podSelector: {} # Default: same namespace only.
         {{- end }}
       ports:
         - protocol: TCP

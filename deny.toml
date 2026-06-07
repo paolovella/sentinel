@@ -97,11 +97,9 @@ allow = [
   "Unlicense",
   "Zlib",
   # Special-purpose licenses for specific dependency domains
-  "OpenSSL",
   "CDLA-Permissive-2.0",
   # Unicode licenses (required by unicode-ident, icu4x, and related crates)
   "Unicode-3.0",
-  "Unicode-DFS-2016",
 ]
 # Crates whose license could not be auto-detected. Each entry requires a
 # manual review confirming the license is acceptable.

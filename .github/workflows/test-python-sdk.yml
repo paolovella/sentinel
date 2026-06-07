@@ -6,9 +6,11 @@ on:
     branches: [main]
     paths:
       - "sdk/python/**"
+      - "scripts/check-python-package.sh"
   pull_request:
     paths:
       - "sdk/python/**"
+      - "scripts/check-python-package.sh"
 
 permissions:
   contents: read
@@ -54,3 +56,12 @@ jobs:
         if: matrix.python-version == '3.12'
         working-directory: sdk/python
         run: python -m ruff check --select E9,F vellaveto
+
+      - name: Install build tools
+        if: matrix.python-version == '3.12'
+        working-directory: sdk/python
+        run: pip install --require-hashes --no-deps -r requirements-build.txt
+
+      - name: Check Python package contract
+        if: matrix.python-version == '3.12'
+        run: bash scripts/check-python-package.sh sdk/python

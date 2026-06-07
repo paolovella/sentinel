@@ -39,14 +39,16 @@ helm install vellaveto helm/vellaveto/ -f my-values.yaml
 |-----------|---------|-------------|
 | `replicaCount` | `1` | Number of replicas |
 | `image.repository` | `ghcr.io/paolovella/vellaveto` | Container image |
-| `image.tag` | `6.0.0` | Image tag |
+| `image.tag` | `Chart appVersion` | Image tag |
 | `service.type` | `ClusterIP` | Service type |
 | `service.port` | `3000` | Service port |
 | `ingress.enabled` | `false` | Enable ingress |
 | `resources.limits.cpu` | `500m` | CPU limit |
 | `resources.limits.memory` | `128Mi` | Memory limit |
 | `autoscaling.enabled` | `false` | Enable HPA |
-| `networkPolicy.enabled` | `false` | Enable NetworkPolicy |
+| `networkPolicy.enabled` | `true` | Enable NetworkPolicy |
+| `networkPolicy.allowedNamespaces` | `[]` | Namespaces allowed to reach Vellaveto; empty means same namespace only |
+| `networkPolicy.allowAllNamespaces` | `false` | Explicitly allow ingress from all namespaces |
 
 ## Security
 

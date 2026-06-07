@@ -74,6 +74,24 @@ jobs:
           cargo metadata --locked --format-version=1 > /dev/null
           git diff --exit-code -- Cargo.lock
 
+      - name: Check cargo install pins
+        run: bash scripts/check-cargo-install-pins.sh
+
+      - name: Check Docker secure defaults
+        run: bash scripts/check-docker-defaults.sh
+
+      - name: Check duplicate crate baseline
+        run: bash scripts/check-cargo-duplicates.sh
+
+      - name: Check OpenAPI route coverage
+        run: bash scripts/check-openapi-routes.sh
+
+      - name: Install cargo-vet
+        run: cargo install cargo-vet --version 0.10.2 --locked
+
+      - name: Run cargo-vet policy
+        run: cargo vet --locked
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -81,7 +99,7 @@ jobs:
         run: cargo check --workspace --all-targets --locked
 
       - name: Clippy (warnings = errors)
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings -D unsafe-code -A clippy::uninlined_format_args -A clippy::field_reassign_with_default -A clippy::const_is_empty -A clippy::unnecessary_literal_unwrap -A clippy::assertions_on_constants
         env:
           RUSTFLAGS: -Dwarnings
 
@@ -226,9 +244,52 @@ jobs:
   # ──────────────────────────────────────────────
   # Phase 3: Publish to registries (parallel, idempotent)
   # ──────────────────────────────────────────────
+  validate-npm:
+    name: "Validate npm package (${{ matrix.name }})"
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: TypeScript SDK
+            directory: sdk/typescript
+            test_script: test
+          - name: create-vellaveto
+            directory: packages/create-vellaveto
+            test_script: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.directory }}
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        working-directory: ${{ matrix.directory }}
+        run: npm run build
+
+      - name: Check npm package contract
+        working-directory: ${{ matrix.directory }}
+        run: bash ../../scripts/check-npm-package.sh .
+
+      - name: Test
+        if: matrix.test_script != ''
+        working-directory: ${{ matrix.directory }}
+        run: npm run ${{ matrix.test_script }}
+
   publish-npm:
     name: Publish npm packages
-    needs: preflight
+    needs: validate-npm
     if: inputs.dry_run == false
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -254,6 +315,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm run build
+          bash ../../scripts/check-npm-package.sh .
           EXISTING=$(npm view @vellaveto-sdk/typescript@${{ inputs.version }} version 2>/dev/null || echo "")
           if [ "$EXISTING" = "${{ inputs.version }}" ]; then
             echo "::notice::@vellaveto-sdk/typescript@${{ inputs.version }} already published — skipping"
@@ -268,6 +330,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm run build
+          bash ../../scripts/check-npm-package.sh .
           EXISTING=$(npm view create-vellaveto@${{ inputs.version }} version 2>/dev/null || echo "")
           if [ "$EXISTING" = "${{ inputs.version }}" ]; then
             echo "::notice::create-vellaveto@${{ inputs.version }} already published — skipping"
@@ -309,11 +372,17 @@ jobs:
           ")
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
-      - name: Build and publish
+      - name: Install build tools
         if: steps.check.outputs.status == 'new'
-        run: |
-          python -m pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
-          cd sdk/python && python -m build
+        run: python -m pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
+
+      - name: Check Python package contract
+        if: steps.check.outputs.status == 'new'
+        run: bash scripts/check-python-package.sh sdk/python
+
+      - name: Build package
+        if: steps.check.outputs.status == 'new'
+        run: cd sdk/python && python -m build --no-isolation
 
       - name: Upload to PyPI
         if: steps.check.outputs.status == 'new'
@@ -487,6 +556,29 @@ jobs:
             target/release/vellaveto-http-proxy
             target/release/vellaveto-shield
 
+      - name: Verify provenance attestations
+        if: ${{ github.event.repository.private == false || vars.ENABLE_ATTESTATIONS == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for artifact in \
+            target/release/vellaveto \
+            target/release/vellaveto-proxy \
+            target/release/vellaveto-http-proxy \
+            target/release/vellaveto-shield; do
+            if [ ! -f "$artifact" ]; then
+              echo "::error::Expected build artifact missing: $artifact"
+              exit 1
+            fi
+            gh attestation verify "$artifact" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml" \
+              --source-ref "${GITHUB_REF}" \
+              --deny-self-hosted-runners \
+              >/dev/null
+          done
+
   # ──────────────────────────────────────────────
   # Phase 5: Tag + GitHub Release (LAST — only after everything succeeds)
   # ──────────────────────────────────────────────
@@ -564,7 +656,7 @@ jobs:
   # ──────────────────────────────────────────────
   dry-run-summary:
     name: Dry Run Summary
-    needs: [preflight, build]
+    needs: [preflight, build, validate-npm]
     if: inputs.dry_run == true
     runs-on: ubuntu-latest
     steps:
@@ -573,7 +665,7 @@ jobs:
           {
             echo "## Dry Run Complete"
             echo ""
-            echo "Version **${{ inputs.version }}** passed all pre-flight checks and built successfully on 4 platforms."
+            echo "Version **${{ inputs.version }}** passed all pre-flight checks, npm package validation, and built successfully on 4 platforms."
             echo ""
             echo "To publish for real:"
             echo '```'

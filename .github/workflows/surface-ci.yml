@@ -13,6 +13,7 @@ on:
       - "terraform-provider-vellaveto/**"
       - "vscode-vellaveto/**"
       - ".github/workflows/surface-ci.yml"
+      - "scripts/check-helm-secure-defaults.sh"
   pull_request:
     paths:
       - "admin-console/**"
@@ -23,6 +24,7 @@ on:
       - "terraform-provider-vellaveto/**"
       - "vscode-vellaveto/**"
       - ".github/workflows/surface-ci.yml"
+      - "scripts/check-helm-secure-defaults.sh"
 
 permissions:
   contents: read
@@ -79,7 +81,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.directory }}
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Lint
         if: matrix.lint_script != ''
@@ -108,8 +110,8 @@ jobs:
       - name: Lint chart
         run: helm lint helm/vellaveto
 
-      - name: Render chart
-        run: helm template vellaveto helm/vellaveto > /tmp/vellaveto-rendered.yaml
+      - name: Validate secure chart renders
+        run: bash scripts/check-helm-secure-defaults.sh
 
   terraform-provider:
     name: Terraform Provider

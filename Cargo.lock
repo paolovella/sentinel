@@ -5992,6 +5992,7 @@ dependencies = [
  "vellaveto-audit",
  "vellaveto-config",
  "vellaveto-types",
+ "zeroize",
 ]
 
 [[package]]

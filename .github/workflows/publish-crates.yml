@@ -37,6 +37,17 @@ jobs:
       - name: Run tests before publish
         run: cargo test --workspace --locked
 
+      - name: Check version alignment
+        run: scripts/check-versions.sh
+
+      - name: Guard real publish ref
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "::error::Non-dry-run crates.io publishing must run from a version tag (refs/tags/v*). Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
       - name: Publish crates (dependency order)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

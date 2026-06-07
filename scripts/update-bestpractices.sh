@@ -227,7 +227,7 @@ FIELDS=(
   "build_repeatable_status|Met|Cargo.lock committed, --locked enforced in CI. cargo metadata --locked gate rejects drift.|silver"
   "installation_standard_variables_status|N/A|Cargo handles installation paths. Docker and Helm chart use standard conventions.|silver"
   "installation_development_quick_status|Met|Three commands: git clone, cargo check --workspace, cargo test --workspace. Documented in CONTRIBUTING.md.|silver"
-  "external_dependencies_status|Met|cargo-vet audits all dependencies. cargo-deny checks advisories/bans/licenses. Dependabot monitors updates.|silver"
+  "external_dependencies_status|Met|cargo-vet enforces an in-tree dependency review baseline with explicit exemptions/audits. cargo-deny checks advisories/bans/licenses. Dependabot monitors updates.|silver"
   "dependency_monitoring_status|Met|Dependabot configured for Cargo and GitHub Actions. cargo-audit in CI. Supply chain audit on every push.|silver"
   "updateable_reused_components_status|Met|Cargo.lock plus cargo update for dependency updates. Workspace dependencies in root Cargo.toml.|silver"
   "interfaces_current_status|Met|OpenAPI 3.0 spec (docs/openapi.yaml, 135+ endpoints) kept current with implementation.|silver"

@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - "sdk/typescript/**"
+      - "scripts/check-npm-package.sh"
   pull_request:
     paths:
       - "sdk/typescript/**"
+      - "scripts/check-npm-package.sh"
 
 permissions:
   contents: read
@@ -42,6 +44,10 @@ jobs:
       - name: Build
         working-directory: sdk/typescript
         run: npm run build
+
+      - name: Check npm package contract
+        working-directory: sdk/typescript
+        run: bash ../../scripts/check-npm-package.sh .
 
       - name: Test
         working-directory: sdk/typescript

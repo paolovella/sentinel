@@ -29,6 +29,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  MIN_LINE_COVERAGE: 80
 
 jobs:
   coverage:
@@ -52,13 +53,13 @@ jobs:
           cache-targets: false
 
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked
+        run: cargo install cargo-llvm-cov --version 0.8.7 --locked
 
       - name: Generate coverage
-        run: cargo +nightly llvm-cov --workspace --locked --lcov --output-path lcov.info
+        run: cargo +nightly llvm-cov --workspace --locked --lcov --output-path lcov.info --fail-under-lines "$MIN_LINE_COVERAGE"
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         with:
           files: lcov.info
-          fail_ci_if_error: false
+          fail_ci_if_error: true

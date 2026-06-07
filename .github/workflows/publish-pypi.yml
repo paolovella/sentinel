@@ -69,10 +69,13 @@ jobs:
       - name: Install build tools
         run: pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
 
+      - name: Check Python package contract
+        run: bash scripts/check-python-package.sh sdk/python
+
       - name: Build package
         run: |
           cd sdk/python
-          python -m build
+          python -m build --no-isolation
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0

@@ -87,6 +87,9 @@ networkPolicy:
   enabled: true
   # Namespaces allowed to reach Vellaveto (empty = own namespace only)
   allowedNamespaces: []
+  # Explicitly allow ingress from every namespace.
+  # SECURITY: keep false unless the cluster uses a separate policy layer.
+  allowAllNamespaces: false
   # CIDRs allowed for egress (e.g., external APIs)
   allowedEgressCIDRs: []
 

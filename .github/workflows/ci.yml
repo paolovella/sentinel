@@ -100,6 +100,18 @@ jobs:
       - name: Shellcheck install.sh
         run: shellcheck --shell=sh --severity=warning scripts/install.sh
 
+      - name: Shellcheck quality scripts
+        run: |
+          shellcheck --shell=bash --severity=warning \
+            scripts/check-cargo-install-pins.sh \
+            scripts/check-cargo-duplicates.sh \
+            scripts/check-docker-defaults.sh \
+            scripts/check-helm-secure-defaults.sh \
+            scripts/check-npm-package.sh \
+            scripts/check-openapi-routes.sh \
+            scripts/check-python-package.sh \
+            scripts/run-dependency-monitor.sh
+
       - name: Format
         run: cargo fmt --all -- --check
 
@@ -107,6 +119,15 @@ jobs:
         run: |
           cargo metadata --locked --format-version=1 > /dev/null
           git diff --exit-code -- Cargo.lock
+
+      - name: Check cargo install pins
+        run: bash scripts/check-cargo-install-pins.sh
+
+      - name: Check Docker secure defaults
+        run: bash scripts/check-docker-defaults.sh
+
+      - name: Check duplicate crate baseline
+        run: bash scripts/check-cargo-duplicates.sh
 
       - name: Guard zk-audit feature stays opt-in
         run: |
@@ -120,7 +141,7 @@ jobs:
         run: cargo check --workspace --all-targets --locked
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::uninlined_format_args -A clippy::field_reassign_with_default -A clippy::const_is_empty -A clippy::unnecessary_literal_unwrap -A clippy::assertions_on_constants
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings -D unsafe-code -A clippy::uninlined_format_args -A clippy::field_reassign_with_default -A clippy::const_is_empty -A clippy::unnecessary_literal_unwrap -A clippy::assertions_on_constants
 
       - name: Reject unwrap()/expect() in library code
         run: |
@@ -186,6 +207,9 @@ jobs:
             echo "$MISSING"
             exit 1
           fi
+
+      - name: Check OpenAPI route coverage
+        run: bash scripts/check-openapi-routes.sh
 
   # ───────────────────────────────────────────────────────
   # 2. Vellaveto types contract gate
@@ -362,7 +386,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: cargo install cargo-fuzz --version 0.13.1 --locked
 
       - name: Check fuzz targets compile
         working-directory: fuzz
@@ -487,7 +511,7 @@ jobs:
           done
 
   # ───────────────────────────────────────────────────────
-  # 8. Supply chain audit (cargo-vet with cargo-deny fallback)
+  # 8. Supply chain audit (cargo-vet policy)
   # ───────────────────────────────────────────────────────
   supply-chain-audit:
     name: Supply Chain Audit (cargo-vet)
@@ -506,17 +530,10 @@ jobs:
           cache-on-failure: true
 
       - name: Install cargo-vet
-        run: cargo install cargo-vet --locked
+        run: cargo install cargo-vet --version 0.10.2 --locked
 
-      - name: Run supply chain audit
-        run: |
-          if [ ! -f supply-chain/config.toml ] || [ ! -f supply-chain/audits.toml ]; then
-            echo "No cargo-vet policy found at supply-chain/{config,audits}.toml; falling back to cargo-deny."
-            cargo install cargo-deny --locked
-            cargo deny --locked check advisories bans sources licenses
-            exit 0
-          fi
-          cargo vet --locked
+      - name: Run cargo-vet policy
+        run: cargo vet --locked
 
   # ───────────────────────────────────────────────────────
   # 9. Semver compatibility check (PR only)
@@ -575,7 +592,7 @@ jobs:
 
       - name: Install cargo-semver-checks
         if: steps.semver_changes.outputs.run_semver == 'true'
-        run: cargo install cargo-semver-checks --locked
+        run: cargo install cargo-semver-checks --version 0.48.0 --locked
 
       - name: Check for semver violations
         if: steps.semver_changes.outputs.run_semver == 'true'

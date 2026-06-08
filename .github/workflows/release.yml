@@ -144,6 +144,7 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
+            cross: false
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
@@ -151,9 +152,11 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-15-intel
             archive: tar.gz
+            cross: false
           - target: aarch64-apple-darwin
             os: macos-15
             archive: tar.gz
+            cross: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -166,13 +169,13 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install musl tools (Linux x86_64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
         run: |
           sudo apt-get update && sudo apt-get install -y musl-tools
           rustup target add x86_64-unknown-linux-musl
 
       - name: Install cross-compilation tools (Linux aarch64)
-        if: matrix.cross
+        if: ${{ matrix.cross }}
         # SECURITY (R257-CI-1): Pin cross to a specific version from crates.io
         # to prevent supply-chain attacks via unpinned git installs.
         run: cargo install cross --version 0.2.5 --locked
@@ -183,11 +186,11 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build release binaries (native)
-        if: "!matrix.cross"
+        if: ${{ !matrix.cross }}
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Build release binaries (cross)
-        if: matrix.cross
+        if: ${{ matrix.cross }}
         run: cross build --release --locked --target ${{ matrix.target }}
 
       - name: Validate release binaries
@@ -201,14 +204,14 @@ jobs:
           done
 
       - name: Strip binaries (Linux)
-        if: contains(matrix.target, 'linux') && !matrix.cross
+        if: ${{ contains(matrix.target, 'linux') && !matrix.cross }}
         run: |
           for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
             strip "target/${{ matrix.target }}/release/$bin" 2>/dev/null || true
           done
 
       - name: Strip binaries (Linux cross)
-        if: matrix.cross
+        if: ${{ matrix.cross }}
         run: |
           sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
           for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
@@ -216,7 +219,7 @@ jobs:
           done
 
       - name: Strip binaries (macOS)
-        if: contains(matrix.target, 'apple')
+        if: ${{ contains(matrix.target, 'apple') }}
         run: |
           for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
             strip "target/${{ matrix.target }}/release/$bin" 2>/dev/null || true
@@ -283,14 +286,14 @@ jobs:
         run: bash ../../scripts/check-npm-package.sh .
 
       - name: Test
-        if: matrix.test_script != ''
+        if: ${{ matrix.test_script != '' }}
         working-directory: ${{ matrix.directory }}
         run: npm run ${{ matrix.test_script }}
 
   publish-npm:
     name: Publish npm packages
     needs: validate-npm
-    if: inputs.dry_run == false
+    if: ${{ inputs.dry_run == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -341,7 +344,7 @@ jobs:
   publish-pypi:
     name: Publish Python SDK
     needs: preflight
-    if: inputs.dry_run == false
+    if: ${{ inputs.dry_run == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -373,31 +376,31 @@ jobs:
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
       - name: Install build tools
-        if: steps.check.outputs.status == 'new'
+        if: ${{ steps.check.outputs.status == 'new' }}
         run: python -m pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
 
       - name: Check Python package contract
-        if: steps.check.outputs.status == 'new'
+        if: ${{ steps.check.outputs.status == 'new' }}
         run: bash scripts/check-python-package.sh sdk/python
 
       - name: Build package
-        if: steps.check.outputs.status == 'new'
+        if: ${{ steps.check.outputs.status == 'new' }}
         run: cd sdk/python && python -m build --no-isolation
 
       - name: Upload to PyPI
-        if: steps.check.outputs.status == 'new'
+        if: ${{ steps.check.outputs.status == 'new' }}
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           packages-dir: sdk/python/dist/
 
       - name: Skip (already published)
-        if: steps.check.outputs.status == 'exists'
+        if: ${{ steps.check.outputs.status == 'exists' }}
         run: echo "::notice::vellaveto-sdk ${{ inputs.version }} already on PyPI — skipping"
 
   publish-maven:
     name: Publish Java SDK
     needs: preflight
-    if: inputs.dry_run == false
+    if: ${{ inputs.dry_run == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -431,7 +434,7 @@ jobs:
           fi
 
       - name: Publish to Maven Central
-        if: steps.check.outputs.status == 'new'
+        if: ${{ steps.check.outputs.status == 'new' }}
         working-directory: sdk/java
         run: mvn deploy -B -Prelease -DskipTests
         env:
@@ -440,13 +443,13 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
       - name: Skip (already published)
-        if: steps.check.outputs.status == 'exists'
+        if: ${{ steps.check.outputs.status == 'exists' }}
         run: echo "::notice::vellaveto-java-sdk ${{ inputs.version }} already on Maven Central — skipping"
 
   publish-docker:
     name: Publish Docker image
     needs: preflight
-    if: inputs.dry_run == false
+    if: ${{ inputs.dry_run == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     permissions:
@@ -585,7 +588,7 @@ jobs:
   tag-and-release:
     name: Create Tag & GitHub Release
     needs: [build, publish-npm, publish-pypi, publish-maven, publish-docker, provenance-sbom]
-    if: inputs.dry_run == false
+    if: ${{ inputs.dry_run == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -657,7 +660,7 @@ jobs:
   dry-run-summary:
     name: Dry Run Summary
     needs: [preflight, build, validate-npm]
-    if: inputs.dry_run == true
+    if: ${{ inputs.dry_run == true }}
     runs-on: ubuntu-latest
     steps:
       - name: Summary

@@ -4948,6 +4948,7 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
         deny_replay = true
         block_tainted_privileged_sinks = true
         require_lineage_for_privileged_sinks = true
+        containment_mode = "require_approval"
 
         [[acis.trusted_request_signers]]
         key_id = "client-key-1"
@@ -4976,6 +4977,10 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
     assert!(config.acis.deny_replay);
     assert!(config.acis.block_tainted_privileged_sinks);
     assert!(config.acis.require_lineage_for_privileged_sinks);
+    assert_eq!(
+        config.acis.containment_mode,
+        Some(vellaveto_types::ContainmentMode::RequireApproval)
+    );
     assert_eq!(config.acis.trusted_request_signers.len(), 1);
     assert_eq!(
         config.acis.trusted_request_signers[0].key_id,

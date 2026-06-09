@@ -101,6 +101,8 @@ pub struct MediationConfig {
     pub block_tainted_privileged_sinks: bool,
     /// Require lineage references before privileged sinks may proceed.
     pub require_lineage_for_privileged_sinks: bool,
+    /// Default containment mode when the runtime context does not specify one.
+    pub containment_mode: Option<ContainmentMode>,
 }
 
 impl Default for MediationConfig {
@@ -120,6 +122,7 @@ impl Default for MediationConfig {
             deny_replay: false,
             block_tainted_privileged_sinks: false,
             require_lineage_for_privileged_sinks: false,
+            containment_mode: None,
         }
     }
 }
@@ -661,6 +664,9 @@ fn semantic_containment_verdict(
     security_context: Option<&mut RuntimeSecurityContext>,
 ) -> Option<(Verdict, DecisionOrigin)> {
     let security_context = security_context?;
+    if security_context.containment_mode.is_none() {
+        security_context.containment_mode = config.containment_mode;
+    }
     let sink_class = security_context.sink_class?;
     let derived_risk_score = security_context.recommended_semantic_risk_score_for_sink(sink_class);
     let counterfactual_score =
@@ -690,6 +696,9 @@ fn semantic_containment_verdict(
             .containment_mode
             .unwrap_or(ContainmentMode::Enforce)
         {
+            ContainmentMode::Observe => {
+                return None;
+            }
             ContainmentMode::RequireApproval => Verdict::RequireApproval {
                 reason: format!(
                     "privileged sink requires approval for lineage trust below {:?}",
@@ -730,6 +739,9 @@ fn semantic_containment_verdict(
             .containment_mode
             .unwrap_or(ContainmentMode::Quarantine)
         {
+            ContainmentMode::Observe => {
+                return None;
+            }
             ContainmentMode::RequireApproval => Verdict::RequireApproval {
                 reason: if counterfactual_gate {
                     "counterfactual review required: quarantined context appears causally necessary for privileged sink".to_string()
@@ -744,16 +756,15 @@ fn semantic_containment_verdict(
                     "quarantined context requires sanitization before privileged sink".to_string()
                 },
             },
-            ContainmentMode::Disabled
-            | ContainmentMode::Observe
-            | ContainmentMode::Quarantine
-            | ContainmentMode::Enforce => Verdict::Deny {
-                reason: if counterfactual_gate {
-                    "quarantined context appears causally necessary and cannot drive privileged sink".to_string()
-                } else {
-                    "quarantined context cannot drive privileged sink".to_string()
-                },
-            },
+            ContainmentMode::Disabled | ContainmentMode::Quarantine | ContainmentMode::Enforce => {
+                Verdict::Deny {
+                    reason: if counterfactual_gate {
+                        "quarantined context appears causally necessary and cannot drive privileged sink".to_string()
+                    } else {
+                        "quarantined context cannot drive privileged sink".to_string()
+                    },
+                }
+            }
         };
         return Some((verdict, DecisionOrigin::SemanticContainment));
     }
@@ -772,6 +783,9 @@ fn semantic_containment_verdict(
             .containment_mode
             .unwrap_or(ContainmentMode::Enforce)
         {
+            ContainmentMode::Observe => {
+                return None;
+            }
             ContainmentMode::RequireApproval => Verdict::RequireApproval {
                 reason: if counterfactual_gate {
                     "counterfactual review required: tainted context appears causally necessary for privileged sink".to_string()

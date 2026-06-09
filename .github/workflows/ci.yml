@@ -110,6 +110,9 @@ jobs:
             scripts/check-npm-package.sh \
             scripts/check-openapi-routes.sh \
             scripts/check-python-package.sh \
+            scripts/check-claim-anchors.sh \
+            scripts/generate-evidence-manifest.sh \
+            scripts/report-formal-tooling.sh \
             scripts/run-dependency-monitor.sh
 
       - name: Format

@@ -416,6 +416,7 @@ async fn main() -> Result<()> {
         require_lineage_for_privileged_sinks: policy_config
             .acis
             .require_lineage_for_privileged_sinks,
+        containment_mode: policy_config.acis.containment_mode,
     });
 
     // Build injection scanner from config (supports extra/disabled patterns)

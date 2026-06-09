@@ -232,7 +232,7 @@ mod tests {
             A2aError::Upstream("network fail".to_string()).code(),
             json_rpc::INTERNAL_ERROR as i32
         );
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other("test");
         assert_eq!(A2aError::Io(io_err).code(), json_rpc::INTERNAL_ERROR as i32);
     }
 

@@ -1,0 +1,13 @@
+{
+  "version": "6.1.1",
+  "rustTests": 12788,
+  "sdkTests": 977,
+  "totalTests": 13765,
+  "verusItems": 1046,
+  "kaniHarnesses": 124,
+  "tlaSpecs": 13,
+  "leanTheorems": 32,
+  "coqTheorems": 45,
+  "alloyAssertions": 10,
+  "formalEvidenceItems": 1270
+}

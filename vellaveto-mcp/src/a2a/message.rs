@@ -205,21 +205,18 @@ impl A2aMessage {
                 }
             }
             // R262-A2A-1: Validate part content for dangerous characters.
-            match &part.content {
-                PartContent::File { ref file } => {
-                    file.validate()?;
-                    if let Some(ref name) = file.name {
-                        if vellaveto_types::has_dangerous_chars(name) {
-                            return Err("file.name contains dangerous characters".to_string());
-                        }
-                    }
-                    if let Some(ref mime) = file.mime_type {
-                        if vellaveto_types::has_dangerous_chars(mime) {
-                            return Err("file.mime_type contains dangerous characters".to_string());
-                        }
+            if let PartContent::File { ref file } = &part.content {
+                file.validate()?;
+                if let Some(ref name) = file.name {
+                    if vellaveto_types::has_dangerous_chars(name) {
+                        return Err("file.name contains dangerous characters".to_string());
                     }
                 }
-                _ => {}
+                if let Some(ref mime) = file.mime_type {
+                    if vellaveto_types::has_dangerous_chars(mime) {
+                        return Err("file.mime_type contains dangerous characters".to_string());
+                    }
+                }
             }
         }
         Ok(())

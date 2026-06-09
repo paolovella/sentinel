@@ -13,7 +13,7 @@
 use crate::validation::validate_ed25519_pubkey;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use vellaveto_types::{has_dangerous_chars, SessionKeyScope, WorkloadIdentity};
+use vellaveto_types::{has_dangerous_chars, ContainmentMode, SessionKeyScope, WorkloadIdentity};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -164,6 +164,12 @@ pub struct AcisConfig {
     #[serde(default)]
     pub require_lineage_for_privileged_sinks: bool,
 
+    /// Default semantic containment mode applied to privileged sink gates when
+    /// the runtime security context does not carry a request-specific mode.
+    /// Default: unset, so the mediation layer uses its built-in fail-closed mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub containment_mode: Option<ContainmentMode>,
+
     /// Include evaluation timing (`evaluation_us`) in envelopes.
     /// Default: `true`.
     #[serde(default = "default_include_timing")]
@@ -232,6 +238,7 @@ impl Default for AcisConfig {
             deny_replay: false,
             block_tainted_privileged_sinks: false,
             require_lineage_for_privileged_sinks: false,
+            containment_mode: None,
             include_timing: default_include_timing(),
             include_findings: default_include_findings(),
             default_transport: default_transport(),
@@ -487,6 +494,7 @@ mod tests {
             deny_replay: true,
             block_tainted_privileged_sinks: true,
             require_lineage_for_privileged_sinks: true,
+            containment_mode: Some(ContainmentMode::RequireApproval),
             include_timing: true,
             include_findings: true,
             default_transport: "http".into(),

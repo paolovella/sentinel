@@ -225,3 +225,9 @@ allowed_sink_classes = ["read_only"]
 denied_tools = ["execute_*", "run_*", "bash", "shell"]
 out_of_scope_action = "Deny"
 max_distinct_tools = 5
+
+# --- ACIS semantic containment ---
+[acis]
+block_tainted_privileged_sinks = true
+require_lineage_for_privileged_sinks = true
+containment_mode = "quarantine"

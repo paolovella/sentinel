@@ -1,4 +1,8 @@
 ---
+import evidence from '../data/evidence.json';
+
+const totalTests = evidence.totalTests.toLocaleString('en-US');
+const formalEvidenceItems = evidence.formalEvidenceItems.toLocaleString('en-US');
 ---
 <section class="stats-section">
   <div class="wrap">
@@ -8,9 +12,9 @@
         <div class="stat-icon icon-magenta">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
         </div>
-        <div class="num gradient-text">11.5k+</div>
-        <div class="desc">Tests across 8 languages</div>
-        <div class="subdesc">Rust, Python, Go, TypeScript, Java, Terraform, React, shell</div>
+        <div class="num gradient-text">{totalTests}</div>
+        <div class="desc">Tests tracked by evidence manifest</div>
+        <div class="subdesc">Rust workspace plus Python, TypeScript, Go, and Java SDKs</div>
       </div>
       <div class="card stat">
         <div class="stat-icon icon-cyan">
@@ -32,9 +36,9 @@
         <div class="stat-icon icon-cyan">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         </div>
-        <div class="num gradient-text">767+</div>
-        <div class="desc">Formally verified properties</div>
-        <div class="subdesc">TLA+, Lean 4, Coq, Alloy, Kani, and Verus across 7 tools</div>
+        <div class="num gradient-text">{formalEvidenceItems}</div>
+        <div class="desc">Formal evidence items</div>
+        <div class="subdesc">TLA+, Lean 4, Coq, Alloy, Kani, and Verus</div>
       </div>
     </div>
   </div>

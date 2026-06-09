@@ -7,7 +7,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 EVIDENCE_DIR := target/evidence
-EVIDENCE_FILE := $(EVIDENCE_DIR)/evidence-$(shell date +%Y%m%d-%H%M%S).json
+EVIDENCE_FILE := $(EVIDENCE_DIR)/evidence.json
 ALLOY_JAR ?= formal/alloy/alloy.jar
 KANI_SHARD_COUNT ?= 8
 
@@ -16,154 +16,71 @@ KANI_SHARD_COUNT ?= 8
 # ─────────────────────────────────────────────────────────────────────
 
 .PHONY: verify
-verify: ## Run full verification suite and produce evidence bundle
+verify: ## Run strict verification suite; missing formal tools fail
 	@echo "═══════════════════════════════════════════════════════════════"
-	@echo " Vellaveto Verification Suite"
+	@echo " Vellaveto Verification Suite (strict)"
 	@echo "═══════════════════════════════════════════════════════════════"
 	@mkdir -p $(EVIDENCE_DIR)
-	@echo '{}' > $(EVIDENCE_FILE)
 	@echo ""
-	@# Step 1: Format check
-	@echo "── [1/6] Format check ──────────────────────────────────────"
-	cargo fmt --all -- --check
+	@echo "── [1/7] Format check ───────────────────────────────────────"
+	$(MAKE) fmt
 	@echo ""
-	@# Step 2: Clippy
-	@echo "── [2/6] Clippy (deny warnings) ────────────────────────────"
-	cargo clippy --workspace -- -D warnings
+	@echo "── [2/7] Clippy (deny warnings) ─────────────────────────────"
+	$(MAKE) clippy
 	@echo ""
-	@# Step 3: Test suite
-	@echo "── [3/6] Test suite ────────────────────────────────────────"
-	@TESTS_START=$$(date +%s); \
-	cargo test --workspace --no-fail-fast 2>&1 | tee $(EVIDENCE_DIR)/test-output.txt; \
-	TEST_EXIT=$${PIPESTATUS[0]}; \
-	TESTS_END=$$(date +%s); \
-	TESTS_DURATION=$$((TESTS_END - TESTS_START)); \
-	TESTS_PASSED=$$(grep "^test result:" $(EVIDENCE_DIR)/test-output.txt | awk -F'[; ]' '{sum+=$$4} END {print sum+0}'); \
-	TESTS_FAILED=$$(grep "^test result:" $(EVIDENCE_DIR)/test-output.txt | awk -F'[; ]' '{sum+=$$7} END {print sum+0}'); \
-	echo "{\"tests\":{\"passed\":$$TESTS_PASSED,\"failed\":$$TESTS_FAILED,\"duration_secs\":$$TESTS_DURATION}}" > $(EVIDENCE_DIR)/tests.json; \
-	if [ "$$TEST_EXIT" -ne 0 ]; then echo "FAIL: tests failed"; exit 1; fi
+	@echo "── [3/7] Test suite ─────────────────────────────────────────"
+	$(MAKE) test
 	@echo ""
-	@# Step 4: Formal verification (graceful skip when tools not installed)
-	@echo "── [4/6] Formal verification ───────────────────────────────"
-	@echo '{}' > $(EVIDENCE_DIR)/formal.json
-	@# TLA+ (all local specifications)
-	@if command -v java >/dev/null 2>&1 && [ -f formal/tla/tla2tools.jar ]; then \
-		TLA_CFG_COUNT=$$(find formal/tla -maxdepth 1 -name '*.cfg' | wc -l | tr -d ' '); \
-		echo "Running TLA+ model checker ($$TLA_CFG_COUNT specs)..."; \
-		TLA_OK=true; \
-		for cfg in formal/tla/*.cfg; do \
-			spec="$${cfg##*/}"; \
-			spec="$${spec%.cfg}"; \
-			mc="formal/tla/MC_$${spec}.tla"; \
-			main="formal/tla/$${spec}.tla"; \
-			if [ -f "$$mc" ]; then \
-				echo "  TLA+ $$spec (via MC)..."; \
-				cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg MC_$${spec}.tla 2>&1 | tail -3; \
-				if [ $$? -ne 0 ]; then TLA_OK=false; fi; \
-				cd ../..; \
-			elif [ -f "$$cfg" ] && [ -f "$$main" ]; then \
-				echo "  TLA+ $$spec (direct)..."; \
-				cd formal/tla && java -jar tla2tools.jar -config $${spec}.cfg $${spec}.tla 2>&1 | tail -3; \
-				if [ $$? -ne 0 ]; then TLA_OK=false; fi; \
-				cd ../..; \
-			else \
-				echo "  SKIP: $$spec (files not found)"; \
-			fi; \
-		done; \
-		if $$TLA_OK; then \
-			echo '{"tla_plus":"passed"}' > $(EVIDENCE_DIR)/formal.json; \
-		else \
-			echo '{"tla_plus":"failed"}' > $(EVIDENCE_DIR)/formal.json; \
-		fi; \
-	else \
-		echo "SKIP: TLA+ (requires Java 11+ and formal/tla/tla2tools.jar)"; \
-	fi
-	@# Alloy (2 models)
-	@if command -v java >/dev/null 2>&1 && [ -f "$(ALLOY_JAR)" ]; then \
-		echo "Running Alloy bounded model checking (2 models)..."; \
-		for model in CapabilityDelegation AbacForbidOverride; do \
-			echo "  Alloy $$model..."; \
-			ALLOY_JAR="$(ALLOY_JAR)" bash formal/tools/run-alloy-model.sh "formal/alloy/$${model}.als"; \
-		done; \
-	else \
-		echo "SKIP: Alloy (requires Java 11+ and ALLOY_JAR=$(ALLOY_JAR))"; \
-	fi
-	@# Lean 4 (5 files, 32 theorems)
-	@if command -v lake >/dev/null 2>&1; then \
-		echo "Running Lean 4 type checker (5 files, 32 theorems)..."; \
-		cd formal/lean && lake build 2>&1 | tail -5; \
-	else \
-		echo "SKIP: Lean 4 (requires lake)"; \
-	fi
-	@# Coq (8 files, 45 theorems)
-	@if command -v coqc >/dev/null 2>&1; then \
-		echo "Running Coq type checker (8 files, 45 theorems)..."; \
-		cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile 2>/dev/null && \
-		make -f CoqMakefile 2>&1 | tail -5; \
-	else \
-		echo "SKIP: Coq (requires coqc 8.16+)"; \
-	fi
-	@# Trusted formal assumption inventory
-	@echo "Checking trusted formal assumptions..."
-	bash formal/tools/check-formal-trusted-assumptions.sh
-	@echo "Checking Lean/Coq proof completion markers..."
-	bash formal/tools/check-proof-completion-markers.sh
-	@# Kani (90 harnesses on actual Rust)
-	@if command -v cargo-kani >/dev/null 2>&1; then \
-		echo "Running Kani bounded model checking ($(KANI_SHARD_COUNT) local shards)..."; \
-		count="$(KANI_SHARD_COUNT)"; \
-		case "$$count" in ''|*[!0-9]*) echo "FAIL: invalid KANI_SHARD_COUNT=$$count"; exit 2;; esac; \
-		if [ "$$count" -eq 0 ]; then echo "FAIL: KANI_SHARD_COUNT must be greater than 0"; exit 2; fi; \
-		for shard in $$(seq 0 $$((count - 1))); do \
-			bash formal/tools/run-kani-shard.sh "$$shard" "$$count"; \
-		done; \
-	else \
-		echo "SKIP: Kani (requires cargo-kani)"; \
-	fi
-	@# Verus (canonical cargo-Verus shim)
-	@if [ -n "$$CARGO_VERUS_BIN" ] || command -v cargo-verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/cargo-verus ] || [ -x "$$HOME/verus/verus-bin/verus-x86-linux/cargo-verus" ] || [ -x "$$HOME/verus/source/target-verus/release/cargo-verus" ]; then \
-		echo "Running Verus deductive verification through cargo-Verus..."; \
-		bash formal/tools/check-verus-parity.sh; \
-		FORMAL_USE_CARGO_VERUS=1 FORMAL_REQUIRE_CARGO_VERUS=1 CARGO_VERUS_TARGET_DIR="$${CARGO_VERUS_TARGET_DIR:-/tmp/vellaveto-formal-verus-target}" bash formal/tools/verify-verus.sh; \
-	else \
-		echo "SKIP: Verus (set CARGO_VERUS_BIN, install cargo-verus, unpack verus-bin/, or keep ~/verus/)"; \
-	fi
+	@echo "── [4/7] Formal verification (strict) ───────────────────────"
+	$(MAKE) formal
 	@echo ""
-	@# Step 5: Benchmark sanity (short run — not full benchmarks)
-	@echo "── [5/6] Benchmark sanity check ────────────────────────────"
-	cargo bench -p vellaveto-engine -- --quick 2>&1 | tail -20
+	@echo "── [5/7] Benchmark sanity check ─────────────────────────────"
+	$(MAKE) bench-quick
 	@echo ""
-	@# Step 6: Golden regression suite (integration tests)
-	@echo "── [6/6] Security regression suite ─────────────────────────"
-	cargo test -p vellaveto-integration -- --test-threads=1 2>&1 | tail -10
+	@echo "── [6/7] Security regression suite ──────────────────────────"
+	cargo test -p vellaveto-integration -- --test-threads=1
 	@echo ""
-	@# Assemble evidence bundle
-	@echo "═══════════════════════════════════════════════════════════════"
-	@echo " Assembling evidence bundle"
-	@echo "═══════════════════════════════════════════════════════════════"
-	@RUST_VERSION=$$(rustc --version); \
-	GIT_SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
-	GIT_BRANCH=$$(git branch --show-current 2>/dev/null || echo "unknown"); \
-	TIMESTAMP=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
-	TESTS_JSON=$$(cat $(EVIDENCE_DIR)/tests.json 2>/dev/null || echo '{}'); \
-	FORMAL_JSON=$$(cat $(EVIDENCE_DIR)/formal.json 2>/dev/null || echo '{}'); \
-	echo "{" > $(EVIDENCE_FILE); \
-	echo "  \"timestamp\": \"$$TIMESTAMP\"," >> $(EVIDENCE_FILE); \
-	echo "  \"git_sha\": \"$$GIT_SHA\"," >> $(EVIDENCE_FILE); \
-	echo "  \"git_branch\": \"$$GIT_BRANCH\"," >> $(EVIDENCE_FILE); \
-	echo "  \"rust_version\": \"$$RUST_VERSION\"," >> $(EVIDENCE_FILE); \
-	echo "  \"fmt\": \"passed\"," >> $(EVIDENCE_FILE); \
-	echo "  \"clippy\": \"passed\"," >> $(EVIDENCE_FILE); \
-	echo "  \"tests\": $$TESTS_JSON," >> $(EVIDENCE_FILE); \
-	echo "  \"formal\": $$FORMAL_JSON," >> $(EVIDENCE_FILE); \
-	echo "  \"benchmarks\": \"sanity_passed\"," >> $(EVIDENCE_FILE); \
-	echo "  \"regression_suite\": \"passed\"" >> $(EVIDENCE_FILE); \
-	echo "}" >> $(EVIDENCE_FILE)
+	@echo "── [7/7] Evidence and claim checks ──────────────────────────"
+	$(MAKE) evidence
+	$(MAKE) claim-check
 	@echo ""
 	@echo "Evidence bundle: $(EVIDENCE_FILE)"
-	@echo "Test output:     $(EVIDENCE_DIR)/test-output.txt"
 	@echo ""
 	@echo "All checks passed."
+
+.PHONY: verify-local
+verify-local: ## Run local verification; unavailable formal toolchains are reported as skips
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo " Vellaveto Verification Suite (local)"
+	@echo "═══════════════════════════════════════════════════════════════"
+	@mkdir -p $(EVIDENCE_DIR)
+	@echo ""
+	@echo "── [1/7] Format check ───────────────────────────────────────"
+	$(MAKE) fmt
+	@echo ""
+	@echo "── [2/7] Clippy (deny warnings) ─────────────────────────────"
+	$(MAKE) clippy
+	@echo ""
+	@echo "── [3/7] Test suite ─────────────────────────────────────────"
+	$(MAKE) test
+	@echo ""
+	@echo "── [4/7] Formal verification (local coverage) ───────────────"
+	bash scripts/report-formal-tooling.sh
+	$(MAKE) formal-local
+	@echo ""
+	@echo "── [5/7] Benchmark sanity check ─────────────────────────────"
+	$(MAKE) bench-quick
+	@echo ""
+	@echo "── [6/7] Security regression suite ──────────────────────────"
+	cargo test -p vellaveto-integration -- --test-threads=1
+	@echo ""
+	@echo "── [7/7] Evidence and claim checks ──────────────────────────"
+	$(MAKE) evidence
+	$(MAKE) claim-check
+	@echo ""
+	@echo "Evidence bundle: $(EVIDENCE_FILE)"
+	@echo ""
+	@echo "Local checks passed with any formal toolchain gaps reported above."
 
 # ─────────────────────────────────────────────────────────────────────
 # Individual targets
@@ -187,7 +104,21 @@ bench: ## Run full benchmark suite
 
 .PHONY: bench-quick
 bench-quick: ## Run quick benchmark sanity check
-	cargo bench -p vellaveto-engine -- --quick
+	cargo bench -p vellaveto-engine --bench evaluation -- --quick
+	cargo bench -p vellaveto-engine --bench e2e_pipeline -- --quick
+	cargo bench -p vellaveto-engine --bench throughput -- --quick
+
+.PHONY: evidence
+evidence: ## Generate the canonical evidence manifest
+	bash scripts/generate-evidence-manifest.sh --output $(EVIDENCE_FILE) --site-output site/src/data/evidence.json
+
+.PHONY: evidence-check
+evidence-check: ## Validate the canonical evidence manifest schema
+	bash scripts/generate-evidence-manifest.sh --output $(EVIDENCE_FILE) --check
+
+.PHONY: claim-check
+claim-check: evidence-check ## Validate public claim evidence anchors
+	bash scripts/check-claim-anchors.sh
 
 .PHONY: formal
 formal: formal-trusted-assumptions formal-proof-completions formal-tla formal-alloy formal-lean formal-coq formal-kani formal-verus ## Run all formal verification tools

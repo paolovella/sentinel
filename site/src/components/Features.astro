@@ -1,4 +1,7 @@
 ---
+import evidence from '../data/evidence.json';
+
+const formalEvidenceItems = evidence.formalEvidenceItems.toLocaleString('en-US');
 ---
 <section id="features">
   <div class="wrap">
@@ -62,7 +65,7 @@
       </div>
       <div class="cap">
         <strong>Formally verified</strong>
-        <span>767+ properties verified across TLA+, Lean 4, Coq, Alloy, Kani, and Verus &mdash; fail-closed, determinism, ABAC forbid-override, capability attenuation, and circuit breaker proven, not just tested.</span>
+        <span>{formalEvidenceItems} formal evidence items tracked across TLA+, Lean 4, Coq, Alloy, Kani, and Verus &mdash; covering fail-closed, determinism, ABAC forbid-override, capability attenuation, and circuit breaker properties.</span>
       </div>
     </div>
   </div>

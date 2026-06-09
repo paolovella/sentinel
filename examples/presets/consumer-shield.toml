@@ -63,3 +63,9 @@ enabled = true
 # ── Supply Chain Verification ─────────────────────────────────────
 [supply_chain]
 enabled = false
+
+# --- ACIS semantic containment ---
+[acis]
+block_tainted_privileged_sinks = true
+require_lineage_for_privileged_sinks = false
+containment_mode = "sanitize"

@@ -259,3 +259,9 @@ block_on_match = false
 # --- Audit ---
 [audit]
 redaction_level = "KeysAndPatterns"
+
+# --- ACIS semantic containment ---
+[acis]
+block_tainted_privileged_sinks = true
+require_lineage_for_privileged_sinks = false
+containment_mode = "require_approval"

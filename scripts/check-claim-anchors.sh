@@ -14,12 +14,31 @@ fail() {
     failures=1
 }
 
+search_pattern() {
+    local pattern="$1"
+    shift
+
+    if command -v rg >/dev/null 2>&1; then
+        rg -n "$pattern" "$@" 2>/dev/null
+        return
+    fi
+
+    grep -EnH -- "$pattern" "$@" 2>/dev/null
+}
+
+count_pattern() {
+    local pattern="$1"
+    local file="$2"
+
+    (search_pattern "$pattern" "$file" || true) | wc -l | tr -d ' '
+}
+
 require_pattern() {
     local file="$1"
     local pattern="$2"
     local label="$3"
 
-    if ! rg -q "$pattern" "$file"; then
+    if ! search_pattern "$pattern" "$file" >/dev/null; then
         fail "$file missing $label"
     fi
 }
@@ -35,10 +54,10 @@ for doc in "${public_evidence_docs[@]}"; do
     require_pattern "$doc" '<!-- VELLAVETO:EVIDENCE:END -->' "generated evidence block end marker"
 done
 
-claim_count="$(rg -c '^### C[0-9]+\.' docs/ASSURANCE_CASE.md)"
-scope_count="$(rg -c '\| \*\*Scope\*\* \|' docs/ASSURANCE_CASE.md)"
-reproduce_count="$(rg -c '\| \*\*Reproduce\*\* \|' docs/ASSURANCE_CASE.md)"
-evidence_count="$(rg -c '\| \*\*(Formal evidence|Test evidence|Benchmark evidence|Evidence)\*\* \|' docs/ASSURANCE_CASE.md)"
+claim_count="$(count_pattern '^### C[0-9]+\.' docs/ASSURANCE_CASE.md)"
+scope_count="$(count_pattern '\| \*\*Scope\*\* \|' docs/ASSURANCE_CASE.md)"
+reproduce_count="$(count_pattern '\| \*\*Reproduce\*\* \|' docs/ASSURANCE_CASE.md)"
+evidence_count="$(count_pattern '\| \*\*(Formal evidence|Test evidence|Benchmark evidence|Evidence)\*\* \|' docs/ASSURANCE_CASE.md)"
 
 if [ "$claim_count" -lt 7 ]; then
     fail "docs/ASSURANCE_CASE.md should contain at least 7 public claim sections"
@@ -95,7 +114,7 @@ stale_patterns=(
 )
 
 for pattern in "${stale_patterns[@]}"; do
-    if rg -n "$pattern" "${claim_surfaces[@]}" >/tmp/vellaveto-claim-check-hits.txt; then
+    if search_pattern "$pattern" "${claim_surfaces[@]}" >/tmp/vellaveto-claim-check-hits.txt; then
         echo "FAIL: stale unsupported public count matched /$pattern/:" >&2
         cat /tmp/vellaveto-claim-check-hits.txt >&2
         failures=1

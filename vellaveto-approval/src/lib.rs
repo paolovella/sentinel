@@ -4523,10 +4523,9 @@ mod tests {
     #[tokio::test]
     async fn test_r260_consume_rejects_expired_approval() {
         let dir = TempDir::new().unwrap();
-        // TTL of 1 second so it expires quickly
         let store = ApprovalStore::new(
             dir.path().join("approvals.jsonl"),
-            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(900),
         );
 
         let id = store
@@ -4541,8 +4540,11 @@ mod tests {
             .unwrap();
         store.approve(&id, "reviewer").await.unwrap();
 
-        // Wait for the approval to expire
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        {
+            let mut approvals = store.pending.write().await;
+            let approval = approvals.get_mut(&id).unwrap();
+            approval.expires_at = Utc::now() - Duration::seconds(1);
+        }
 
         // Consumption must fail because the approval has expired
         let consumed = store

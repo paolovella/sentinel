@@ -56,7 +56,62 @@ cd "$PROJECT_DIR"
 count_matches() {
     local pattern="$1"
     shift
-    (rg -n "$pattern" "$@" 2>/dev/null || true) | wc -l | tr -d ' '
+
+    if command -v rg >/dev/null 2>&1; then
+        (rg -n "$pattern" "$@" 2>/dev/null || true) | wc -l | tr -d ' '
+        return
+    fi
+
+    local glob=""
+    local paths=()
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -g)
+                if [ "$#" -lt 2 ]; then
+                    echo "FAIL: -g requires a glob" >&2
+                    exit 2
+                fi
+                glob="$2"
+                shift 2
+                ;;
+            *)
+                paths+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [ "${#paths[@]}" -eq 0 ]; then
+        paths=(.)
+    fi
+
+    local count=0
+    local file
+    local file_count
+    while IFS= read -r -d '' file; do
+        file_count="$( (grep -E -n "$pattern" "$file" 2>/dev/null || true) | wc -l | tr -d ' ')"
+        count=$((count + file_count))
+    done < <(
+        if [ -n "$glob" ]; then
+            find "${paths[@]}" -type f -name "$glob" -print0 2>/dev/null
+        else
+            find "${paths[@]}" -type f -print0 2>/dev/null
+        fi
+    )
+
+    printf '%s' "$count"
+}
+
+contains_text() {
+    local needle="$1"
+    local file="$2"
+
+    if command -v rg >/dev/null 2>&1; then
+        rg -q --fixed-strings "$needle" "$file"
+        return
+    fi
+
+    grep -Fq -- "$needle" "$file"
 }
 
 json_escape() {
@@ -209,7 +264,7 @@ extract_evidence_block() {
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
     for field in git_sha version rust_tests sdk_tests total_tests verus_items kani_harnesses tla_specs lean_theorems coq_theorems alloy_assertions formal_evidence_items ci_run_url generated_at; do
-        if ! rg -q "\"$field\"" "$OUTPUT"; then
+        if ! contains_text "\"$field\"" "$OUTPUT"; then
             echo "FAIL: evidence manifest missing field: $field" >&2
             exit 1
         fi

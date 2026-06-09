@@ -239,6 +239,11 @@ block_on_match = false
 default_tool_trust = "unknown"
 untrusted_tools = ["fetch_url", "fetch", "browse_*", "search_*", "scrape_*", "http_*", "curl_*", "wget_*"]
 
+[acis]
+block_tainted_privileged_sinks = true
+require_lineage_for_privileged_sinks = false
+containment_mode = "require_approval"
+
 [[sink_classification.rules]]
 tool_pattern = "execute_*"
 sink_class = "code_execution"

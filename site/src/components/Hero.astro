@@ -1,4 +1,7 @@
 ---
+import evidence from '../data/evidence.json';
+
+const trustStrip = `${evidence.totalTests} tests tracked by evidence manifest · ${evidence.formalEvidenceItems} formal evidence items · <5ms P99 latency · 3-layer channel separation`;
 ---
 <section class="hero">
   <div class="wrap">
@@ -9,7 +12,7 @@
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/paolovella/vellaveto" class="btn btn-outline" target="_blank" rel="noopener noreferrer">View on GitHub</a>
     </div>
-    <p class="trust-strip">11.3k+ tests &middot; 254+ adversarial audit rounds &middot; &lt;5ms P99 latency &middot; 779+ formally verified properties &middot; 3-layer channel separation</p>
+    <p class="trust-strip">{trustStrip}</p>
     <div class="install" id="install">
       <span class="label">Quick start</span>
       <code>curl -fsSL https://raw.githubusercontent.com/paolovella/vellaveto/main/scripts/install.sh | sh &amp;&amp; vellaveto-proxy --protect shield -- ./your-mcp-server</code>

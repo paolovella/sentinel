@@ -1,4 +1,7 @@
 ---
+import evidence from '../data/evidence.json';
+
+const sdkTests = evidence.sdkTests.toLocaleString('en-US');
 ---
 <section id="ecosystem">
   <div class="wrap">
@@ -12,10 +15,11 @@
         <h3>SDKs</h3>
         <p>Python (sync + async), TypeScript, Go, and Java. Built-in integrations for LangChain, CrewAI, OpenAI Agents, Google ADK, Claude Agent, and more.</p>
         <div class="eco-tags">
-          <span class="eco-tag">Python &middot; 484 tests</span>
-          <span class="eco-tag">TypeScript &middot; 122</span>
-          <span class="eco-tag">Go &middot; 172</span>
-          <span class="eco-tag">Java &middot; 120</span>
+          <span class="eco-tag">{sdkTests} SDK tests tracked</span>
+          <span class="eco-tag">Python</span>
+          <span class="eco-tag">TypeScript</span>
+          <span class="eco-tag">Go</span>
+          <span class="eco-tag">Java</span>
         </div>
       </div>
       <div class="card eco-card">

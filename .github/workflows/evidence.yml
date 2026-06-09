@@ -1,0 +1,65 @@
+name: Evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Makefile"
+      - "README.md"
+      - "docs/ASSURANCE_CASE.md"
+      - "formal/**"
+      - "scripts/check-claim-anchors.sh"
+      - "scripts/generate-evidence-manifest.sh"
+      - "site/src/**"
+      - ".github/workflows/evidence.yml"
+  pull_request:
+    paths:
+      - "Makefile"
+      - "README.md"
+      - "docs/ASSURANCE_CASE.md"
+      - "formal/**"
+      - "scripts/check-claim-anchors.sh"
+      - "scripts/generate-evidence-manifest.sh"
+      - "site/src/**"
+      - ".github/workflows/evidence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    name: Generate and Validate Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Generate evidence artifacts
+        run: make evidence
+
+      - name: Validate public evidence surfaces
+        run: make evidence-check
+
+      - name: Validate public claim anchors
+        run: make claim-check
+
+      - name: Verify generated website evidence is committed
+        run: git diff --exit-code -- site/src/data/evidence.json
+
+      - name: Upload evidence bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vellaveto-evidence
+          path: |
+            target/evidence/evidence.json
+            target/evidence/evidence-summary.md
+            target/evidence/site-evidence.json
+          if-no-files-found: error

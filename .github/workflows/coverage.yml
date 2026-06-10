@@ -64,7 +64,8 @@ jobs:
         run: cargo +nightly llvm-cov report --lcov --output-path lcov.info
 
       - name: Upload to Codecov
+        continue-on-error: true
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          fail_ci_if_error: false

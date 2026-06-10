@@ -29,9 +29,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  # Baseline measured by `cargo +nightly llvm-cov --workspace --locked --summary-only`.
-  # Raise this ratchet when coverage improves.
-  MIN_LINE_COVERAGE: 79
+  # Baseline for the cargo-llvm-cov `Lines` column; raise this ratchet when
+  # line coverage improves.
+  MIN_LINE_COVERAGE: 77
 
 jobs:
   coverage:

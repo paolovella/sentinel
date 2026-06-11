@@ -358,7 +358,7 @@ version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.chrono]]
-version = "0.4.44"
+version = "0.4.45"
 criteria = "safe-to-deploy"
 
 [[exemptions.ciborium]]
@@ -1454,7 +1454,7 @@ version = "1.11.0"
 criteria = "safe-to-run"
 
 [[exemptions.prost]]
-version = "0.14.3"
+version = "0.14.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.prost-build]]
@@ -1462,11 +1462,11 @@ version = "0.14.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.prost-derive]]
-version = "0.14.3"
+version = "0.14.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.prost-types]]
-version = "0.14.3"
+version = "0.14.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.pulldown-cmark]]

@@ -11,5 +11,8 @@
   "dependencies": {
     "astro": "^6.4.4",
     "postcss": "^8.5.15"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
   }
 }

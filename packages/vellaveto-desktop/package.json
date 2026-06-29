@@ -16,13 +16,13 @@
     "react-dom": "^19"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.0",
+    "@tailwindcss/postcss": "^4.3.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6",
     "autoprefixer": "^10",
     "esbuild": "^0.28.1",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.16",
     "tailwindcss": "^4",
     "typescript": "^6",
     "vite": "^8"

@@ -15,7 +15,7 @@ readme = "README.md"
 vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
 vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.9" }
 vellaveto-config = { path = "../vellaveto-config", version = "6.0.9" }
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 argon2 = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }

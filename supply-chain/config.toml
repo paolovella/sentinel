@@ -114,7 +114,7 @@ version = "3.0.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.anyhow]]
-version = "1.0.102"
+version = "1.0.103"
 criteria = "safe-to-deploy"
 
 [[exemptions.arc-swap]]
@@ -470,7 +470,7 @@ version = "0.8.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.crossbeam-epoch]]
-version = "0.9.18"
+version = "0.9.20"
 criteria = "safe-to-deploy"
 
 [[exemptions.crossbeam-queue]]
@@ -1498,7 +1498,7 @@ version = "0.11.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.quinn-proto]]
-version = "0.11.14"
+version = "0.11.16"
 criteria = "safe-to-deploy"
 
 [[exemptions.quinn-udp]]
@@ -1547,6 +1547,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rand_core]]
 version = "0.10.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.rand_pcg]]
+version = "0.10.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.rand_xorshift]]

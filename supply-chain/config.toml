@@ -398,7 +398,7 @@ version = "0.1.58"
 criteria = "safe-to-deploy"
 
 [[exemptions.cmov]]
-version = "0.5.3"
+version = "0.5.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.color_quant]]
@@ -1786,7 +1786,7 @@ version = "0.7.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_with]]
-version = "3.20.0"
+version = "3.21.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_yaml]]

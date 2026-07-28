@@ -73,7 +73,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
-          toolchain: nightly
+          # Pinned for the same reason as the fuzz job in ci.yml — see the
+          # comment there. Keep these two toolchain pins in sync.
+          toolchain: nightly-2026-06-01
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
@@ -85,7 +87,7 @@ jobs:
 
       - name: "Run fuzzer: ${{ matrix.target }}"
         working-directory: fuzz
-        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=30
+        run: cargo +nightly-2026-06-01 fuzz run ${{ matrix.target }} -- -max_total_time=30
 
       - name: Upload crash artifacts
         if: failure()

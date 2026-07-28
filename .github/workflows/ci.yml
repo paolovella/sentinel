@@ -382,7 +382,15 @@ jobs:
           fetch-depth: 1
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
-          toolchain: nightly
+          # Pinned: an unpinned `nightly` lets this job break with no code
+          # change. It did — nightly deprecated `Atomic::fetch_update` in
+          # favour of `try_update`, and the workflow-level RUSTFLAGS
+          # `-Dwarnings` turns that into a hard error. We cannot do the
+          # rename while MSRV is 1.88.0, because `try_update` is still
+          # unstable there (`atomic_try_update`). Last verified-good
+          # nightly is 2026-06-01; 2026-07-10 already fails.
+          # Revisit when MSRV moves past the `try_update` stabilisation.
+          toolchain: nightly-2026-06-01
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           workspaces: fuzz -> target
@@ -393,7 +401,7 @@ jobs:
 
       - name: Check fuzz targets compile
         working-directory: fuzz
-        run: cargo +nightly check --all-targets
+        run: cargo +nightly-2026-06-01 check --all-targets
 
   # ───────────────────────────────────────────────────────
   # 7. Benchmark regression gate (push to main only)

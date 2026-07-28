@@ -46,7 +46,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
-          toolchain: nightly
+          # Pinned for the same reason as the fuzz job in ci.yml — see the
+          # comment there. Keep these toolchain pins in sync.
+          toolchain: nightly-2026-06-01
           components: llvm-tools-preview
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
@@ -58,10 +60,10 @@ jobs:
         run: cargo install cargo-llvm-cov --version 0.8.7 --locked
 
       - name: Generate coverage summary
-        run: cargo +nightly llvm-cov --workspace --locked --summary-only --fail-under-lines "$MIN_LINE_COVERAGE"
+        run: cargo +nightly-2026-06-01 llvm-cov --workspace --locked --summary-only --fail-under-lines "$MIN_LINE_COVERAGE"
 
       - name: Generate LCOV report
-        run: cargo +nightly llvm-cov report --lcov --output-path lcov.info
+        run: cargo +nightly-2026-06-01 llvm-cov report --lcov --output-path lcov.info
 
       - name: Upload to Codecov
         continue-on-error: true

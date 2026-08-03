@@ -66,7 +66,7 @@ version = "2.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.aead]]
-version = "0.5.2"
+version = "0.6.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.ahash]]
@@ -350,15 +350,11 @@ version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.chacha20]]
-version = "0.9.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.chacha20]]
 version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.chacha20poly1305]]
-version = "0.10.1"
+version = "0.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.chrono]]
@@ -378,7 +374,7 @@ version = "0.2.2"
 criteria = "safe-to-run"
 
 [[exemptions.cipher]]
-version = "0.4.4"
+version = "0.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap]]
@@ -990,7 +986,7 @@ version = "0.1.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.inout]]
-version = "0.1.4"
+version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.ipnet]]
@@ -1281,10 +1277,6 @@ criteria = "safe-to-deploy"
 version = "11.1.5"
 criteria = "safe-to-run"
 
-[[exemptions.opaque-debug]]
-version = "0.3.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.openssl-probe]]
 version = "0.2.1"
 criteria = "safe-to-deploy"
@@ -1422,7 +1414,7 @@ version = "0.18.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.poly1305]]
-version = "0.8.0"
+version = "0.9.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.portable-atomic]]
@@ -2142,7 +2134,7 @@ version = "0.1.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.universal-hash]]
-version = "0.5.1"
+version = "0.6.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.unsafe-libyaml]]

@@ -261,6 +261,56 @@ fn test_session_history_bounded() {
 // Crypto Tests
 // ═══════════════════════════════════════════════════════════════════
 
+/// Known-answer test pinning the XChaCha20-Poly1305 ciphertext format.
+///
+/// The encrypted audit store persists data to disk, so a change in the AEAD
+/// output would silently render existing stores undecryptable. A round-trip
+/// test cannot catch that: it would encrypt and decrypt with the same new
+/// implementation and pass regardless.
+///
+/// This vector was generated under chacha20poly1305 0.10.1 and must continue
+/// to hold across dependency upgrades. If it ever fails, existing on-disk
+/// audit stores are no longer readable and the change is not backward
+/// compatible.
+#[test]
+fn test_crypto_xchacha20poly1305_known_answer_vector() {
+    use chacha20poly1305::{
+        aead::{Aead, KeyInit},
+        XChaCha20Poly1305, XNonce,
+    };
+
+    let key = [0x42u8; 32];
+    let nonce_bytes = [0x24u8; 24];
+    let plaintext = b"vellaveto shield audit record v1";
+
+    // Generated with chacha20poly1305 0.10.1.
+    let expected_hex = "d33bbb090f5229d2cd0f4c5267ed61ae1290fbde156b54ef\
+                        4402893f0f30adfccd28009ca082e31886a2c3fb67c280c1";
+
+    let cipher = XChaCha20Poly1305::new((&key).into());
+    let nonce = XNonce::from(nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(&nonce, plaintext.as_ref())
+        .expect("encryption must succeed");
+
+    let actual_hex: String = ciphertext.iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(
+        actual_hex, expected_hex,
+        "XChaCha20-Poly1305 ciphertext changed — existing encrypted audit \
+         stores would no longer decrypt"
+    );
+
+    // 32-byte plaintext plus the 16-byte Poly1305 tag.
+    assert_eq!(ciphertext.len(), 48, "unexpected tag length");
+
+    // The stored form must decrypt back to the original plaintext.
+    let recovered = cipher
+        .decrypt(&nonce, ciphertext.as_ref())
+        .expect("decryption of the pinned vector must succeed");
+    assert_eq!(recovered, plaintext);
+}
+
 #[test]
 fn test_crypto_encrypt_decrypt_roundtrip() {
     let dir = tempfile::tempdir().unwrap();

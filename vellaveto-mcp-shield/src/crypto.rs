@@ -133,10 +133,10 @@ impl EncryptedAuditStore {
         let cipher = XChaCha20Poly1305::new((&self.key).into());
         let mut nonce_bytes = [0u8; NONCE_LEN];
         rand::rng().fill_bytes(&mut nonce_bytes);
-        let nonce = XNonce::from_slice(&nonce_bytes);
+        let nonce = XNonce::from(nonce_bytes);
 
         let ciphertext = cipher
-            .encrypt(nonce, plaintext)
+            .encrypt(&nonce, plaintext)
             .map_err(|e| ShieldError::Encryption(format!("encrypt: {e}")))?;
 
         // nonce || ciphertext (includes tag)
@@ -154,11 +154,14 @@ impl EncryptedAuditStore {
             ));
         }
         let cipher = XChaCha20Poly1305::new((&self.key).into());
-        let nonce = XNonce::from_slice(&data[..NONCE_LEN]);
+        let nonce_bytes: [u8; NONCE_LEN] = data[..NONCE_LEN]
+            .try_into()
+            .map_err(|_| ShieldError::Decryption("invalid nonce length".to_string()))?;
+        let nonce = XNonce::from(nonce_bytes);
         let ciphertext = &data[NONCE_LEN..];
 
         cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|e| ShieldError::Decryption(format!("decrypt: {e}")))
     }
 

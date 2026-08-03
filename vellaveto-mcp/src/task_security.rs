@@ -586,11 +586,11 @@ impl SecureTaskManager {
         let mut nonce_bytes = [0u8; 12];
         getrandom::fill(&mut nonce_bytes)
             .map_err(|e| TaskSecurityError::EncryptionFailed(e.to_string()))?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::from(nonce_bytes);
 
         let ciphertext = self
             .cipher
-            .encrypt(nonce, plaintext.as_ref())
+            .encrypt(&nonce, plaintext.as_ref())
             .map_err(|e| TaskSecurityError::EncryptionFailed(e.to_string()))?;
 
         Ok((BASE64.encode(&ciphertext), BASE64.encode(nonce_bytes)))
@@ -615,11 +615,14 @@ impl SecureTaskManager {
             ));
         }
 
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce_arr: [u8; 12] = nonce_bytes.as_slice().try_into().map_err(|_| {
+            TaskSecurityError::DecryptionFailed("Invalid nonce length".to_string())
+        })?;
+        let nonce = Nonce::from(nonce_arr);
 
         let plaintext = self
             .cipher
-            .decrypt(nonce, ciphertext.as_ref())
+            .decrypt(&nonce, ciphertext.as_ref())
             .map_err(|e| TaskSecurityError::DecryptionFailed(e.to_string()))?;
 
         serde_json::from_slice(&plaintext)

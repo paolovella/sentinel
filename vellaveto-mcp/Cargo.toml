@@ -75,7 +75,7 @@ image = { version = "0.25", optional = true, default-features = false, features 
 flate2 = { workspace = true }
 
 # FIPS 140-3 compliance mode (Phase 23.3)
-p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+p256 = { version = "0.14", features = ["ecdsa"], optional = true }
 
 # Consumer shield (bidirectional PII sanitization)
 vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", version = "6.0.9", optional = true }

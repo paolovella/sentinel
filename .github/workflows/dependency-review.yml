@@ -30,5 +30,20 @@ jobs:
           deny-licenses: GPL-2.0,GPL-3.0,AGPL-3.0,LGPL-2.1,LGPL-3.0
           # r-efi is tri-licensed; GitHub's deny-list check flags the LGPL branch
           # even though consumers can take the permissive MIT/Apache terms.
-          allow-dependencies-licenses: pkg:cargo/r-efi@6.0.0
+          #
+          # @img/sharp-libvips-* are prebuilt libvips binaries, LGPL-3.0-or-later.
+          # This is not new exposure: the 1.2.4 set already on main carries the
+          # same license. Dependency review only inspects dependencies *added* by
+          # a diff, so the pre-existing copies were never examined; bumping them
+          # to 1.3.2 re-presents them as additions and trips the deny-list.
+          # They are build-time only -- astro uses sharp for image optimization
+          # during `astro build`, and the binaries are not redistributed in the
+          # static site output. sharp itself is Apache-2.0.
+          # Pinned by exact version so a future bump is reviewed again.
+          #
+          # Kept on one line deliberately: a YAML folded block (>-) inserts a
+          # space after each newline, and the action's list is comma-separated,
+          # so folding would yield entries with a leading space that may not
+          # match. Do not reformat this into a multi-line block.
+          allow-dependencies-licenses: pkg:cargo/r-efi@6.0.0,pkg:npm/%40img/sharp-libvips-darwin-arm64@1.3.2,pkg:npm/%40img/sharp-libvips-darwin-x64@1.3.2,pkg:npm/%40img/sharp-libvips-linux-arm@1.3.2,pkg:npm/%40img/sharp-libvips-linux-arm64@1.3.2,pkg:npm/%40img/sharp-libvips-linux-ppc64@1.3.2,pkg:npm/%40img/sharp-libvips-linux-riscv64@1.3.2,pkg:npm/%40img/sharp-libvips-linux-s390x@1.3.2,pkg:npm/%40img/sharp-libvips-linux-x64@1.3.2,pkg:npm/%40img/sharp-libvips-linuxmusl-arm64@1.3.2,pkg:npm/%40img/sharp-libvips-linuxmusl-x64@1.3.2
           comment-summary-in-pr: always

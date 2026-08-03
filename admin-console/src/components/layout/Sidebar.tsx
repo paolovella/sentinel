@@ -1,7 +1,7 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: BUSL-1.1
 
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 import {
   LayoutDashboard,
   ScrollText,

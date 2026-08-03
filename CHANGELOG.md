@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-08-04
+
+First release since 6.1.1 (2026-03-27). 273 commits.
+
+Major version because public API surface changed in ways semver classifies as
+breaking. Every break below is additive in intent — new fields and variants
+carrying security hardening — but each one breaks external code that
+constructs these types with struct literals or matches these enums
+exhaustively.
+
+### BREAKING CHANGES
+
+Enumerated with `cargo semver-checks`; `vellaveto-audit` has no breaking
+changes.
+
+**vellaveto-types**
+
+- `EvidencePack` gains `signature` and `verifying_key` (Ed25519 evidence pack
+  signing). Both are `Option<String>` and `#[serde(default)]`, so
+  deserialization of older packs is unaffected.
+
+**vellaveto-config**
+
+- `StreamableHttpConfig` gains `protocol_version_floor`,
+  `require_protocol_version_header` and `allowed_mcp_param_headers`
+  (2026 MCP protocol guardrails).
+- `AcisConfig` gains `containment_mode`.
+
+**vellaveto-engine**
+
+- `PluginConfig` gains `content_hash` (SHA-256 plugin verification, TOCTOU
+  defence).
+- `PluginError` gains the `ContentHashMismatch` variant. The enum is
+  exhaustive, so external `match` expressions must add an arm.
+
+**vellaveto-mcp**
+
+- `MediationConfig` gains `containment_mode`.
+- `RugPullResult` gains `invalid_schema_tools`.
+- `ServiceConfig` gains `dangerous_allow_fail_open_acknowledged` — the
+  acknowledgement gate that stops `FallbackBehavior::Allow` being selected
+  silently.
+- `transparency::inject_decision_explanation` now takes 4 parameters instead
+  of 3.
+- `SemanticGuardrailsService::mock` was removed.
+- `SessionGuard` no longer implements `UnwindSafe` or `RefUnwindSafe`.
+
+### Migration
+
+Construct the affected config structs with `..Default::default()` rather than
+exhaustive struct literals, and add a wildcard arm when matching
+`PluginError`. No serialized format changed: the new fields all carry
+`#[serde(default)]`, so existing configuration files and persisted evidence
+packs load unchanged.
+
+### Added
+
 - **Content-bound response attestation (Mar 2026):**
   HMAC-SHA256 signed attestation on every proxied response, binding security
   scan results to the exact response content. When `VELLAVETO_ATTESTATION_SECRET`
@@ -44,6 +101,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revocation, EVIDENCE-SIGN-1–3 evidence signing, WARM-1–3 session restart).
   8 new Kani harnesses (K133-K140). 24 new Kani unit tests. Total: 682 Verus
   items, 116 Kani harnesses, 264 Kani unit tests, 910+ verification instances.
+
+- **2026 MCP protocol guardrails (May 2026, #179, #180):**
+  Protocol version floor enforcement, required protocol version header, and an
+  allowlist for MCP parameter headers on the streamable HTTP transport.
+
+- **One-command installer:** install script plus `--version` on every binary.
+
+- **First-class evidence verification:** evidence packs are verifiable as a
+  supported operation rather than an internal detail, and validation no longer
+  depends on ripgrep being present.
+
+- **Canonicalized tool schema pins**, so a pinned schema compares stably.
+
+### Fixed
+
+- **Sanitizer strips Unicode combining marks**, closing a normalization bypass
+  in injection detection.
+- **Supply-chain release gates hardened**, and release workflow conditionals
+  normalized.
+- **Python SDK adapter verdicts enforced**; SDK type checks and TypeScript lint
+  are now blocking in CI.
+- **Surface validation workflow added**, aligning checks with clean installs.
+
+### Security
+
+Advisories resolved during this cycle (25 open Dependabot alerts to zero):
+
+- RUSTSEC-2026-0190 and RUSTSEC-2026-0204 (#283)
+- gRPC, `x/net`, `x/text` in the Terraform provider (#284)
+- npm advisories via lockfile-only updates (#285)
+- `esbuild` pinned to a patched release (#208)
+- `brace-expansion` ReDoS, 3 high (#297)
+- `sharp`/libvips — CVE-2026-33327, CVE-2026-33328, CVE-2026-35590,
+  CVE-2026-35591 (#299)
+- react-router — 2 high, 3 moderate, via the 7 → 8 migration (#298)
+- astro, js-yaml, postcss, langsmith, jackson-databind, `@babel/core`
+- `cmov` and `serde_with` (RustSec), via a semver-compatible batch of 153
+  packages (#294)
+
+### Dependencies
+
+146 dependency commits. Notable: `jsonwebtoken` 10.4 → 11.0 (#314), which
+requires `use_pem` to be requested explicitly now that implicit
+optional-crate features are gone. Dependabot no longer proposes TypeScript
+majors in the two directories where `typescript-eslint`'s peer range blocks
+them (#308).
 
 ## [6.1.1] - 2026-03-27
 

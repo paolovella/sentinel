@@ -615,9 +615,10 @@ impl SecureTaskManager {
             ));
         }
 
-        let nonce_arr: [u8; 12] = nonce_bytes.as_slice().try_into().map_err(|_| {
-            TaskSecurityError::DecryptionFailed("Invalid nonce length".to_string())
-        })?;
+        let nonce_arr: [u8; 12] = nonce_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| TaskSecurityError::DecryptionFailed("Invalid nonce length".to_string()))?;
         let nonce = Nonce::from(nonce_arr);
 
         let plaintext = self

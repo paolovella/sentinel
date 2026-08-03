@@ -60,7 +60,7 @@ tower = "0.5"
 governor = "0.10"
 subtle = "2"
 uuid = { workspace = true }
-jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "11", features = ["aws_lc_rs", "use_pem"] }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }

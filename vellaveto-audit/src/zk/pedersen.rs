@@ -76,7 +76,7 @@ impl PedersenCommitter {
         let entry_scalar = Scalar::from_bytes_mod_order(*entry_hash);
 
         // Generate random blinding factor
-        let blinding = Scalar::random(&mut rand_core_06::OsRng);
+        let blinding = Scalar::random(&mut rand::rng());
 
         // C = entry_hash * G + blinding * H
         let commitment = entry_scalar * RISTRETTO_BASEPOINT_POINT + blinding * self.h;

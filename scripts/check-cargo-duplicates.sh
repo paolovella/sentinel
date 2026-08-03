@@ -26,7 +26,6 @@ BASELINE = {
     "bitflags": ["1.3.2", "2.13.1"],
     "block-buffer": ["0.10.4", "0.12.1"],
     "chacha20": ["0.10.1", "0.9.1"],
-    "const-oid": ["0.10.2", "0.9.6"],
     "cpufeatures": ["0.2.17", "0.3.0"],
     "crypto-common": ["0.1.7", "0.2.2"],
     "digest": ["0.10.7", "0.11.3"],
@@ -39,7 +38,10 @@ BASELINE = {
     "rand": ["0.10.2", "0.9.5"],
     "rand_core": ["0.10.1", "0.6.4", "0.9.5"],
     "reqwest": ["0.12.28", "0.13.4"],
-    "sha2": ["0.10.9", "0.11.0"],
+    # Transient, introduced by ed25519-dalek 3.0. ed25519 3 depends on
+    # signature 3, while jsonwebtoken 10.4.0 still pins signature 2. This
+    # collapses back to one version once jsonwebtoken 11 lands.
+    "signature": ["2.2.0", "3.0.0"],
     # New duplicate, and expected to be transient. The proc-macro ecosystem
     # (serde_derive, thiserror-impl, clap_derive, async-trait, displaydoc,
     # ref-cast-impl, schemars_derive) has moved to syn 3. Only asn1-rs-derive,

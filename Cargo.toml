@@ -65,7 +65,7 @@ tokio-stream = "0.1"
 argon2 = "0.5"
 password-hash = "0.6"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "chrono", "uuid"] }
-ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+ed25519-dalek = { version = "3.0", features = ["rand_core"] }
 rand_core_06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
 sha2 = "0.11"
 hmac = "0.13"

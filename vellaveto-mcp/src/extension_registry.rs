@@ -655,9 +655,8 @@ mod tests {
     #[test]
     fn test_signature_required_invalid_signature() {
         use ed25519_dalek::SigningKey;
-        use rand_core_06::OsRng;
 
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let signing_key = SigningKey::generate(&mut rand::rng());
         let pub_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
 
         let registry = ExtensionRegistry::new(
@@ -679,9 +678,8 @@ mod tests {
     #[test]
     fn test_signature_required_valid_signature() {
         use ed25519_dalek::{Signer, SigningKey};
-        use rand_core_06::OsRng;
 
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let signing_key = SigningKey::generate(&mut rand::rng());
         let pub_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
 
         // Build descriptor, sign the canonical form

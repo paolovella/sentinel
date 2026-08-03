@@ -916,7 +916,7 @@ mod tests {
     #[tokio::test]
     async fn test_checkpoint_creation_and_verification() {
         let (enc_key, hmac_key) = make_keys();
-        let signing_key = SigningKey::generate(&mut rand_core_06::OsRng);
+        let signing_key = SigningKey::generate(&mut rand::rng());
 
         let manager = SecureTaskManager::new(enc_key, hmac_key)
             .unwrap()
@@ -937,7 +937,7 @@ mod tests {
     #[tokio::test]
     async fn test_tampered_checkpoint_fails_verification() {
         let (enc_key, hmac_key) = make_keys();
-        let signing_key = SigningKey::generate(&mut rand_core_06::OsRng);
+        let signing_key = SigningKey::generate(&mut rand::rng());
 
         let manager = SecureTaskManager::new(enc_key, hmac_key)
             .unwrap()

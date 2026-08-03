@@ -16,22 +16,36 @@ import sys
 from collections import defaultdict
 
 BASELINE = {
-    "block-buffer": ["0.10.4", "0.12.0"],
-    "chacha20": ["0.10.0", "0.9.1"],
+    # New duplicate, introduced by the semver-compatible batch update.
+    # 1.3.2 arrives via a single chain and is not built for our targets:
+    #   vellaveto-operator -> kube 3.1.0 -> k8s-openapi 0.27.1
+    #                      -> jiff 0.2.35 -> defmt 1.1.1 -> bitflags 1.3.2
+    # `cargo tree -i bitflags@1.3.2 --target all` finds no reachable path, so
+    # this is a lockfile-resolve entry rather than compiled surface. Revisit if
+    # kube/jiff ever pull defmt into an actually-built configuration.
+    "bitflags": ["1.3.2", "2.13.1"],
+    "block-buffer": ["0.10.4", "0.12.1"],
+    "chacha20": ["0.10.1", "0.9.1"],
     "const-oid": ["0.10.2", "0.9.6"],
     "cpufeatures": ["0.2.17", "0.3.0"],
-    "crypto-common": ["0.1.7", "0.2.1"],
+    "crypto-common": ["0.1.7", "0.2.2"],
     "digest": ["0.10.7", "0.11.3"],
     "foldhash": ["0.1.5", "0.2.0"],
-    "getrandom": ["0.2.17", "0.3.4", "0.4.2"],
+    "getrandom": ["0.2.17", "0.3.4", "0.4.3"],
     "hashbrown": ["0.14.5", "0.15.5", "0.16.1", "0.17.1"],
     "itertools": ["0.13.0", "0.14.0"],
     "password-hash": ["0.5.0", "0.6.1"],
     "r-efi": ["5.3.0", "6.0.0"],
-    "rand": ["0.10.1", "0.9.4"],
+    "rand": ["0.10.2", "0.9.5"],
     "rand_core": ["0.10.1", "0.6.4", "0.9.5"],
     "reqwest": ["0.12.28", "0.13.4"],
     "sha2": ["0.10.9", "0.11.0"],
+    # New duplicate, and expected to be transient. The proc-macro ecosystem
+    # (serde_derive, thiserror-impl, clap_derive, async-trait, displaydoc,
+    # ref-cast-impl, schemars_derive) has moved to syn 3. Only asn1-rs-derive,
+    # reached through x509-parser 0.18.1, still pins syn 2 — this collapses back
+    # to a single version once x509-parser updates.
+    "syn": ["2.0.119", "3.0.3"],
     "untrusted": ["0.7.1", "0.9.0"],
     "windows-sys": ["0.52.0", "0.59.0", "0.60.2", "0.61.2"],
     "windows-targets": ["0.52.6", "0.53.5"],
@@ -43,7 +57,8 @@ BASELINE = {
     "windows_x86_64_gnu": ["0.52.6", "0.53.1"],
     "windows_x86_64_gnullvm": ["0.52.6", "0.53.1"],
     "windows_x86_64_msvc": ["0.52.6", "0.53.1"],
-    "wit-bindgen": ["0.51.0", "0.57.1"],
+    # wit-bindgen dropped out of the duplicate set in this update; the entry is
+    # removed rather than left behind, so a future reintroduction is flagged.
 }
 
 with open(sys.argv[1], encoding="utf-8") as f:

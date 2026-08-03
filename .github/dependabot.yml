@@ -49,6 +49,15 @@ updates:
       admin-console:
         patterns:
           - "*"
+    ignore:
+      # typescript-eslint 8.x declares a peer of typescript ">=4.8.4 <6.1.0",
+      # and no stable typescript-eslint supports typescript 7 yet (only
+      # 8.65.1-alpha.*). Grouping a typescript 7 major into this directory makes
+      # the whole group unmergeable on npm peer resolution -- that is what closed
+      # #293. Minor and patch updates inside typescript 6.x still flow.
+      # Remove this once typescript-eslint ships a stable release admitting 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps(admin-console)"
@@ -67,6 +76,14 @@ updates:
       typescript-sdk:
         patterns:
           - "*"
+    ignore:
+      # Same peer conflict as /admin-console: typescript-eslint 8.x pins
+      # typescript ">=4.8.4 <6.1.0", so a typescript 7 major in this group fails
+      # npm resolution on Node 18, 20 and 22 -- that is what closed #277.
+      # Minor and patch updates inside typescript 6.x still flow.
+      # Remove this once typescript-eslint ships a stable release admitting 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps(sdk-typescript)"

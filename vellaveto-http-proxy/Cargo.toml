@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-http-proxy"
-version = "6.1.1"
+version = "7.0.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
@@ -26,14 +26,14 @@ name = "vellaveto-http-proxy"
 path = "src/main.rs"
 
 [dependencies]
-vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.9" }
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
-vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.9" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.9" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.9" }
-vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.9" }
-vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.9" }
-vellaveto-tls = { path = "../vellaveto-tls", version = "6.0.9" }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "7.0.0" }
+vellaveto-types = { path = "../vellaveto-types", version = "7.0.0" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "7.0.0" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "7.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "7.0.0" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "7.0.0" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "7.0.0" }
+vellaveto-tls = { path = "../vellaveto-tls", version = "7.0.0" }
 tokio-rustls = "0.26"
 
 serde = { workspace = true }
@@ -49,7 +49,7 @@ ed25519-dalek = { workspace = true }
 axum = { version = "0.8", features = ["ws"] }
 clap = { version = "4.6", features = ["derive"] }
 dashmap = "6"
-jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "11", features = ["aws_lc_rs", "use_pem"] }
 reqwest = { workspace = true, features = ["stream"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

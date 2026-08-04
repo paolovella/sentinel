@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-server"
-version = "6.1.1"
+version = "7.0.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
@@ -31,16 +31,16 @@ opentelemetry = [
 ]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
-vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.9" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.9" }
-vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.9", features = ["discovery", "projector"] }
-vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.9" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.9" }
-vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.9" }
-vellaveto-cluster = { path = "../vellaveto-cluster", version = "6.0.9" }
-vellaveto-discovery = { path = "../vellaveto-discovery", version = "6.0.9" }
-vellaveto-tls = { path = "../vellaveto-tls", version = "6.0.9" }
+vellaveto-types = { path = "../vellaveto-types", version = "7.0.0" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "7.0.0" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "7.0.0" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "7.0.0", features = ["discovery", "projector"] }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "7.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "7.0.0" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "7.0.0" }
+vellaveto-cluster = { path = "../vellaveto-cluster", version = "7.0.0" }
+vellaveto-discovery = { path = "../vellaveto-discovery", version = "7.0.0" }
+vellaveto-tls = { path = "../vellaveto-tls", version = "7.0.0" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -60,7 +60,7 @@ tower = "0.5"
 governor = "0.10"
 subtle = "2"
 uuid = { workspace = true }
-jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "11", features = ["aws_lc_rs", "use_pem"] }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }

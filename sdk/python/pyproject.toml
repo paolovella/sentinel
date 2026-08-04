@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vellaveto-sdk"
-version = "6.1.1"
+version = "7.0.0"
 description = "Python SDK for the Vellaveto agent interaction firewall"
 readme = "README.md"
 license = { file = "LICENSE" }

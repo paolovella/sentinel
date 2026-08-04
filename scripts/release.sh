@@ -87,9 +87,40 @@ else
     if [ -f "$crate_dir/Cargo.toml" ]; then
       # Replace the crate version
       sed -i "0,/^version = \"$OLD_VERSION\"/{s/^version = \"$OLD_VERSION\"/version = \"$VERSION\"/}" "$crate_dir/Cargo.toml"
-      # Replace internal dependency versions
-      sed -i "s/version = \"$OLD_VERSION\", path/version = \"$VERSION\", path/g" "$crate_dir/Cargo.toml"
     fi
+  done
+
+  # --- Internal path dependency pins ---
+  #
+  # These must track the workspace version exactly. Publishing a 7.0.0 crate
+  # that still pins `vellaveto-types = "6.0.9"` makes the released crate depend
+  # on the OLD published sibling rather than the one being released alongside
+  # it.
+  #
+  # The pins are rewritten regardless of what they currently say, because they
+  # are not guaranteed to equal OLD_VERSION -- they had drifted to 6.0.9 while
+  # the workspace was on 6.1.1, and went unnoticed because a caret requirement
+  # of ^6.0.9 still accepts 6.1.1. It does not accept 7.0.0, so a major bump is
+  # the first time this surfaces.
+  #
+  # Both key orders are handled: `version = "X", path = "..."` and
+  # `path = "...", version = "X"`.
+  for manifest in vellaveto-*/Cargo.toml packages/vellaveto-desktop/src-tauri/Cargo.toml; do
+    [ -f "$manifest" ] || continue
+    python3 - "$manifest" "$VERSION" <<'PY'
+import re, sys
+path, version = sys.argv[1], sys.argv[2]
+src = open(path, encoding="utf-8").read()
+
+def bump(line):
+    if 'path = "../vellaveto-' not in line and 'path = "../../../vellaveto-' not in line:
+        return line
+    return re.sub(r'version = "[^"]*"', f'version = "{version}"', line)
+
+out = "\n".join(bump(l) for l in src.split("\n"))
+if out != src:
+    open(path, "w", encoding="utf-8").write(out)
+PY
   done
 
   # Bump Tauri desktop crate

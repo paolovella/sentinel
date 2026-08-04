@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-discovery"
-version = "6.1.1"
+version = "7.0.0"
 description = "MCP tool topology crawling and verification for VellaVeto"
 edition = "2021"
 license = "MPL-2.0"
@@ -12,8 +12,8 @@ rust-version.workspace = true
 readme = "README.md"
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
-vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.9" }
+vellaveto-types = { path = "../vellaveto-types", version = "7.0.0" }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "7.0.0" }
 petgraph = "0.8"
 serde = { workspace = true }
 serde_json = { workspace = true }

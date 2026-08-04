@@ -607,7 +607,25 @@ jobs:
 
       - name: Check for semver violations
         if: steps.semver_changes.outputs.run_semver == 'true'
-        run: cargo semver-checks check-release --exclude mcpsec
+        # vellaveto-http-proxy is excluded because its published baseline cannot
+        # be built, so cargo-semver-checks aborts the entire run before reaching
+        # the other crates:
+        #
+        #   Failed to compile MCP protobuf schema: protoc failed:
+        #   Could not make proto path relative: ../proto/mcp/v1/mcp.proto:
+        #   No such file or directory
+        #
+        # build.rs references ../proto/, which is outside the crate directory,
+        # and crates.io packages only files inside it. `cargo package --list`
+        # for this crate emits build.rs and no .proto at all, so every published
+        # version is unbuildable by a consumer.
+        #
+        # Excluding it is not a workaround for a violation in this crate -- it
+        # has none. It is unreachable, and no change to current code can fix a
+        # baseline that is already published and immutable. The exclusion can be
+        # removed once a version with the proto actually packaged has been
+        # published to crates.io and becomes the baseline.
+        run: cargo semver-checks check-release --exclude mcpsec --exclude vellaveto-http-proxy
 
       - name: Semver check skipped
         if: steps.semver_changes.outputs.run_semver != 'true'

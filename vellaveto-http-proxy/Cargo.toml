@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-http-proxy"
-version = "6.1.1"
+version = "7.0.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
@@ -26,14 +26,14 @@ name = "vellaveto-http-proxy"
 path = "src/main.rs"
 
 [dependencies]
-vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.9" }
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.9" }
-vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.9" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.9" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.9" }
-vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.9" }
-vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.9" }
-vellaveto-tls = { path = "../vellaveto-tls", version = "6.0.9" }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "7.0.0" }
+vellaveto-types = { path = "../vellaveto-types", version = "7.0.0" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "7.0.0" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "7.0.0" }
+vellaveto-config = { path = "../vellaveto-config", version = "7.0.0" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "7.0.0" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "7.0.0" }
+vellaveto-tls = { path = "../vellaveto-tls", version = "7.0.0" }
 tokio-rustls = "0.26"
 
 serde = { workspace = true }

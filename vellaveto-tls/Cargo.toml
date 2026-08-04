@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-tls"
-version = "6.1.1"
+version = "7.0.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
@@ -11,7 +11,7 @@ rust-version.workspace = true
 description = "Shared TLS/mTLS module for Vellaveto server and HTTP proxy"
 
 [dependencies]
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.9" }
+vellaveto-config = { path = "../vellaveto-config", version = "7.0.0" }
 rustls = "0.23"
 tokio-rustls = "0.26"
 x509-parser = "0.18"

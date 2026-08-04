@@ -1,6 +1,6 @@
 {
   "name": "create-vellaveto",
-  "version": "6.1.1",
+  "version": "7.0.0",
   "description": "Setup wizard for Vellaveto — MCP Policy Gateway",
   "type": "module",
   "bin": {

@@ -1,2 +1,74 @@
 
 # cargo-vet imports lock
+
+[[unpublished.vellaveto-approval]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-audit]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-canary]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-canonical]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-cluster]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-config]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-discovery]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-engine]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-http-proxy]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-http-proxy-shield]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-mcp]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-mcp-shield]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-operator]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-proxy]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-server]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-shield]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-tls]]
+version = "7.0.0"
+audited_as = "6.1.1"
+
+[[unpublished.vellaveto-types]]
+version = "7.0.0"
+audited_as = "6.1.1"

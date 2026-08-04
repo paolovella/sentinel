@@ -761,7 +761,7 @@ mod tests {
     use vellaveto_types::CapabilityGrant;
 
     fn test_key_hex() -> String {
-        let key = SigningKey::generate(&mut rand_core_06::OsRng);
+        let key = SigningKey::generate(&mut rand::rng());
         hex::encode(key.to_bytes())
     }
 

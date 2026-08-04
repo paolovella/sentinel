@@ -14,7 +14,6 @@ use crate::redaction::{
 use crate::types::{AuditEntry, AuditError, RedactionLevel};
 use chrono::Utc;
 use ed25519_dalek::SigningKey;
-use rand_core_06::OsRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -253,7 +252,7 @@ impl AuditLogger {
 
     /// Generate a new random Ed25519 signing key.
     pub fn generate_signing_key() -> SigningKey {
-        SigningKey::generate(&mut OsRng)
+        SigningKey::generate(&mut rand::rng())
     }
 
     /// Load an Ed25519 signing key from raw 32-byte seed.

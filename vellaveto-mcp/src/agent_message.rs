@@ -21,7 +21,6 @@
 //! Reference: MCP 2025-11-25 Security Best Practices
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use rand_core_06::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -413,7 +412,7 @@ pub struct AgentKeyPair {
 impl AgentKeyPair {
     /// Generate a new random key pair.
     pub fn generate(agent_id: &str) -> Self {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let signing_key = SigningKey::generate(&mut rand::rng());
         let verifying_key = signing_key.verifying_key();
         Self {
             signing_key,
@@ -827,7 +826,7 @@ mod tests {
     fn test_verify_calls_validate() {
         // Verify that verify() rejects a message with dangerous chars in sender
         // BEFORE attempting signature verification.
-        let key = SigningKey::generate(&mut rand_core_06::OsRng);
+        let key = SigningKey::generate(&mut rand::rng());
         let pubkey = key.verifying_key();
         let msg = SignedAgentMessage {
             sender: "agent\x00evil".to_string(),

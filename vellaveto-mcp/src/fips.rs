@@ -192,7 +192,17 @@ impl FipsMode {
 pub fn sign_ecdsa_p256(data: &[u8], private_key: &[u8]) -> Result<Vec<u8>, FipsError> {
     use p256::ecdsa::{signature::Signer, Signature, SigningKey};
 
-    let signing_key = SigningKey::from_bytes(private_key.into())
+    // p256 0.14 removed the `&[u8]` conversion into the field-element array,
+    // so the length is now checked explicitly instead of failing inside
+    // `from_bytes`. A P-256 scalar is always 32 bytes.
+    let key_bytes: &[u8; 32] = private_key.try_into().map_err(|_| {
+        FipsError::InvalidKey(format!(
+            "Invalid P-256 private key: expected 32 bytes, got {}",
+            private_key.len()
+        ))
+    })?;
+
+    let signing_key = SigningKey::from_bytes(key_bytes.into())
         .map_err(|e| FipsError::InvalidKey(format!("Invalid P-256 private key: {}", e)))?;
 
     let signature: Signature = signing_key.sign(data);
@@ -209,11 +219,12 @@ pub fn verify_ecdsa_p256(
     public_key: &[u8],
 ) -> Result<bool, FipsError> {
     use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
-    use p256::EncodedPoint;
 
-    let point = EncodedPoint::from_bytes(public_key)
-        .map_err(|e| FipsError::InvalidKey(format!("Invalid P-256 public key: {}", e)))?;
-    let verifying_key = VerifyingKey::from_encoded_point(&point)
+    // p256 0.14 removed `p256::EncodedPoint` from the crate root and dropped
+    // `VerifyingKey::from_encoded_point`. `from_sec1_bytes` parses the same
+    // SEC1 encoding directly, so accepted public-key inputs are unchanged:
+    // both compressed (33-byte) and uncompressed (65-byte) forms still work.
+    let verifying_key = VerifyingKey::from_sec1_bytes(public_key)
         .map_err(|e| FipsError::InvalidKey(format!("Invalid P-256 public key: {}", e)))?;
 
     let sig = Signature::from_der(signature)
@@ -328,6 +339,68 @@ mod tests {
 
         let result = verify_ecdsa_p256(b"test", &[0; 64], &[0; 33]);
         assert!(matches!(result, Err(FipsError::NotEnabled)));
+    }
+
+    /// Round-trip exercise of real P-256 signing and verification.
+    ///
+    /// Only the `NotEnabled` stub path was covered before, so the actual
+    /// cryptography shipped under the `fips` feature had no test at all.
+    #[cfg(feature = "fips")]
+    #[test]
+    fn test_ecdsa_p256_sign_verify_roundtrip() {
+        use p256::ecdsa::SigningKey;
+
+        let private_key = [0x11u8; 32];
+        let data = b"vellaveto fips p256 attestation v1";
+
+        let signature = sign_ecdsa_p256(data, &private_key).expect("signing must succeed");
+
+        let key = SigningKey::from_bytes((&private_key).into()).expect("valid key");
+        let public_point = key.verifying_key().to_sec1_point(false);
+
+        assert!(
+            verify_ecdsa_p256(data, &signature, public_point.as_bytes()).expect("verify must run"),
+            "a signature must verify against its own public key"
+        );
+
+        assert!(
+            !verify_ecdsa_p256(b"tampered", &signature, public_point.as_bytes())
+                .expect("verify must run"),
+            "a signature must not verify against different data"
+        );
+    }
+
+    /// Known-answer test pinning the DER-encoded ECDSA P-256 signature.
+    ///
+    /// ECDSA signatures here are deterministic (RFC 6979), so a fixed key and
+    /// message must always produce identical DER bytes. Signatures are a wire
+    /// format consumed by verifiers outside this process, so a change in the
+    /// encoding would break interoperability without failing a round-trip
+    /// test — which signs and verifies with the same implementation and would
+    /// pass regardless.
+    ///
+    /// This vector was generated under p256 0.13 and must continue to hold
+    /// across dependency upgrades.
+    #[cfg(feature = "fips")]
+    #[test]
+    fn test_ecdsa_p256_known_answer_vector() {
+        let private_key = [0x11u8; 32];
+        let data = b"vellaveto fips p256 attestation v1";
+
+        // Generated with p256 0.13, RFC 6979 deterministic nonce.
+        let expected_hex = "30460221008b4d9c4ffb80a3b85156e756ac5fdd53b33c4c519b57966d\
+                            99a822ec186a15be022100f7f0cbfd98924f9a1c1f3da56f3f81b0681d\
+                            79284f5ab71f63d1dbba7b5f2b6f";
+
+        let signature = sign_ecdsa_p256(data, &private_key).expect("signing must succeed");
+        let actual_hex: String = signature.iter().map(|b| format!("{b:02x}")).collect();
+
+        assert_eq!(
+            actual_hex, expected_hex,
+            "ECDSA P-256 DER signature changed — external verifiers would reject \
+             signatures produced by this build"
+        );
+        assert_eq!(signature.len(), 72, "unexpected DER signature length");
     }
 
     #[test]

@@ -1889,5 +1889,12 @@ if [ "$DRIFT_FOUND" -ne 0 ]; then
     exit 1
 fi
 
-echo "=== ALL CHECKS PASSED ==="
-echo "Verus proof targets still align with production entrypoints."
+echo "=== SYMBOL PARITY PASSED ==="
+echo "Every documented Verus kernel has its production counterpart, and every"
+echo "expected symbol is present on both sides."
+echo ""
+echo "This does NOT establish that the two implementations compute the same"
+echo "function. The kernels and their mirrors are structurally different"
+echo "implementations and the correspondence between them is hand-established:"
+echo "see PARITY-HAND-1 in formal/ASSUMPTION_REGISTRY.md. Behavioural drift is"
+echo "caught only where a differential test exists."

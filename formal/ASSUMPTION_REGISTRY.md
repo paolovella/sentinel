@@ -33,6 +33,54 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-3` | `floor(y) ≤ ceil(y)` for any y ∈ [0.0, 8000.0] — threshold (floor) is at most observation (ceil) for the same input | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_floor_le_ceil` in allowlist |
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
+| `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; **no such diff check exists**, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **undischarged** — in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+
+## Parity Assumptions (PARITY-HAND-*)
+
+`PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
+assumptions in this registry. Everything a Verus or Kani proof establishes
+reaches shipped behaviour only through them.
+
+They were measured on 2026-08-24 by mutating production mirrors and observing
+whether anything fired:
+
+| Mutation to `vellaveto-mcp/src/verified_capability_glob.rs` | `check-verus-parity.sh` | crate test suite |
+|---|---|---|
+| body replaced with `return true` (containment disabled) | PASSED | 3 failures |
+| case-fold `A..Z` → `A..<Z` (breaks folding for `Z` only) | PASSED | **1950 passed, 0 failed** |
+| `?` widened to zero-or-one (fail-open) | PASSED | 2 failures |
+
+The second row is the shape of the problem: a one-character semantic change that
+no guard and no test detects, while the kernel continues to prove
+case-insensitivity as a universal property.
+
+**Discharge mechanism.** A differential test that transcribes the kernel's
+`spec` function and asserts it agrees with the shipped function over an
+exhaustively enumerated input space. Verus proves *exec == spec*; the
+differential test binds *spec == shipped*; together they reach production.
+`formal/tools/check-differential-parity.sh` runs them, and every discharge is
+itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
+cannot fail would reinstate the assumption while appearing to remove it.
+
+**Measured trusted base (2026-08-24): 1 of 59 kernels discharged, 58 remain.**
+
+| Kernel | Discharged by | Input space |
+|---|---|---|
+| `verified_capability_glob` | `vellaveto-mcp/src/verified_capability_glob.rs::verus_spec_differential` | 342,225 pairs — all strings of length 0–3 over `* ? @ A Z [ a z` |
+
+The alphabet is chosen against the proof's dependencies rather than for
+coverage: `*` and `?` drive the metacharacter branches, `A`/`a` and `Z`/`z`
+drive case folding, and `@` (0x40) and `[` (0x5B) sit immediately outside
+`A..=Z` so widening the fold range in either direction is caught. The three
+mutations that defeated `check-verus-parity.sh` each fail this test with a
+concrete counterexample; the `A..<Z` mutation, which passed all 1,950 crate
+tests, fails on `parent="Z" child="z"`.
+
+The remaining 58 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+differential binding, its proof constrains the kernel and not the shipped code,
+and no claim should say otherwise.
+
 ## Artifact Map
 
 | Artifact | Role | Status |

@@ -77,6 +77,12 @@ VERUS_GUARD="formal/tools/check-verus-parity.sh"
 KANI_GUARD="formal/tools/check-kani-parity.sh"
 ASSUM_GUARD="formal/tools/check-formal-trusted-assumptions.sh"
 MARKER_GUARD="formal/tools/check-proof-completion-markers.sh"
+DIFF_GUARD="formal/tools/check-differential-parity.sh"
+
+# Differential cases compile the crate under test. Share one target directory
+# across every case so only the first pays a cold build (~90s) and the rest are
+# incremental.
+export DIFFERENTIAL_TARGET_DIR="${DIFFERENTIAL_TARGET_DIR:-/tmp/vellaveto-guard-selftest-target}"
 
 echo "=== Formal Guard Self-Test ==="
 echo "Each case breaks one thing a guard claims to protect and expects it to fire."
@@ -88,22 +94,26 @@ echo ""
 echo "--- control ---"
 run_case "pristine export (verus guard)" "$VERUS_GUARD" pass true
 run_case "pristine export (assumption guard)" "$ASSUM_GUARD" pass true
+run_case "pristine export (differential guard)" "$DIFF_GUARD" pass true
 
 # ── 1. Verus ↔ production correspondence ──────────────────────────────────
 # The kernel proves properties of an algorithm. These mutations change what the
-# shipped algorithm computes, without touching any symbol name.
+# shipped algorithm computes without touching any symbol name, so
+# check-verus-parity.sh cannot see them by construction — it greps for names.
+# The binding that can see them is check-differential-parity.sh, which executes
+# a transcription of the Verus spec alongside the shipped function.
 echo ""
-echo "--- verus ↔ production body correspondence ---"
+echo "--- verus ↔ production body correspondence (differential) ---"
 
 GLOB_PROD="vellaveto-mcp/src/verified_capability_glob.rs"
 
-run_case "capability containment disabled" "$VERUS_GUARD" drift \
+run_case "capability containment disabled" "$DIFF_GUARD" drift \
     perl -0pi -e 's/(fn literal_child_matches_parent_glob_from\([^)]*\) -> bool \{)/$1\n    if true { return true; }/' "$GLOB_PROD"
 
-run_case "case-fold off-by-one (A..Y, not Z)" "$VERUS_GUARD" drift \
+run_case "case-fold off-by-one (A..Y, not Z)" "$DIFF_GUARD" drift \
     perl -0pi -e "s/byte >= b'A' && byte <= b'Z'/byte >= b'A' && byte < b'Z'/" "$GLOB_PROD"
 
-run_case "'?' widened to zero-or-one (fail-open)" "$VERUS_GUARD" drift \
+run_case "'?' widened to zero-or-one (fail-open)" "$DIFF_GUARD" drift \
     perl -0pi -e "s/Some\(\(&b'\?', tail\)\) => child_literal/Some((&b'?', tail)) => literal_child_matches_parent_glob_from(tail, child_literal) || child_literal/" "$GLOB_PROD"
 
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────

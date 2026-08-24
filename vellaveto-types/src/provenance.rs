@@ -885,6 +885,7 @@ mod verus_spec_differential {
     const UNKNOWN: u8 = 1;
     const LOW: u8 = 3;
     const MEDIUM: u8 = 4;
+    const HIGH: u8 = 5;
     const VERIFIED: u8 = 6;
 
     /// Transcription of `spec_min_trust_for_sink`, including its fail-safe.
@@ -892,11 +893,12 @@ mod verus_spec_differential {
         match sink_class {
             0 => UNKNOWN,
             1 => LOW,
-            2 => MEDIUM,
-            3 => MEDIUM,
-            4 => VERIFIED,
-            5 => VERIFIED,
-            _ => UNKNOWN,
+            2..=3 => MEDIUM,
+            4..=5 => HIGH,
+            6..=8 => VERIFIED,
+            // Out of range is unreachable for the shipped nine-variant enum;
+            // the kernel fails closed rather than open there.
+            _ => VERIFIED,
         }
     }
 
@@ -937,12 +939,9 @@ mod verus_spec_differential {
     ];
 
     #[test]
-    fn test_min_trust_for_sink_matches_verus_spec_on_the_modelled_classes() {
+    fn test_min_trust_for_sink_matches_verus_spec_total_domain() {
         for sink in ALL_SINKS {
             let rank = sink.rank();
-            if rank > 3 {
-                continue;
-            }
             assert_eq!(
                 minimum_trust_tier_for_sink(sink).rank(),
                 spec_min_trust_for_sink(rank),
@@ -952,12 +951,9 @@ mod verus_spec_differential {
     }
 
     #[test]
-    fn test_sink_accessibility_matches_verus_spec_on_the_modelled_classes() {
+    fn test_sink_accessibility_matches_verus_spec_total_domain() {
         for sink in ALL_SINKS {
             let rank = sink.rank();
-            if rank > 3 {
-                continue;
-            }
             for trust in ALL_TIERS {
                 let shipped = FlowPoint::new(trust, sink).is_admissible();
                 assert_eq!(
@@ -980,52 +976,6 @@ mod verus_spec_differential {
                     "PARITY-HAND-1: TrustTier::meet disagrees for ({current:?}, {source:?})"
                 );
             }
-        }
-    }
-
-    /// TAINT-MODEL-DRIFT: pinned record of where the kernel stops describing
-    /// the shipped enum.
-    ///
-    /// Two directions, and they are not equally benign:
-    ///
-    /// - ranks 6..=8 (`CodeExecution`, `CredentialAccess`, `PolicyMutation`)
-    ///   fall into the kernel's `else -> UNKNOWN` fail-safe, while production
-    ///   requires `Verified`. **Production is stricter**, so nothing is
-    ///   under-enforced; the proof simply says less than the code does.
-    /// - ranks 4..=5 (`MemoryWrite`, `ApprovalUi`) are where the kernel demands
-    ///   `Verified` and production accepts `High`. **The kernel is stricter**,
-    ///   so the proof claims a guarantee for these two sinks that the shipped
-    ///   code does not provide. Nothing should cite it for them.
-    #[test]
-    fn test_pinned_model_drift_between_kernel_and_shipped_sink_classes() {
-        let expected: [(u8, u8, u8); 5] = [
-            // (rank, production min rank, kernel spec)
-            (4, 5, VERIFIED),
-            (5, 5, VERIFIED),
-            (6, 6, UNKNOWN),
-            (7, 6, UNKNOWN),
-            (8, 6, UNKNOWN),
-        ];
-        for (rank, prod_min, kernel_min) in expected {
-            let sink = ALL_SINKS
-                .into_iter()
-                .find(|s| s.rank() == rank)
-                .expect("rank present");
-            assert_eq!(
-                minimum_trust_tier_for_sink(sink).rank(),
-                prod_min,
-                "TAINT-MODEL-DRIFT: production mapping changed for {sink:?};                  re-check the kernel before updating this pin"
-            );
-            assert_eq!(
-                spec_min_trust_for_sink(rank),
-                kernel_min,
-                "TAINT-MODEL-DRIFT: kernel transcription changed for rank {rank}"
-            );
-            assert_ne!(
-                minimum_trust_tier_for_sink(sink).rank(),
-                spec_min_trust_for_sink(rank),
-                "TAINT-MODEL-DRIFT: {sink:?} now agrees with the kernel — good.                  Move it into the bound set above and shrink this pin."
-            );
         }
     }
 
@@ -1070,12 +1020,10 @@ mod verus_spec_differential {
         if sink_rank == 0 {
             1
         } else if sink_rank == 1 {
-            2
-        } else if sink_rank <= 3 {
             3
-        } else if sink_rank <= 5 {
+        } else if sink_rank <= 3 {
             4
-        } else if sink_rank <= 7 {
+        } else if sink_rank <= 5 {
             5
         } else {
             6
@@ -1131,47 +1079,50 @@ mod verus_spec_differential {
         }
     }
 
-    /// TAINT-MODEL-DRIFT, second kernel. `verified_trust_lattice` models the
-    /// same production function with a *third* mapping, and its own doc comment
-    /// claims to be "based on the production mapping in provenance.rs" while
-    /// listing something production does not do.
+    /// TAINT-MODEL-DRIFT, closed 2026-08-24.
     ///
-    /// Its required ranks are uniformly at or below production's, so this is
-    /// the safe direction — the code enforces more than the proof claims — but
-    /// the proof still does not describe the shipped function for ranks 1..=7.
-    /// The two kernels also disagree with each other on eight of nine ranks.
+    /// Both kernels previously modelled `minimum_trust_tier_for_sink` with
+    /// mappings that disagreed with production and with each other — all three
+    /// agreed only at rank 0, and `verified_source_taint` was *stricter* than
+    /// the shipped code for `MemoryWrite` and `ApprovalUi`, so it claimed a
+    /// guarantee the code did not provide.
+    ///
+    /// Both kernels were corrected to the shipped nine-variant mapping and
+    /// re-verified under Verus. This test replaces the pins that recorded the
+    /// divergence: it asserts full three-way agreement, so the drift cannot
+    /// reopen silently.
     #[test]
-    fn test_pinned_model_drift_across_both_kernels_and_production() {
-        let (mut lattice_agrees, mut taint_agrees, mut kernels_agree) = (0usize, 0usize, 0usize);
+    fn test_both_kernels_and_production_agree_on_every_sink_class() {
         for sink in ALL_SINKS {
             let rank = sink.rank();
             let production = minimum_trust_tier_for_sink(sink).rank();
-            let lattice = spec_lattice_min_trust_for_sink(rank);
-            let taint = spec_min_trust_for_sink(rank);
-            assert!(lattice <= production,
-                "TAINT-MODEL-DRIFT: verified_trust_lattice became stricter than production for {sink:?} ({lattice} > {production}); re-check before updating this pin");
-            if lattice == production {
-                lattice_agrees += 1;
-            }
-            if taint == production {
-                taint_agrees += 1;
-            }
-            if lattice == taint {
-                kernels_agree += 1;
-            }
+            assert_eq!(
+                spec_min_trust_for_sink(rank),
+                production,
+                "TAINT-MODEL-DRIFT reopened: verified_source_taint disagrees with production for {sink:?}"
+            );
+            assert_eq!(
+                spec_lattice_min_trust_for_sink(rank),
+                production,
+                "TAINT-MODEL-DRIFT reopened: verified_trust_lattice disagrees with production for {sink:?}"
+            );
         }
-        assert_eq!(
-            lattice_agrees, 2,
-            "TAINT-MODEL-DRIFT: lattice/production agreement changed"
-        );
-        assert_eq!(
-            taint_agrees, 4,
-            "TAINT-MODEL-DRIFT: taint/production agreement changed"
-        );
-        assert_eq!(
-            kernels_agree, 1,
-            "TAINT-MODEL-DRIFT: the two kernels' mutual agreement changed"
-        );
+    }
+
+    /// The sink-threshold monotonicity `verified_trust_lattice` proves
+    /// (`lemma_sink_threshold_monotone`) must hold of the shipped mapping too —
+    /// a more privileged sink never requires less trust.
+    #[test]
+    fn test_shipped_sink_thresholds_are_monotone() {
+        let mut previous = 0u8;
+        for sink in ALL_SINKS {
+            let required = minimum_trust_tier_for_sink(sink).rank();
+            assert!(
+                required >= previous,
+                "PARITY-HAND-1: sink thresholds are not monotone at {sink:?} ({required} < {previous}); lemma_sink_threshold_monotone would not hold of the shipped mapping"
+            );
+            previous = required;
+        }
     }
 
     #[test]

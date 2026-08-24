@@ -276,18 +276,23 @@ pub proof fn lemma_flow_adm_verified_admits_all(required_rank: nat)
 /// Higher sink privilege → higher minimum trust required.
 /// Mirrors `minimum_trust_tier_for_sink()` in production.
 pub open spec fn spec_min_trust_for_sink(sink_rank: nat) -> nat {
-    // Based on the production mapping in vellaveto-types/src/provenance.rs:
-    // ReadOnly(0) → Unknown(1), LowRiskWrite(1) → Untrusted(2),
-    // FilesystemWrite(2) → Low(3), NetworkEgress(3) → Low(3),
-    // MemoryWrite(4) → Medium(4), ApprovalUi(5) → Medium(4),
-    // CodeExecution(6) → High(5), CredentialAccess(7) → High(5),
+    // Mirrors `minimum_trust_tier_for_sink` in
+    // `vellaveto-types/src/provenance.rs`, indexed by `SinkClass::rank()`:
+    // ReadOnly(0) → Unknown(1), LowRiskWrite(1) → Low(3),
+    // FilesystemWrite(2) → Medium(4), NetworkEgress(3) → Medium(4),
+    // MemoryWrite(4) → High(5), ApprovalUi(5) → High(5),
+    // CodeExecution(6) → Verified(6), CredentialAccess(7) → Verified(6),
     // PolicyMutation(8) → Verified(6).
+    //
+    // Bound to shipped behaviour by the differential test in that module — do
+    // not edit one side without the other. An earlier revision of this comment
+    // described a mapping production does not implement; see TAINT-MODEL-DRIFT
+    // in formal/ASSUMPTION_REGISTRY.md.
     if sink_rank == 0 { 1 }       // ReadOnly: Unknown (rank 1)
-    else if sink_rank == 1 { 2 }  // LowRiskWrite: Untrusted (rank 2)
-    else if sink_rank <= 3 { 3 }  // FilesystemWrite/NetworkEgress: Low (rank 3)
-    else if sink_rank <= 5 { 4 }  // MemoryWrite/ApprovalUi: Medium (rank 4)
-    else if sink_rank <= 7 { 5 }  // CodeExecution/CredentialAccess: High (rank 5)
-    else { 6 }                    // PolicyMutation: Verified (rank 6)
+    else if sink_rank == 1 { 3 }  // LowRiskWrite: Low (rank 3)
+    else if sink_rank <= 3 { 4 }  // FilesystemWrite/NetworkEgress: Medium (rank 4)
+    else if sink_rank <= 5 { 5 }  // MemoryWrite/ApprovalUi: High (rank 5)
+    else { 6 }                    // CodeExecution/CredentialAccess/PolicyMutation: Verified (6)
 }
 
 /// TC6 (mirrors TrustContainment.tla): more privileged sinks require at least

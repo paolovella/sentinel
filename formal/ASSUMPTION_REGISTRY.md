@@ -36,70 +36,41 @@ it is considered part of the reviewed proof surface.
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
 | `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; **no such diff check exists**, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **undischarged** — in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
-## TAINT-MODEL-DRIFT — the kernel models a smaller enum than production ships
+## TAINT-MODEL-DRIFT — found, then closed
 
-Found 2026-08-24 by the differential binding, and passing `check-verus-parity.sh`
-the whole time.
+Found 2026-08-24 by the differential binding, and passing
+`check-verus-parity.sh` the whole time. **Fixed the same day.**
 
-`formal/verus/verified_source_taint.rs` models `SinkClass` as **six** classes
-indexed 0..=5 with an `else -> UNKNOWN` fail-safe. Production ships **nine**.
-Measured against `minimum_trust_tier_for_sink`:
+Two kernels modelled `minimum_trust_tier_for_sink` and neither described the
+shipped function. `verified_source_taint` modelled `SinkClass` as six classes
+with an `else -> UNKNOWN` fail-safe; `verified_trust_lattice` used a third
+mapping again, under a doc comment claiming to mirror production. Production
+ships nine classes. All three agreed only at rank 0.
 
-| rank | `SinkClass` | production min tier | kernel spec | |
-|---|---|---|---|---|
-| 0 | `ReadOnly` | Unknown (1) | UNKNOWN (1) | agree |
-| 1 | `LowRiskWrite` | Low (3) | LOW (3) | agree |
-| 2 | `FilesystemWrite` | Medium (4) | MEDIUM (4) | agree |
-| 3 | `NetworkEgress` | Medium (4) | MEDIUM (4) | agree |
-| 4 | `MemoryWrite` | High (5) | VERIFIED (6) | **kernel stricter** |
-| 5 | `ApprovalUi` | High (5) | VERIFIED (6) | **kernel stricter** |
-| 6 | `CodeExecution` | Verified (6) | UNKNOWN (1) | production stricter |
-| 7 | `CredentialAccess` | Verified (6) | UNKNOWN (1) | production stricter |
-| 8 | `PolicyMutation` | Verified (6) | UNKNOWN (1) | production stricter |
+The concerning half was `verified_source_taint` at ranks 4..=5, where the
+kernel demanded `Verified` and the shipped code accepts `High` — a guarantee
+claimed that the code did not provide. Everything else was
+production-stricter, so nothing was under-enforced.
 
-The two directions are not equally benign:
+**Resolution.** Both kernels were corrected to the shipped nine-variant mapping
+and re-verified under Verus (`verified_source_taint` 21 verified / 0 errors,
+`verified_trust_lattice` 29 / 0 — unchanged counts, with three more lemma
+obligations in the first). The lemma indices in `verified_source_taint` were
+wrong too: `4` and `5` were labelled `CodeExecution` and `PolicyMutation` when
+those ranks are `MemoryWrite` and `ApprovalUi`; the privileged-sink and
+quarantine lemmas now cover all nine classes at the right indices. The
+out-of-range branch was changed from `UNKNOWN` to `VERIFIED` so an unreachable
+input fails closed rather than open.
 
-- Ranks 6..=8 fall into the kernel's fail-safe while production requires
-  `Verified`. Production is stricter, so **nothing is under-enforced** — the
-  proof simply says less than the code does.
-- Ranks 4..=5 are the concerning ones. The kernel demands `Verified` where
-  production accepts `High`, so **the proof claims a guarantee for
-  `MemoryWrite` and `ApprovalUi` that the shipped code does not provide.**
-  Nothing should cite TAINT-1..5 for those two sinks until the kernel is
-  updated to the nine-variant enum.
+The pins that recorded the divergence are replaced by
+`test_both_kernels_and_production_agree_on_every_sink_class`, which asserts
+full three-way agreement so the drift cannot reopen silently, and by
+`test_shipped_sink_thresholds_are_monotone`, which checks the shipped mapping
+satisfies the monotonicity `lemma_sink_threshold_monotone` proves.
 
-### A second kernel models the same function differently again
-
-`formal/verus/verified_trust_lattice.rs` also models
-`minimum_trust_tier_for_sink`, with a **third** mapping — and its own doc
-comment claims to be "based on the production mapping in
-`vellaveto-types/src/provenance.rs`" while listing something production does not
-do.
-
-| rank | production | `source_taint` | `trust_lattice` |
-|---|---|---|---|
-| 0 | 1 | 1 | 1 |
-| 1 | 3 | 3 | 2 |
-| 2 | 4 | 4 | 3 |
-| 3 | 4 | 4 | 3 |
-| 4 | 5 | 6 | 4 |
-| 5 | 5 | 6 | 4 |
-| 6 | 6 | 1 | 5 |
-| 7 | 6 | 1 | 5 |
-| 8 | 6 | 1 | 6 |
-
-The three agree only at rank 0. `trust_lattice` agrees with production on 2 of
-9, `source_taint` on 4 of 9, and the two kernels agree with each other on 1 of
-9. `trust_lattice`'s required ranks are uniformly at or below production's, so
-it is the safe direction throughout — the code enforces more than the proof
-claims.
-
-Ranks 0..=3 of `source_taint` are bound, along with the trust-floor update over
-7×7 tiers and all of `trust_lattice`'s lattice operations. The divergences are
-asserted, not skipped, by the two pinned tests in
-`vellaveto-types/src/provenance.rs`, so they fail if either side moves rather
-than widening quietly. They also fail when a row starts *agreeing*, with a
-message to shrink the pin.
+All nine sink classes are now bound across all seven trust tiers, so
+`verified_source_taint` and `verified_trust_lattice` move from *partial* to
+fully discharged.
 
 ## ENTROPY-CONFIG-1 — a kernel precondition established somewhere else
 
@@ -122,6 +93,21 @@ silently. Removing the guard from `validate()` fails
 
 For every validated configuration the kernel and the shipped predicates agree,
 across 9×9 count/threshold pairs including both `u32` extremes.
+
+**Deliberately not "fixed".** Unlike TAINT-MODEL-DRIFT, changing either side
+here would make the system worse:
+
+- Making the shipped predicate return "no alert" at zero would mean that if an
+  unvalidated zero config ever reached it, entropy detection would **silently
+  disable**. Missing detections is a worse failure than the alert flood
+  R231-COLL-1 fixed.
+- Making the kernel model the always-alert behaviour would be formalising the
+  flood as correct.
+
+The real defence is the config rejection, and it is already there. What was
+missing was that the dependency was invisible — the kernel appeared to model a
+guard production did not have. It is now named, asserted at both ends, and
+cannot lose its foundation without failing a test. That is the fix.
 
 ## Parity Assumptions (PARITY-HAND-*)
 
@@ -166,7 +152,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 41 of 59 kernels bound (36 discharged + 4 partial + 1 property), 18 remain.**
+**Measured trusted base (2026-08-24): 41 of 59 kernels bound (38 discharged + 2 partial + 1 property), 18 remain.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -217,8 +203,8 @@ collapsed here.
 | `verified_cross_call_dlp` | bounded | 2 × 6⁵ counter tuples around the field cap, byte cap and addition overflow |
 | `verified_server_approval_id` | total + bounded | 2² acceptance; lengths exhaustive over `0..=256` plus `usize::MAX` |
 | `verified_entropy_fixed_point` | **property** | FP-WRAP-1..5 checked directly against the shipped conversion over a 24-value float sample reaching every branch |
-| `verified_source_taint` | **partial** | sink ranks 0..=3 bound across all 7 trust tiers; the trust-floor update bound totally over 7×7. Ranks 4..=8 are outside the kernel's model — see `TAINT-MODEL-DRIFT` |
-| `verified_trust_lattice` | **partial** | join, meet, `can_flow_to` and the declassification escape bound totally over 7×7×2 and 7×9×2; rank bounds checked for all tiers and sinks. Its sink mapping is pinned, not bound — see `TAINT-MODEL-DRIFT` |
+| `verified_source_taint` | total | all 9 sink classes × 7 trust tiers; the trust-floor update over 7×7. Kernel corrected — see `TAINT-MODEL-DRIFT` |
+| `verified_trust_lattice` | total | join, meet, `can_flow_to` and the declassification escape over 7×7×2 and 7×9×2; rank bounds for all tiers and sinks; sink mapping over all 9 classes. Kernel corrected — see `TAINT-MODEL-DRIFT` |
 | `verified_entropy_pipeline` | **partial** | bound over 9×9 count/threshold pairs for every validated configuration; the `min_observations == 0` case is pinned, not bound — see `ENTROPY-CONFIG-1` |
 
 Alphabets and boundary sets are chosen against each proof's dependencies rather

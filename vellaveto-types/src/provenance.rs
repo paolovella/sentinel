@@ -865,6 +865,182 @@ impl SecurityContextToken {
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! **Partial** differential binding for `PARITY-HAND-1`, plus a pinned
+    //! record of a model drift. See `TAINT-MODEL-DRIFT` in
+    //! `formal/ASSUMPTION_REGISTRY.md`.
+    //!
+    //! `formal/verus/verified_source_taint.rs` models `SinkClass` as **six**
+    //! classes indexed 0..=5 with an `else -> UNKNOWN` fail-safe. Production
+    //! ships **nine**. For ranks 0..=3 the two agree and that agreement is
+    //! bound below. For ranks 4..=8 they do not, so the kernel's proof does not
+    //! describe `minimum_trust_tier_for_sink` there.
+    //!
+    //! The divergence is asserted rather than skipped, so that if either side
+    //! changes the test fails and forces a re-look instead of the drift
+    //! widening quietly.
+
+    use super::*;
+
+    const UNKNOWN: u8 = 1;
+    const LOW: u8 = 3;
+    const MEDIUM: u8 = 4;
+    const VERIFIED: u8 = 6;
+
+    /// Transcription of `spec_min_trust_for_sink`, including its fail-safe.
+    fn spec_min_trust_for_sink(sink_class: u8) -> u8 {
+        match sink_class {
+            0 => UNKNOWN,
+            1 => LOW,
+            2 => MEDIUM,
+            3 => MEDIUM,
+            4 => VERIFIED,
+            5 => VERIFIED,
+            _ => UNKNOWN,
+        }
+    }
+
+    /// Transcription of `spec_update_trust_floor`.
+    fn spec_update_trust_floor(current_floor: u8, source_trust: u8) -> u8 {
+        if source_trust < current_floor {
+            source_trust
+        } else {
+            current_floor
+        }
+    }
+
+    /// Transcription of `spec_sink_accessible`.
+    fn spec_sink_accessible(trust_floor: u8, sink_class: u8) -> bool {
+        trust_floor >= spec_min_trust_for_sink(sink_class)
+    }
+
+    const ALL_SINKS: [SinkClass; 9] = [
+        SinkClass::ReadOnly,
+        SinkClass::LowRiskWrite,
+        SinkClass::FilesystemWrite,
+        SinkClass::NetworkEgress,
+        SinkClass::MemoryWrite,
+        SinkClass::ApprovalUi,
+        SinkClass::CodeExecution,
+        SinkClass::CredentialAccess,
+        SinkClass::PolicyMutation,
+    ];
+
+    const ALL_TIERS: [TrustTier; 7] = [
+        TrustTier::Quarantined,
+        TrustTier::Unknown,
+        TrustTier::Untrusted,
+        TrustTier::Low,
+        TrustTier::Medium,
+        TrustTier::High,
+        TrustTier::Verified,
+    ];
+
+    #[test]
+    fn test_min_trust_for_sink_matches_verus_spec_on_the_modelled_classes() {
+        for sink in ALL_SINKS {
+            let rank = sink.rank();
+            if rank > 3 {
+                continue;
+            }
+            assert_eq!(
+                minimum_trust_tier_for_sink(sink).rank(),
+                spec_min_trust_for_sink(rank),
+                "PARITY-HAND-1: minimum_trust_tier_for_sink disagrees for {sink:?} (rank {rank})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sink_accessibility_matches_verus_spec_on_the_modelled_classes() {
+        for sink in ALL_SINKS {
+            let rank = sink.rank();
+            if rank > 3 {
+                continue;
+            }
+            for trust in ALL_TIERS {
+                let shipped = FlowPoint::new(trust, sink).is_admissible();
+                assert_eq!(
+                    shipped,
+                    spec_sink_accessible(trust.rank(), rank),
+                    "PARITY-HAND-1: is_admissible disagrees for {trust:?} -> {sink:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_trust_floor_update_matches_verus_spec_total_domain() {
+        // `meet` is production's name for the kernel's floor update.
+        for current in ALL_TIERS {
+            for source in ALL_TIERS {
+                assert_eq!(
+                    current.meet(source).rank(),
+                    spec_update_trust_floor(current.rank(), source.rank()),
+                    "PARITY-HAND-1: TrustTier::meet disagrees for ({current:?}, {source:?})"
+                );
+            }
+        }
+    }
+
+    /// TAINT-MODEL-DRIFT: pinned record of where the kernel stops describing
+    /// the shipped enum.
+    ///
+    /// Two directions, and they are not equally benign:
+    ///
+    /// - ranks 6..=8 (`CodeExecution`, `CredentialAccess`, `PolicyMutation`)
+    ///   fall into the kernel's `else -> UNKNOWN` fail-safe, while production
+    ///   requires `Verified`. **Production is stricter**, so nothing is
+    ///   under-enforced; the proof simply says less than the code does.
+    /// - ranks 4..=5 (`MemoryWrite`, `ApprovalUi`) are where the kernel demands
+    ///   `Verified` and production accepts `High`. **The kernel is stricter**,
+    ///   so the proof claims a guarantee for these two sinks that the shipped
+    ///   code does not provide. Nothing should cite it for them.
+    #[test]
+    fn test_pinned_model_drift_between_kernel_and_shipped_sink_classes() {
+        let expected: [(u8, u8, u8); 5] = [
+            // (rank, production min rank, kernel spec)
+            (4, 5, VERIFIED),
+            (5, 5, VERIFIED),
+            (6, 6, UNKNOWN),
+            (7, 6, UNKNOWN),
+            (8, 6, UNKNOWN),
+        ];
+        for (rank, prod_min, kernel_min) in expected {
+            let sink = ALL_SINKS
+                .into_iter()
+                .find(|s| s.rank() == rank)
+                .expect("rank present");
+            assert_eq!(
+                minimum_trust_tier_for_sink(sink).rank(),
+                prod_min,
+                "TAINT-MODEL-DRIFT: production mapping changed for {sink:?};                  re-check the kernel before updating this pin"
+            );
+            assert_eq!(
+                spec_min_trust_for_sink(rank),
+                kernel_min,
+                "TAINT-MODEL-DRIFT: kernel transcription changed for rank {rank}"
+            );
+            assert_ne!(
+                minimum_trust_tier_for_sink(sink).rank(),
+                spec_min_trust_for_sink(rank),
+                "TAINT-MODEL-DRIFT: {sink:?} now agrees with the kernel — good.                  Move it into the bound set above and shrink this pin."
+            );
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // The floor only ever descends.
+        assert_eq!(spec_update_trust_floor(4, 6), 4);
+        assert_eq!(spec_update_trust_floor(4, 2), 2);
+        // A low floor cannot reach a medium sink.
+        assert!(!spec_sink_accessible(UNKNOWN, 2));
+        assert!(spec_sink_accessible(MEDIUM, 2));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

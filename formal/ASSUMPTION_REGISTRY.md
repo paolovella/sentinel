@@ -36,6 +36,44 @@ it is considered part of the reviewed proof surface.
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
 | `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; **no such diff check exists**, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **undischarged** — in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
+## TAINT-MODEL-DRIFT — the kernel models a smaller enum than production ships
+
+Found 2026-08-24 by the differential binding, and passing `check-verus-parity.sh`
+the whole time.
+
+`formal/verus/verified_source_taint.rs` models `SinkClass` as **six** classes
+indexed 0..=5 with an `else -> UNKNOWN` fail-safe. Production ships **nine**.
+Measured against `minimum_trust_tier_for_sink`:
+
+| rank | `SinkClass` | production min tier | kernel spec | |
+|---|---|---|---|---|
+| 0 | `ReadOnly` | Unknown (1) | UNKNOWN (1) | agree |
+| 1 | `LowRiskWrite` | Low (3) | LOW (3) | agree |
+| 2 | `FilesystemWrite` | Medium (4) | MEDIUM (4) | agree |
+| 3 | `NetworkEgress` | Medium (4) | MEDIUM (4) | agree |
+| 4 | `MemoryWrite` | High (5) | VERIFIED (6) | **kernel stricter** |
+| 5 | `ApprovalUi` | High (5) | VERIFIED (6) | **kernel stricter** |
+| 6 | `CodeExecution` | Verified (6) | UNKNOWN (1) | production stricter |
+| 7 | `CredentialAccess` | Verified (6) | UNKNOWN (1) | production stricter |
+| 8 | `PolicyMutation` | Verified (6) | UNKNOWN (1) | production stricter |
+
+The two directions are not equally benign:
+
+- Ranks 6..=8 fall into the kernel's fail-safe while production requires
+  `Verified`. Production is stricter, so **nothing is under-enforced** — the
+  proof simply says less than the code does.
+- Ranks 4..=5 are the concerning ones. The kernel demands `Verified` where
+  production accepts `High`, so **the proof claims a guarantee for
+  `MemoryWrite` and `ApprovalUi` that the shipped code does not provide.**
+  Nothing should cite TAINT-1..5 for those two sinks until the kernel is
+  updated to the nine-variant enum.
+
+Ranks 0..=3 are bound. The divergence is asserted, not skipped, by
+`test_pinned_model_drift_between_kernel_and_shipped_sink_classes` in
+`vellaveto-types/src/provenance.rs`, so it fails if either side moves rather
+than widening quietly. That test also fails when a row starts *agreeing*, with
+a message to shrink the pin.
+
 ## Parity Assumptions (PARITY-HAND-*)
 
 `PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
@@ -55,6 +93,22 @@ The second row is the shape of the problem: a one-character semantic change that
 no guard and no test detects, while the kernel continues to prove
 case-insensitivity as a universal property.
 
+**Two kinds of discharge.** Most kernels prove `exec == spec`, so the binding
+transcribes the `spec` and asserts equality — a *transcription* discharge. A few
+prove *properties* of a function rather than an algorithm it equals
+(`verified_entropy_fixed_point` proves FP-WRAP-1..5). There is no `spec` to
+restate, so the binding checks each property directly against shipped behaviour.
+That is a **property** discharge and it is weaker in one specific way: it
+establishes the named properties hold, not that the function is the one the
+kernel reasoned about. It is recorded separately in the table for that reason.
+
+**Equivalent mutants.** Mutation-verifying a property discharge can surface
+mutants that change the text without changing behaviour. FP-WRAP-1 is enforced
+jointly by a `clamp` and a range branch; removing either alone is equivalent,
+and only removing both fails the test. A mutation that does not fail is not
+automatically a hole — check whether it changed behaviour at all before
+recording one.
+
 **Discharge mechanism.** A differential test that transcribes the kernel's
 `spec` function and asserts it agrees with the shipped function over an
 exhaustively enumerated input space. Verus proves *exec == spec*; the
@@ -63,7 +117,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 37 of 59 kernels bound (36 discharged + 1 partial), 22 remain.**
+**Measured trusted base (2026-08-24): 39 of 59 kernels bound (36 discharged + 2 partial + 1 property), 20 remain.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -113,6 +167,8 @@ collapsed here.
 | `verified_dlp_core` | total + bounded | all 256 `u8` boundary bytes; 341 byte strings over ASCII/lead/continuation × 6 sizes; 6⁵ field-budget tuples |
 | `verified_cross_call_dlp` | bounded | 2 × 6⁵ counter tuples around the field cap, byte cap and addition overflow |
 | `verified_server_approval_id` | total + bounded | 2² acceptance; lengths exhaustive over `0..=256` plus `usize::MAX` |
+| `verified_entropy_fixed_point` | **property** | FP-WRAP-1..5 checked directly against the shipped conversion over a 24-value float sample reaching every branch |
+| `verified_source_taint` | **partial** | sink ranks 0..=3 bound across all 7 trust tiers; the trust-floor update bound totally over 7×7. Ranks 4..=8 are outside the kernel's model — see `TAINT-MODEL-DRIFT` |
 
 Alphabets and boundary sets are chosen against each proof's dependencies rather
 than for coverage. In the glob case `@` (0x40) and `[` (0x5B) sit immediately
@@ -161,7 +217,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 22 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 20 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

@@ -61,6 +61,7 @@ pub mod verified_constraint_eval;
 mod verified_context_delegation;
 pub mod verified_core;
 mod verified_deputy;
+mod verified_entropy_fixed_point;
 mod verified_entropy_gate;
 pub mod wasm_plugin;
 

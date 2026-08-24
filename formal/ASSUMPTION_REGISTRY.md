@@ -109,6 +109,61 @@ missing was that the dependency was invisible — the kernel appeared to model a
 guard production did not have. It is now named, asserted at both ends, and
 cannot lose its foundation without failing a test. That is the fix.
 
+## PATH-DECODE-1 — the kernel models the post-decode stage only
+
+`formal/verus/verified_path.rs` models path normalization as: split on `/`,
+skip empty and `.`, pop on `..`, render with a leading `/`. It does not model
+percent-decoding — the byte `0x25` appears nowhere in it.
+
+Production layers a decode loop on top. `normalize_path` calls
+`normalize_path_bounded`, which iteratively percent-decodes until stable and
+fails closed at `DEFAULT_MAX_PATH_DECODE_ITERATIONS`, and only then runs the
+stage the kernel models (`normalize_decoded_path`).
+
+So the binding targets `normalize_decoded_path`, and it holds exactly: across
+1,365 byte strings over `/ . a NUL` the shipped function and the kernel's spec
+agree on every input, accepted and rejected alike, including the postconditions
+the kernel proves of its output — no surviving `..` component, no surviving
+null, always rooted.
+
+**The decode loop is outside the proof.** Nothing in the Verus program says the
+iterative decode terminates, stabilizes, or cannot be used to smuggle a `..`
+past the normalizer. That is covered by tests and by the Kani harnesses in
+`formal/kani/src/path.rs`, not by this kernel, and no claim about
+`normalize_path` should be sourced to it.
+
+## AUDIT-LEGACY-1 — the composition kernel rejects what production accepts
+
+`formal/verus/verified_audit_integrity.rs` restates chain-step validity with
+`prev_seq == 0 || current_seq > prev_seq`, treating only a zero *predecessor* as
+the legacy skip. Production's `sequence_monotonic` is
+`current_seq == 0 || !has_prev || current_seq > prev_seq` — it also skips when
+the *current* entry carries no sequence number, which is how pre-sequencing
+audit entries are accepted.
+
+So at `prev_seq = 5, current_seq = 0` production accepts and the kernel rejects.
+The kernel is **stricter**, so nothing is under-enforced; the gap is that
+AUDIT-INT-4 does not cover production's legacy-entry path, and no claim about
+legacy entries should be sourced to it.
+
+Asserted rather than skipped by `test_chain_step_matches_the_shipped_guards` in
+`vellaveto-audit/src/verified_audit_append.rs`, in both directions: it fails if
+the kernel starts accepting legacy entries (remove the carve-out) and if
+production stops accepting them (the gap closed a different way).
+
+### Why a composition kernel needs its own binding
+
+`verified_audit_integrity` does not model a new function. It **restates**
+primitives that `verified_audit_append` and `verified_audit_chain` already
+model, then proves properties of composing them n times. That leaves a failure
+the per-primitive bindings structurally cannot catch: the composition reasoning
+about a *different* primitive than the one that ships, because it carries its
+own copy of each definition.
+
+The binding therefore checks the restated primitives against the shipped ones
+first, and only then checks the n-step results against iterating the shipped
+functions. AUDIT-LEGACY-1 is exactly what that first half is for.
+
 ## Parity Assumptions (PARITY-HAND-*)
 
 `PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
@@ -152,7 +207,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 41 of 59 kernels bound (38 discharged + 2 partial + 1 property), 18 remain.**
+**Measured trusted base (2026-08-24): 43 of 59 kernels bound (39 discharged + 3 partial + 1 property), 16 remain.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -199,6 +254,8 @@ collapsed here.
 | `verified_nhi_delegation`, `verified_nhi_graph` | total + bounded | 2²/2⁴ link and status predicates; chain depth over a boundary set |
 | `verified_entropy_gate` | bounded | boundary sets around the clamp point of `min_observations × 2` and around zero |
 | `verified_capability_path` | bounded | 6 depths including both extremes × 4 flag combinations |
+| `verified_audit_integrity` | **partial** | restated primitives checked against the shipped ones over a `u64` boundary set; n-step compositions over 0..=64 steps from 8 starting points; the `seen_hashed` latch over all 256 8-step hash patterns × 2 starts. The legacy zero-sequence path is asserted, not bound — see `AUDIT-LEGACY-1` |
+| `verified_path` | bounded | 1,365 byte strings over `/ . a NUL`, matched against `normalize_decoded_path` on accept, reject and output; postconditions checked separately. Percent-decoding is out of scope — see `PATH-DECODE-1` |
 | `verified_dlp_core` | total + bounded | all 256 `u8` boundary bytes; 341 byte strings over ASCII/lead/continuation × 6 sizes; 6⁵ field-budget tuples |
 | `verified_cross_call_dlp` | bounded | 2 × 6⁵ counter tuples around the field cap, byte cap and addition overflow |
 | `verified_server_approval_id` | total + bounded | 2² acceptance; lengths exhaustive over `0..=256` plus `usize::MAX` |
@@ -254,7 +311,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 18 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 16 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

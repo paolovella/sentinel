@@ -246,10 +246,49 @@ check_registry
 check_verus_kernel_assumption_bindings
 load_allowlist
 
+# A `pub open spec fn` whose entire body is `true` or `false` is an axiom in
+# disguise: every lemma that `ensures` it is discharged vacuously. The keyword
+# scans below cannot see one, because there is no `assume`, `axiom` or
+# `external_body` to grep for — only a two-line body a line-based grep never
+# matches. VACUOUS-SPEC-1 in the registry records how that let two real trusted
+# assumptions escape this inventory entirely.
+#
+# `assumptions.rs` is excluded on purpose: its markers are vacuous by design and
+# are checked separately by check_verus_kernel_assumption_bindings.
+scan_vacuous_specs() {
+    local kind="verus-vacuous-spec"
+    local line file rest text key
+
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        file="${line%%:*}"
+        rest="${line#*:}"
+        rest="${rest#*:}"
+        text="$(normalize_text "$rest")"
+        key="$kind"$'\t'"${file#$PROJECT_DIR/}"$'\t'"$text"
+        actual["$key"]=1
+    done < <(
+        for candidate in "$PROJECT_DIR/formal/verus"/*.rs; do
+            [ -f "$candidate" ] || continue
+            [ "$(basename "$candidate")" = "assumptions.rs" ] && continue
+            perl -0ne '
+                while (/(pub open spec fn\s+\w+[^{]*?)\{\s*(?:true|false)\s*(?:\/\/[^\n]*)?\s*\}/gs) {
+                    my $sig = $1;
+                    my $line = 1 + (substr($_, 0, $-[0]) =~ tr/\n//);
+                    $sig =~ s/\s+/ /g;
+                    $sig =~ s/\s+$//;
+                    print "$ARGV:$line:$sig\n";
+                }
+            ' "$candidate"
+        done
+    )
+}
+
 scan_hits "verus-assume" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])(assume|admit)[[:space:]]*\('
 scan_hits "verus-axiom" "$PROJECT_DIR/formal/verus" "*.rs" '^[[:space:]]*pub([[:space:]]+broadcast)?[[:space:]]+axiom[[:space:]]+fn[[:space:]]'
 scan_hits "verus-external-body" "$PROJECT_DIR/formal/verus" "*.rs" '#\[[[:space:]]*verifier::external_body[[:space:]]*\]'
 scan_hits "verus-external-fn-spec" "$PROJECT_DIR/formal/verus" "*.rs" '#\[[[:space:]]*verifier::external_fn_specification([^[:alnum:]_]|$)'
+scan_vacuous_specs
 scan_hits "verus-trusted-marker" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])TRUSTED([^[:alnum:]_]|$)'
 scan_hits "lean-axiom" "$PROJECT_DIR/formal/lean" "*.lean" '^[[:space:]]*axiom[[:space:]]'
 scan_hits "coq-axiom" "$PROJECT_DIR/formal/coq" "*.v" '^[[:space:]]*(Axiom|Parameter)[[:space:]]'
@@ -258,6 +297,7 @@ echo "=== Formal Trusted Assumption Inventory ==="
 echo "Canonical registry: $REGISTRY"
 echo "Expected entries: ${#allowed[@]}"
 echo "Observed entries: ${#actual[@]}"
+report_inventory "Verus vacuous spec bodies" "verus-vacuous-spec"
 report_inventory "Verus assume/admit" "verus-assume"
 report_inventory "Verus axioms" "verus-axiom"
 report_inventory "Verus external bodies" "verus-external-body"

@@ -84,6 +84,19 @@ DIFF_GUARD="formal/tools/check-differential-parity.sh"
 # incremental.
 export DIFFERENTIAL_TARGET_DIR="${DIFFERENTIAL_TARGET_DIR:-/tmp/vellaveto-guard-selftest-target}"
 
+# Two runs sharing that directory corrupt each other's builds, and the symptom
+# is fabricated results: a control case that "drifts" and a tolerated case that
+# "fails", neither caused by the mutation under test. That happened once during
+# development and cost a full diagnosis. For a guard self-test it is the worst
+# possible failure, because it can fabricate a passing case as easily as a
+# failing one. Take an exclusive lock so a second run waits instead of racing.
+mkdir -p "$DIFFERENTIAL_TARGET_DIR"
+exec 9>"$DIFFERENTIAL_TARGET_DIR/.guard-selftest.lock"
+if ! flock -n 9; then
+    echo "Another guard-selftest holds $DIFFERENTIAL_TARGET_DIR; waiting for it to finish."
+    flock 9
+fi
+
 echo "=== Formal Guard Self-Test ==="
 echo "Each case breaks one thing a guard claims to protect and expects it to fire."
 echo ""
@@ -95,6 +108,12 @@ echo "--- control ---"
 run_case "pristine export (verus guard)" "$VERUS_GUARD" pass true
 run_case "pristine export (assumption guard)" "$ASSUM_GUARD" pass true
 run_case "pristine export (differential guard)" "$DIFF_GUARD" pass true
+# Added after the kani guard silently started failing on a pristine tree: an
+# extraction moved three functions out of the file it greps, and the only case
+# that noticed reported a hole for the wrong reason. Every guard needs its own
+# control, not just the ones that happened to get one first.
+run_case "pristine export (kani guard)" "$KANI_GUARD" pass true
+run_case "pristine export (marker guard)" "$MARKER_GUARD" pass true
 
 # ── 1. Verus ↔ production correspondence ──────────────────────────────────
 # The kernel proves properties of an algorithm. These mutations change what the
@@ -184,6 +203,15 @@ run_case "unregistered verus assume() appears" "$ASSUM_GUARD" drift \
 
 run_case "allowlist entry silently deleted" "$ASSUM_GUARD" drift \
     sed -i '/axiom_merkle_codec_roundtrip/d' formal/trusted-assumptions.allowlist
+
+# VACUOUS-SPEC-1: a spec fn whose body is `true` is an axiom in disguise and
+# contains none of the keywords the other scans grep for. The detector added for
+# it is only worth having if it fires.
+run_case "unregistered vacuous spec fn appears" "$ASSUM_GUARD" drift \
+    bash -c "printf '\nverus!{ pub open spec fn smuggled_axiom() -> bool { true } }\n' >> formal/verus/verified_capability_glob.rs"
+
+run_case "vacuous-spec allowlist entry deleted" "$ASSUM_GUARD" drift \
+    sed -i '/spec_sort_idempotent/d' formal/trusted-assumptions.allowlist
 
 # ── 4. Proof completion markers ───────────────────────────────────────────
 echo ""

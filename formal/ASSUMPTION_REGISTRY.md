@@ -28,6 +28,8 @@ it is considered part of the reviewed proof surface.
 | `AUDIT-FS-3` | `metadata()` and `read()` reflect the current on-disk state | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` | documented local trust boundary |
 | `AUDIT-FS-4` | `truncate`/`set_len` preserves the valid prefix during Merkle recovery | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` | documented local trust boundary |
 | `AUDIT-FS-5` | `rename` preserves cross-rotation continuity for audit segments and leaf files | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` | documented local trust boundary |
+| `SORT-IDEM-1` | `sort(sort(x)) == sort(x)` for the ACIS target-path and target-domain ordering. Stated as a spec function returning `true`, so every lemma that ensures it is discharged vacuously. | `formal/verus/verified_acis_action_summary.rs` | `spec_sort_idempotent` in allowlist (kind `verus-vacuous-spec`) |
+| `REVOKE-DEPTH-1` | A transitive revocation that exceeds `MAX_TRANSITIVE_REVOKE_DEPTH` is caught downstream by chain resolution (NHI-DEL-8), so the BFS may stop at the bound without leaving an active link. Stated as a spec function returning `true`. | `formal/verus/verified_transitive_revoke.rs` | `assumption_depth_exceeded_caught_by_chain_resolution` in allowlist (kind `verus-vacuous-spec`) |
 | `FLOAT-CONV-1` | `entropy_fixed_point` output always in [0, 8000] (from the explicit three-way range check at function exit; `as u16` cast safe because 8000 < u16::MAX) | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_bounded` in allowlist |
 | `FLOAT-CONV-2` | Non-finite f64 inputs (NaN, ±∞) map to 0 (from the unconditional `!is_finite()` guard at function entry per IEEE 754) | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_nonfinite_zero` in allowlist |
 | `FLOAT-CONV-3` | `floor(y) ≤ ceil(y)` for any y ∈ [0.0, 8000.0] — threshold (floor) is at most observation (ceil) for the same input | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_floor_le_ceil` in allowlist |
@@ -218,6 +220,41 @@ piece of hand-written code that could itself be wrong, which is the opposite of
 narrowing the trusted base. These two need a decision first: reshape the kernel
 to production, or build the production design the kernel describes. Recorded
 here rather than papered over.
+
+## VACUOUS-SPEC-1 — two axioms that escaped the escape-hatch inventory
+
+Found 2026-08-24. **Fixed the same day**, detector included.
+
+`check-formal-trusted-assumptions.sh` is the machine-checked inventory of proof
+escape hatches. It scans for `assume`/`admit`, `axiom fn`,
+`verifier::external_body` and `verifier::external_fn_specification` — all
+keyword greps, all single-line.
+
+A `pub open spec fn` whose entire body is `true` is an axiom in disguise: every
+lemma that `ensures` it is discharged vacuously and establishes nothing. It
+contains none of those keywords, and its body spans two lines, so a line-based
+grep cannot match it. The inventory could not see this class at all.
+
+A sweep of `formal/verus/` found eleven vacuous spec bodies. Nine are the
+registration markers in `assumptions.rs`, which are vacuous by design and are
+checked separately by `check_verus_kernel_assumption_bindings`. **Two were real
+trusted assumptions that appeared nowhere** — not in the allowlist, not in this
+registry, not routed through `assumptions.rs`:
+
+- `spec_sort_idempotent` — "Axiomatized: sort(sort(x)) == sort(x) for any total
+  ordering", now `SORT-IDEM-1`.
+- `assumption_depth_exceeded_caught_by_chain_resolution` — labelled "Trusted
+  assumption — see NHI-DEL-8" in its own comment, now `REVOKE-DEPTH-1`.
+
+The second is the sharper one: it was *explicitly named as a trusted assumption
+in a code comment* and still escaped the inventory whose entire job is to
+enumerate trusted assumptions.
+
+**Resolution.** Both are registered above and in the allowlist under a new kind,
+`verus-vacuous-spec`. `check-formal-trusted-assumptions.sh` gained a multi-line
+detector for the class, so a new one cannot be added without either registering
+it or failing the check. The detector is itself mutation-tested by
+`formal/tools/guard-selftest.sh`.
 
 ## Parity Assumptions (PARITY-HAND-*)
 

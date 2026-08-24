@@ -129,6 +129,20 @@ run_case "numeric kernel: depth wraps past zero" "$DIFF_GUARD" drift \
 run_case "delegation kernel: budget may widen" "$DIFF_GUARD" drift \
     perl -0pi -e 's/child_max_invocations <= parent_max_invocations/child_max_invocations >= parent_max_invocations/' vellaveto-mcp/src/verified_capability_grant.rs
 
+# The audit and Merkle families are bound the same way. These three are the
+# security-relevant shapes: a counter that must saturate rather than wrap, a
+# sequence number that must strictly increase, and a Merkle proof step whose
+# side determines the hash order.
+
+run_case "audit counter wraps instead of saturating" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/current_entry_count.saturating_add\(1\)/current_entry_count.wrapping_add(1)/' vellaveto-audit/src/verified_audit_append.rs
+
+run_case "audit sequence may repeat (replay)" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/current_sequence > prev_sequence/current_sequence >= prev_sequence/' vellaveto-audit/src/verified_audit_chain.rs
+
+run_case "merkle proof side inverted" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/    node_index % 2 == 1\n\}/    node_index % 2 == 0\n}/s' vellaveto-audit/src/verified_merkle_path.rs
+
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────
 # formal/kani/Cargo.toml states the extracted code "is tested to be identical to
 # the production code via the CI diff check". These test whether that holds.

@@ -39,6 +39,9 @@ echo "=== Differential Parity (PARITY-HAND-1 discharge) ==="
 run_differential "vellaveto-mcp capability kernels ↔ their Verus specs" \
     vellaveto-mcp verus_spec_differential
 
+run_differential "vellaveto-audit chain/merkle kernels ↔ their Verus specs" \
+    vellaveto-audit verus_spec_differential
+
 echo ""
 if [ "$FAILED" -ne 0 ]; then
     echo "=== DRIFT DETECTED ==="

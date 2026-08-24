@@ -63,7 +63,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 10 of 59 kernels discharged, 49 remain.**
+**Measured trusted base (2026-08-24): 15 of 59 kernels discharged, 44 remain.**
 
 A discharge is *total* where the enumeration covers the entire input domain and
 *bounded* where it covers a chosen subset. The distinction matters and is not
@@ -82,30 +82,51 @@ collapsed here.
 | `verified_capability_selection` | bounded | 32 tuples including both `usize` extremes |
 | `verified_capability_glob` | bounded | 342,225 pairs — all strings of length 0–3 over `* ? @ A Z [ a z` |
 
+| `verified_audit_chain` | total + bounded | 2⁶ for the step guards; 6×6 sequence pairs × both `has_prev` values |
+| `verified_rotation_manifest` | total + bounded | 2³ and 2⁴ for the reference predicates; 5 file counts |
+| `verified_audit_append` | bounded | 8-value `u64` boundary set built around zero and the saturation point |
+| `verified_merkle` | bounded | 6×6 `u64` count pairs; sizes exhaustive over `0..=128` plus `usize::MAX` |
+| `verified_merkle_fold` | **partial** | `next_level_len` only, exhaustive over `0..=1024` plus the top of the range; the abstract-hash fold obligations are not bound |
+| `verified_merkle_path` | bounded | indices exhaustive over `0..=256` plus the top of the range; 65×65 sibling-lookup pairs |
+
 Alphabets and boundary sets are chosen against each proof's dependencies rather
 than for coverage. In the glob case `@` (0x40) and `[` (0x5B) sit immediately
 outside `A..=Z` so widening the fold range either way is caught; in the pattern
 case `)`/`+` and `>`/`@` bracket `*` (0x2a) and `?` (0x3f) for the same reason.
 
-Every discharge was mutation-verified on 2026-08-24: thirteen semantic mutations
-across the ten kernels — fail-open containment, a widened invocation budget, a
+Every discharge was mutation-verified on 2026-08-24: twenty-four semantic
+mutations across the fifteen kernels and one partial — fail-open containment, a widened invocation budget, a
 wrapping delegation depth, an unclamped expiry, a wildcard child slipping past an
 exact parent, last-match-wins grant selection, and a relaxed key-length check —
-each fails its differential test. Three representative cases are pinned
-permanently in `formal/tools/guard-selftest.sh`.
+each fails its differential test. On the audit and Merkle side: an entry counter
+that wraps instead of saturating, a rotation that restarts the count at 1, a
+sequence number permitted to repeat, accepted non-UTC timestamps, a hashed entry
+allowed to drop its hash, a permitted path traversal in a rotated-file
+reference, a relaxed sibling-hash length, an append past capacity, an inverted
+Merkle proof side, and an off-by-one parent index. Six representative cases —
+one per input shape and per family — are pinned permanently in
+`formal/tools/guard-selftest.sh`.
 
-Two shapes of undischarged kernel exist and they are not equally tractable:
+Three shapes of undischarged kernel exist and they are not equally tractable:
 
 - **Mirrored** — the kernel pairs with an extracted `verified_*.rs` module whose
-  functions are small and pure. These discharge the same way the ten above did.
+  functions are small and pure. These discharge the way the fifteen above did,
+  and are the cheapest remaining work.
 - **Inline** — the kernel pairs directly with a large hot-path file and the
-  logic it models was never factored out. `verified_capability_chain` is the
-  example: `check-verus-parity.sh` pairs it against
-  `vellaveto-mcp/src/capability_token.rs` wholesale, so there is no function to
-  transcribe against. Discharging these needs the production logic extracted
-  into a mirror first, which is a code change and not only a test change.
+  logic it models was never factored out. `verified_capability_chain`,
+  `verified_audit_integrity` and `verified_merkle_integrity` are the examples:
+  `check-verus-parity.sh` pairs each against a whole production file, so there
+  is no function to transcribe against. Discharging these needs the production
+  logic extracted into a mirror first — a code change, not only a test change.
+- **Abstract** — the kernel's specs range over opaque values rather than
+  concrete ones. `verified_merkle_fold` states its fold over `Seq<Seq<int>>`
+  hashes, so a differential test would have to supply a *hash model*, and a
+  binding against a modelled hash establishes materially less than one against
+  a pure function. Its `next_level_len` is bound (marked **partial** above);
+  the fold obligations stay under `PARITY-HAND-1` and are deliberately not
+  counted as discharged.
 
-The remaining 49 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 44 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

@@ -64,6 +64,123 @@ pub(crate) const fn sibling_hash_len_valid(sibling_len: usize) -> bool {
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_merkle.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the function this crate ships, which is the step that carries the proof
+    //! to production. Symbol parity cannot see this: `check-verus-parity.sh`
+    //! greps for names.
+    //!
+    //! BOUNDED: the operands are `u64` and `usize`. Counts and indices are
+    //! enumerated over a boundary set around zero, the configured caps
+    //! (`MAX_PROOF_SIBLINGS`, `HASH_SIZE`) and both integer extremes, since
+    //! those caps are exactly where the predicates change answer.
+    //!
+    //! The kernel writes `HASH_SIZE` and `MAX_PROOF_SIBLINGS` symbolically
+    //! while production compares against a literal `32` and the crate
+    //! constant, so this also binds those values.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    const HASH_SIZE: usize = 32;
+
+    fn spec_append_allowed(leaf_count: u64, max_leaf_count: u64) -> bool {
+        leaf_count < max_leaf_count
+    }
+
+    fn spec_stored_leaf_count_valid(leaf_count: u64, max_leaf_count: u64) -> bool {
+        leaf_count <= max_leaf_count
+    }
+
+    fn spec_proof_tree_size_valid(tree_size: u64) -> bool {
+        tree_size > 0
+    }
+
+    fn spec_proof_leaf_index_valid(leaf_index: u64, tree_size: u64) -> bool {
+        leaf_index < tree_size
+    }
+
+    fn spec_proof_sibling_count_valid(sibling_count: usize) -> bool {
+        sibling_count <= MAX_PROOF_SIBLINGS
+    }
+
+    fn spec_sibling_hash_len_valid(sibling_len: usize) -> bool {
+        sibling_len == HASH_SIZE
+    }
+
+    #[test]
+    fn test_count_predicates_match_verus_spec_at_boundaries() {
+        let values = [0u64, 1, 2, 1_000, u64::MAX - 1, u64::MAX];
+        for &a in &values {
+            for &b in &values {
+                assert_eq!(
+                    append_allowed(a, b),
+                    spec_append_allowed(a, b),
+                    "PARITY-HAND-1: append_allowed disagrees at ({a}, {b})"
+                );
+                assert_eq!(
+                    stored_leaf_count_valid(a, b),
+                    spec_stored_leaf_count_valid(a, b),
+                    "PARITY-HAND-1: stored_leaf_count_valid disagrees at ({a}, {b})"
+                );
+                assert_eq!(
+                    proof_leaf_index_valid(a, b),
+                    spec_proof_leaf_index_valid(a, b),
+                    "PARITY-HAND-1: proof_leaf_index_valid disagrees at ({a}, {b})"
+                );
+            }
+            assert_eq!(
+                proof_tree_size_valid(a),
+                spec_proof_tree_size_valid(a),
+                "PARITY-HAND-1: proof_tree_size_valid disagrees at {a}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_size_predicates_match_verus_spec_exhaustive_around_caps() {
+        // Exhaustive across both caps with headroom on either side.
+        for n in 0usize..=128 {
+            assert_eq!(
+                proof_sibling_count_valid(n),
+                spec_proof_sibling_count_valid(n),
+                "PARITY-HAND-1: proof_sibling_count_valid disagrees at {n}"
+            );
+            assert_eq!(
+                sibling_hash_len_valid(n),
+                spec_sibling_hash_len_valid(n),
+                "PARITY-HAND-1: sibling_hash_len_valid disagrees at {n}"
+            );
+        }
+        assert_eq!(
+            proof_sibling_count_valid(usize::MAX),
+            spec_proof_sibling_count_valid(usize::MAX),
+            "PARITY-HAND-1: proof_sibling_count_valid disagrees at usize::MAX"
+        );
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // An empty tree admits no proof, and an index must fall inside it.
+        assert!(!spec_proof_tree_size_valid(0));
+        assert!(!spec_proof_leaf_index_valid(4, 4));
+        // Appending at capacity is refused; storing exactly at capacity is not.
+        assert!(!spec_append_allowed(4, 4));
+        assert!(spec_stored_leaf_count_valid(4, 4));
+        // Both caps are exact.
+        assert!(!spec_proof_sibling_count_valid(MAX_PROOF_SIBLINGS + 1));
+        assert!(!spec_sibling_hash_len_valid(31));
+        assert!(!spec_sibling_hash_len_valid(33));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

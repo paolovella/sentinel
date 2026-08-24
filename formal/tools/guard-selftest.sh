@@ -116,6 +116,19 @@ run_case "case-fold off-by-one (A..Y, not Z)" "$DIFF_GUARD" drift \
 run_case "'?' widened to zero-or-one (fail-open)" "$DIFF_GUARD" drift \
     perl -0pi -e "s/Some\(\(&b'\?', tail\)\) => child_literal/Some((&b'?', tail)) => literal_child_matches_parent_glob_from(tail, child_literal) || child_literal/" "$GLOB_PROD"
 
+# The capability family is bound the same way. One case per input shape rather
+# than one per kernel: each case pays a crate rebuild, and the per-kernel
+# `test_spec_oracle_can_reject` tests already pin that no oracle is degenerate.
+
+run_case "boolean kernel: coverage && -> ||" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/\)\)\n        && \(!grant_has_allowed_domains/))\n        || (!grant_has_allowed_domains/s' vellaveto-mcp/src/verified_capability_coverage.rs
+
+run_case "numeric kernel: depth wraps past zero" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/if parent_remaining_depth == 0 \{\n        None\n    \} else \{\n        Some\(parent_remaining_depth - 1\)/if false {\n        None\n    } else {\n        Some(parent_remaining_depth.wrapping_sub(1))/s' vellaveto-mcp/src/verified_capability_attenuation.rs
+
+run_case "delegation kernel: budget may widen" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/child_max_invocations <= parent_max_invocations/child_max_invocations >= parent_max_invocations/' vellaveto-mcp/src/verified_capability_grant.rs
+
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────
 # formal/kani/Cargo.toml states the extracted code "is tested to be identical to
 # the production code via the CI diff check". These test whether that holds.

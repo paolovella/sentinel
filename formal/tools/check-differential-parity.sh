@@ -34,7 +34,9 @@ run_differential() {
 
 echo "=== Differential Parity (PARITY-HAND-1 discharge) ==="
 
-run_differential "capability glob matcher ↔ spec_literal_child_matches_parent_glob" \
+# One filter covers every `verus_spec_differential` module in the crate, so a
+# newly added discharge is picked up without editing this script.
+run_differential "vellaveto-mcp capability kernels ↔ their Verus specs" \
     vellaveto-mcp verus_spec_differential
 
 echo ""

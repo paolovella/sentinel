@@ -63,21 +63,49 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 1 of 59 kernels discharged, 58 remain.**
+**Measured trusted base (2026-08-24): 10 of 59 kernels discharged, 49 remain.**
 
-| Kernel | Discharged by | Input space |
+A discharge is *total* where the enumeration covers the entire input domain and
+*bounded* where it covers a chosen subset. The distinction matters and is not
+collapsed here.
+
+| Kernel | Discharge | Input space |
 |---|---|---|
-| `verified_capability_glob` | `vellaveto-mcp/src/verified_capability_glob.rs::verus_spec_differential` | 342,225 pairs — all strings of length 0–3 over `* ? @ A Z [ a z` |
+| `verified_capability_literal` | total | 2² per predicate |
+| `verified_capability_identity` | total | 2¹/2²/2¹ |
+| `verified_capability_coverage` | total | 2⁶ = 64 |
+| `verified_capability_domain` | total | 2³/2²/2³/2⁴ |
+| `verified_capability_pattern` | total + bounded | 2³ for the guard; 400 strings over `) * + > ? @ a` for metacharacter detection |
+| `verified_capability_attenuation` | total + bounded | all 256 `u8` depths; 7⁴ = 2,401 expiry tuples around the overflow, clamp and ttl edges |
+| `verified_capability_grant` | total + bounded | 2⁴ restriction combinations × 25 invocation pairs |
+| `verified_capability_verification` | total + bounded | booleans totally; lengths exhaustive over `0..=128`; skew over a 10-value boundary set |
+| `verified_capability_selection` | bounded | 32 tuples including both `usize` extremes |
+| `verified_capability_glob` | bounded | 342,225 pairs — all strings of length 0–3 over `* ? @ A Z [ a z` |
 
-The alphabet is chosen against the proof's dependencies rather than for
-coverage: `*` and `?` drive the metacharacter branches, `A`/`a` and `Z`/`z`
-drive case folding, and `@` (0x40) and `[` (0x5B) sit immediately outside
-`A..=Z` so widening the fold range in either direction is caught. The three
-mutations that defeated `check-verus-parity.sh` each fail this test with a
-concrete counterexample; the `A..<Z` mutation, which passed all 1,950 crate
-tests, fails on `parent="Z" child="z"`.
+Alphabets and boundary sets are chosen against each proof's dependencies rather
+than for coverage. In the glob case `@` (0x40) and `[` (0x5B) sit immediately
+outside `A..=Z` so widening the fold range either way is caught; in the pattern
+case `)`/`+` and `>`/`@` bracket `*` (0x2a) and `?` (0x3f) for the same reason.
 
-The remaining 58 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+Every discharge was mutation-verified on 2026-08-24: thirteen semantic mutations
+across the ten kernels — fail-open containment, a widened invocation budget, a
+wrapping delegation depth, an unclamped expiry, a wildcard child slipping past an
+exact parent, last-match-wins grant selection, and a relaxed key-length check —
+each fails its differential test. Three representative cases are pinned
+permanently in `formal/tools/guard-selftest.sh`.
+
+Two shapes of undischarged kernel exist and they are not equally tractable:
+
+- **Mirrored** — the kernel pairs with an extracted `verified_*.rs` module whose
+  functions are small and pure. These discharge the same way the ten above did.
+- **Inline** — the kernel pairs directly with a large hot-path file and the
+  logic it models was never factored out. `verified_capability_chain` is the
+  example: `check-verus-parity.sh` pairs it against
+  `vellaveto-mcp/src/capability_token.rs` wholesale, so there is no function to
+  transcribe against. Discharging these needs the production logic extracted
+  into a mirror first, which is a code change and not only a test change.
+
+The remaining 49 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

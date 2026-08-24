@@ -68,11 +68,60 @@ The two directions are not equally benign:
   Nothing should cite TAINT-1..5 for those two sinks until the kernel is
   updated to the nine-variant enum.
 
-Ranks 0..=3 are bound. The divergence is asserted, not skipped, by
-`test_pinned_model_drift_between_kernel_and_shipped_sink_classes` in
-`vellaveto-types/src/provenance.rs`, so it fails if either side moves rather
-than widening quietly. That test also fails when a row starts *agreeing*, with
-a message to shrink the pin.
+### A second kernel models the same function differently again
+
+`formal/verus/verified_trust_lattice.rs` also models
+`minimum_trust_tier_for_sink`, with a **third** mapping — and its own doc
+comment claims to be "based on the production mapping in
+`vellaveto-types/src/provenance.rs`" while listing something production does not
+do.
+
+| rank | production | `source_taint` | `trust_lattice` |
+|---|---|---|---|
+| 0 | 1 | 1 | 1 |
+| 1 | 3 | 3 | 2 |
+| 2 | 4 | 4 | 3 |
+| 3 | 4 | 4 | 3 |
+| 4 | 5 | 6 | 4 |
+| 5 | 5 | 6 | 4 |
+| 6 | 6 | 1 | 5 |
+| 7 | 6 | 1 | 5 |
+| 8 | 6 | 1 | 6 |
+
+The three agree only at rank 0. `trust_lattice` agrees with production on 2 of
+9, `source_taint` on 4 of 9, and the two kernels agree with each other on 1 of
+9. `trust_lattice`'s required ranks are uniformly at or below production's, so
+it is the safe direction throughout — the code enforces more than the proof
+claims.
+
+Ranks 0..=3 of `source_taint` are bound, along with the trust-floor update over
+7×7 tiers and all of `trust_lattice`'s lattice operations. The divergences are
+asserted, not skipped, by the two pinned tests in
+`vellaveto-types/src/provenance.rs`, so they fail if either side moves rather
+than widening quietly. They also fail when a row starts *agreeing*, with a
+message to shrink the pin.
+
+## ENTROPY-CONFIG-1 — a kernel precondition established somewhere else
+
+`formal/verus/verified_entropy_pipeline.rs` guards both `spec_should_alert` and
+`spec_alert_severity` with `min_observations > 0`. The shipped predicates in
+`vellaveto-engine/src/verified_entropy_gate.rs` carry no such guard: at
+`min_entropy_observations == 0`, `high_entropy_count >= 0` is always true and
+every call alerts — the flood R231-COLL-1 fixed.
+
+Production closes it, but in `CollusionConfig::validate()`
+(`vellaveto-engine/src/collusion.rs`), not in the predicate. So the kernel's
+guarantee is real *only for validated configurations*, and that precondition is
+carried by a different function in a different module.
+
+This is not a defect; it is an assumption that was implicit and is now named.
+The binding asserts both halves — the divergence at zero, and the validation
+that makes it unreachable — so the guarantee cannot lose its foundation
+silently. Removing the guard from `validate()` fails
+`test_pinned_zero_observation_divergence_and_its_guard`.
+
+For every validated configuration the kernel and the shipped predicates agree,
+across 9×9 count/threshold pairs including both `u32` extremes.
 
 ## Parity Assumptions (PARITY-HAND-*)
 
@@ -117,7 +166,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 39 of 59 kernels bound (36 discharged + 2 partial + 1 property), 20 remain.**
+**Measured trusted base (2026-08-24): 41 of 59 kernels bound (36 discharged + 4 partial + 1 property), 18 remain.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -169,6 +218,8 @@ collapsed here.
 | `verified_server_approval_id` | total + bounded | 2² acceptance; lengths exhaustive over `0..=256` plus `usize::MAX` |
 | `verified_entropy_fixed_point` | **property** | FP-WRAP-1..5 checked directly against the shipped conversion over a 24-value float sample reaching every branch |
 | `verified_source_taint` | **partial** | sink ranks 0..=3 bound across all 7 trust tiers; the trust-floor update bound totally over 7×7. Ranks 4..=8 are outside the kernel's model — see `TAINT-MODEL-DRIFT` |
+| `verified_trust_lattice` | **partial** | join, meet, `can_flow_to` and the declassification escape bound totally over 7×7×2 and 7×9×2; rank bounds checked for all tiers and sinks. Its sink mapping is pinned, not bound — see `TAINT-MODEL-DRIFT` |
+| `verified_entropy_pipeline` | **partial** | bound over 9×9 count/threshold pairs for every validated configuration; the `min_observations == 0` case is pinned, not bound — see `ENTROPY-CONFIG-1` |
 
 Alphabets and boundary sets are chosen against each proof's dependencies rather
 than for coverage. In the glob case `@` (0x40) and `[` (0x5B) sit immediately
@@ -217,7 +268,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 20 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 18 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

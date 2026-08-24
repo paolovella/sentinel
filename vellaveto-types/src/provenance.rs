@@ -1029,6 +1029,151 @@ mod verus_spec_differential {
         }
     }
 
+    // ── verified_trust_lattice ────────────────────────────────────────────
+    //
+    // A second kernel, `formal/verus/verified_trust_lattice.rs`, models the
+    // same `minimum_trust_tier_for_sink` — with a *third* mapping. Its lattice
+    // operations are bound here; its sink mapping is pinned alongside
+    // `verified_source_taint`'s below.
+
+    fn spec_trust_tier_max_rank() -> u8 {
+        6
+    }
+
+    fn spec_sink_class_max_rank() -> u8 {
+        8
+    }
+
+    fn spec_join_rank(a: u8, b: u8) -> u8 {
+        if a >= b {
+            a
+        } else {
+            b
+        }
+    }
+
+    fn spec_meet_rank(a: u8, b: u8) -> u8 {
+        if a <= b {
+            a
+        } else {
+            b
+        }
+    }
+
+    fn spec_can_flow_to(src_rank: u8, required_rank: u8, declassified: bool) -> bool {
+        declassified || src_rank >= required_rank
+    }
+
+    /// Transcription of `verified_trust_lattice`'s sink mapping. Deliberately
+    /// not the same function as `spec_min_trust_for_sink` above.
+    fn spec_lattice_min_trust_for_sink(sink_rank: u8) -> u8 {
+        if sink_rank == 0 {
+            1
+        } else if sink_rank == 1 {
+            2
+        } else if sink_rank <= 3 {
+            3
+        } else if sink_rank <= 5 {
+            4
+        } else if sink_rank <= 7 {
+            5
+        } else {
+            6
+        }
+    }
+
+    #[test]
+    fn test_lattice_operations_match_verus_spec_total_domain() {
+        for a in ALL_TIERS {
+            assert!(
+                a.rank() <= spec_trust_tier_max_rank(),
+                "PARITY-HAND-1: TrustTier::rank exceeds the spec maximum for {a:?}"
+            );
+            for b in ALL_TIERS {
+                assert_eq!(
+                    a.join(b).rank(),
+                    spec_join_rank(a.rank(), b.rank()),
+                    "PARITY-HAND-1: TrustTier::join disagrees for ({a:?}, {b:?})"
+                );
+                assert_eq!(
+                    a.meet(b).rank(),
+                    spec_meet_rank(a.rank(), b.rank()),
+                    "PARITY-HAND-1: TrustTier::meet disagrees for ({a:?}, {b:?})"
+                );
+                for declassified in [false, true] {
+                    assert_eq!(
+                        a.can_flow_to(b, declassified),
+                        spec_can_flow_to(a.rank(), b.rank(), declassified),
+                        "PARITY-HAND-1: can_flow_to disagrees for ({a:?}, {b:?}, {declassified})"
+                    );
+                }
+            }
+        }
+        for sink in ALL_SINKS {
+            assert!(
+                sink.rank() <= spec_sink_class_max_rank(),
+                "PARITY-HAND-1: SinkClass::rank exceeds the spec maximum for {sink:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_declassification_matches_verus_spec_total_domain() {
+        for trust in ALL_TIERS {
+            for sink in ALL_SINKS {
+                let point = FlowPoint::new(trust, sink);
+                for declassified in [false, true] {
+                    assert_eq!(point.is_admissible_with_declassification(declassified),
+                        declassified || point.is_admissible(),
+                        "PARITY-HAND-1: declassification escape disagrees for ({trust:?}, {sink:?}, {declassified})");
+                }
+            }
+        }
+    }
+
+    /// TAINT-MODEL-DRIFT, second kernel. `verified_trust_lattice` models the
+    /// same production function with a *third* mapping, and its own doc comment
+    /// claims to be "based on the production mapping in provenance.rs" while
+    /// listing something production does not do.
+    ///
+    /// Its required ranks are uniformly at or below production's, so this is
+    /// the safe direction — the code enforces more than the proof claims — but
+    /// the proof still does not describe the shipped function for ranks 1..=7.
+    /// The two kernels also disagree with each other on eight of nine ranks.
+    #[test]
+    fn test_pinned_model_drift_across_both_kernels_and_production() {
+        let (mut lattice_agrees, mut taint_agrees, mut kernels_agree) = (0usize, 0usize, 0usize);
+        for sink in ALL_SINKS {
+            let rank = sink.rank();
+            let production = minimum_trust_tier_for_sink(sink).rank();
+            let lattice = spec_lattice_min_trust_for_sink(rank);
+            let taint = spec_min_trust_for_sink(rank);
+            assert!(lattice <= production,
+                "TAINT-MODEL-DRIFT: verified_trust_lattice became stricter than production for {sink:?} ({lattice} > {production}); re-check before updating this pin");
+            if lattice == production {
+                lattice_agrees += 1;
+            }
+            if taint == production {
+                taint_agrees += 1;
+            }
+            if lattice == taint {
+                kernels_agree += 1;
+            }
+        }
+        assert_eq!(
+            lattice_agrees, 2,
+            "TAINT-MODEL-DRIFT: lattice/production agreement changed"
+        );
+        assert_eq!(
+            taint_agrees, 4,
+            "TAINT-MODEL-DRIFT: taint/production agreement changed"
+        );
+        assert_eq!(
+            kernels_agree, 1,
+            "TAINT-MODEL-DRIFT: the two kernels' mutual agreement changed"
+        );
+    }
+
     #[test]
     fn test_spec_oracle_can_reject() {
         // The floor only ever descends.

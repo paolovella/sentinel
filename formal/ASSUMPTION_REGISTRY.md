@@ -164,6 +164,61 @@ The binding therefore checks the restated primitives against the shipped ones
 first, and only then checks the n-step results against iterating the shipped
 functions. AUDIT-LEGACY-1 is exactly what that first half is for.
 
+## MODEL-SHAPE-1/2 — kernels modelling a design production does not implement
+
+Found 2026-08-24 while attempting to bind them. Both pass
+`check-verus-parity.sh`, which pairs them by *symbol name* against production
+files whose structures are unrelated to what the kernel models.
+
+Unlike TAINT-MODEL-DRIFT (a wrong value in a right-shaped model) these two
+model a **different design**. Neither is a vulnerability — both are stricter or
+simply absent — but no claim about the running system should be sourced to
+them until the shapes are reconciled.
+
+### MODEL-SHAPE-1 — `verified_intent_scope`
+
+The kernel models scope as `ScopeState { allowed_mask: u8, .. }`, an 8-bit
+bitmask, with `spec_in_scope(allowed_mask, sink_bit) = sink_bit < 8 && ...`.
+Production models it as
+`IntentScopeConfig { allowed_sink_classes: Vec<SinkClass>, .. }`.
+
+Two mismatches:
+
+- **Representation.** A bitmask and a `Vec<SinkClass>` are not the same
+  structure, so `spec_restrict_scope = current & restriction` (bitwise AND) has
+  no counterpart in `restrict_to_trust_floor`, which the parity guard
+  nonetheless pairs it with.
+- **Width.** The mask holds 8 bits and `SinkClass` has **nine** variants, so the
+  kernel cannot represent rank 8 — `PolicyMutation`, the highest-privilege sink.
+  `spec_in_scope` returns false for it unconditionally.
+
+The width half is the same root cause as `TAINT-MODEL-DRIFT`: kernels written
+against a six-or-eight-class world while production ships nine. It is
+fail-closed (the kernel refuses what production may allow), so nothing is
+under-enforced.
+
+### MODEL-SHAPE-2 — `verified_sequence_analysis`
+
+The kernel models `anomaly_confidence: u8` gated by
+`RESTRICTION_THRESHOLD: u8 = 70`, and a warm-up gate `WARMUP_CALLS: u32 = 3`.
+
+Production's `SequenceAnomaly.confidence` is **`u32`**, `max_confidence()`
+returns `u32`, and its emitted confidences are 60/80/85/90. Neither
+`RESTRICTION_THRESHOLD` nor `WARMUP_CALLS` exists anywhere in the workspace, and
+no restriction gate is built from them.
+
+So the kernel proves properties of a gate production has not implemented. It is
+not wrong so much as unattached.
+
+### Why these are not bound
+
+A differential test needs two things to compare. Where the shapes differ this
+much, writing one would mean inventing an adapter — and an adapter is a third
+piece of hand-written code that could itself be wrong, which is the opposite of
+narrowing the trusted base. These two need a decision first: reshape the kernel
+to production, or build the production design the kernel describes. Recorded
+here rather than papered over.
+
 ## Parity Assumptions (PARITY-HAND-*)
 
 `PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
@@ -207,7 +262,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 43 of 59 kernels bound (39 discharged + 3 partial + 1 property), 16 remain.**
+**Measured trusted base (2026-08-24): 44 of 59 kernels bound (40 discharged + 3 partial + 1 property), 15 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -255,6 +310,7 @@ collapsed here.
 | `verified_entropy_gate` | bounded | boundary sets around the clamp point of `min_observations × 2` and around zero |
 | `verified_capability_path` | bounded | 6 depths including both extremes × 4 flag combinations |
 | `verified_audit_integrity` | **partial** | restated primitives checked against the shipped ones over a `u64` boundary set; n-step compositions over 0..=64 steps from 8 starting points; the `seen_hashed` latch over all 256 8-step hash patterns × 2 starts. The legacy zero-sequence path is asserted, not bound — see `AUDIT-LEGACY-1` |
+| `verified_warm_restart` | total + bounded | `should_restore` over every `SessionState` variant, with a test forcing a new variant to be classified deliberately; capacity and counter over a `usize` set including both extremes |
 | `verified_path` | bounded | 1,365 byte strings over `/ . a NUL`, matched against `normalize_decoded_path` on accept, reject and output; postconditions checked separately. Percent-decoding is out of scope — see `PATH-DECODE-1` |
 | `verified_dlp_core` | total + bounded | all 256 `u8` boundary bytes; 341 byte strings over ASCII/lead/continuation × 6 sizes; 6⁵ field-budget tuples |
 | `verified_cross_call_dlp` | bounded | 2 × 6⁵ counter tuples around the field cap, byte cap and addition overflow |
@@ -311,7 +367,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 16 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 15 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

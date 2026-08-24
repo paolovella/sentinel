@@ -65,6 +65,129 @@ pub(crate) const fn delegated_tool_allowed(
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_deputy.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! MIXED: the four allowance predicates are enumerated TOTALLY over their
+    //! booleans. The depth functions carry `u8` operands, which is small
+    //! enough to enumerate completely — all 256 depths and all 256×256 limit
+    //! pairs.
+    //!
+    //! The kernel states the depth saturation over unbounded `nat` with a
+    //! literal 255 ceiling; production works in `u8` where that ceiling is
+    //! `u8::MAX`, so the transcription uses `u8::MAX` and the two agree by
+    //! construction rather than by coincidence.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    /// The kernel states this over unbounded `nat` with a literal 255 ceiling,
+    /// where `current_depth >= 255` is a genuine comparison. Transcribed into
+    /// `u8` the `>` half is unreachable, so it collapses to `==`. The collapse
+    /// is a property of the domain change, not a liberty taken with the spec.
+    fn spec_next_delegation_depth(current_depth: u8) -> u8 {
+        if current_depth == u8::MAX {
+            u8::MAX
+        } else {
+            current_depth + 1
+        }
+    }
+
+    fn spec_delegation_depth_within_limit(new_depth: u8, max_depth: u8) -> bool {
+        new_depth <= max_depth
+    }
+
+    fn spec_redelegation_chain_principal_valid(
+        parent_has_delegate: bool,
+        normalized_from_matches_parent_delegate: bool,
+    ) -> bool {
+        !parent_has_delegate || normalized_from_matches_parent_delegate
+    }
+
+    fn spec_redelegation_tool_allowed(
+        parent_has_unrestricted_tools: bool,
+        parent_allows_requested_tool: bool,
+    ) -> bool {
+        parent_has_unrestricted_tools || parent_allows_requested_tool
+    }
+
+    fn spec_delegated_principal_matches(normalized_claimed_matches_delegate: bool) -> bool {
+        normalized_claimed_matches_delegate
+    }
+
+    fn spec_delegated_tool_allowed(allowed_tools_empty: bool, requested_tool_found: bool) -> bool {
+        allowed_tools_empty || requested_tool_found
+    }
+
+    #[test]
+    fn test_depth_functions_match_verus_spec_total_domain() {
+        for current in 0u8..=u8::MAX {
+            assert_eq!(
+                next_delegation_depth(current),
+                spec_next_delegation_depth(current),
+                "PARITY-HAND-1: next_delegation_depth disagrees at {current}"
+            );
+            for max in 0u8..=u8::MAX {
+                assert_eq!(
+                    delegation_depth_within_limit(current, max),
+                    spec_delegation_depth_within_limit(current, max),
+                    "PARITY-HAND-1: delegation_depth_within_limit disagrees at ({current}, {max})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_allowance_predicates_match_verus_spec_total_domain() {
+        for a in [false, true] {
+            assert_eq!(
+                delegated_principal_matches(a),
+                spec_delegated_principal_matches(a),
+                "PARITY-HAND-1: delegated_principal_matches disagrees at ({a})"
+            );
+            for b in [false, true] {
+                assert_eq!(
+                    redelegation_chain_principal_valid(a, b),
+                    spec_redelegation_chain_principal_valid(a, b),
+                    "PARITY-HAND-1: redelegation_chain_principal_valid disagrees at ({a}, {b})"
+                );
+                assert_eq!(
+                    redelegation_tool_allowed(a, b),
+                    spec_redelegation_tool_allowed(a, b),
+                    "PARITY-HAND-1: redelegation_tool_allowed disagrees at ({a}, {b})"
+                );
+                assert_eq!(
+                    delegated_tool_allowed(a, b),
+                    spec_delegated_tool_allowed(a, b),
+                    "PARITY-HAND-1: delegated_tool_allowed disagrees at ({a}, {b})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // Depth must saturate, not wrap back to zero and grant fresh budget.
+        assert_eq!(spec_next_delegation_depth(u8::MAX), u8::MAX);
+        assert_eq!(spec_next_delegation_depth(0), 1);
+        // A re-delegation must originate from the parent's delegate.
+        assert!(!spec_redelegation_chain_principal_valid(true, false));
+        assert!(spec_redelegation_chain_principal_valid(false, false));
+        // A restricted parent must actually allow the requested tool.
+        assert!(!spec_redelegation_tool_allowed(false, false));
+        assert!(!spec_delegated_tool_allowed(false, false));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

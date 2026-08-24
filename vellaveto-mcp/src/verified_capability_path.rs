@@ -73,6 +73,79 @@ pub(crate) fn normalize_path_for_grant(path: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_capability_path.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! BOUNDED: `current_depth` is `usize`, enumerated over a boundary set
+    //! that includes zero (where `..` must refuse rather than underflow) and
+    //! `usize::MAX` (where a normal component must refuse rather than
+    //! overflow), crossed with all four flag combinations.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_path_component_next_depth(
+        current_depth: usize,
+        component_is_empty_or_dot: bool,
+        component_is_dotdot: bool,
+    ) -> Option<usize> {
+        if component_is_empty_or_dot {
+            Some(current_depth)
+        } else if component_is_dotdot {
+            if current_depth == 0 {
+                None
+            } else {
+                Some(current_depth - 1)
+            }
+        } else if current_depth == usize::MAX {
+            None
+        } else {
+            Some(current_depth + 1)
+        }
+    }
+
+    #[test]
+    fn test_production_matches_verus_spec() {
+        let depths = [0usize, 1, 2, 64, usize::MAX - 1, usize::MAX];
+        for &current_depth in &depths {
+            for empty_or_dot in [false, true] {
+                for dotdot in [false, true] {
+                    assert_eq!(
+                        path_component_next_depth(current_depth, empty_or_dot, dotdot),
+                        spec_path_component_next_depth(current_depth, empty_or_dot, dotdot),
+                        "PARITY-HAND-1: path_component_next_depth disagrees at \
+                         ({current_depth}, {empty_or_dot}, {dotdot})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // `..` at the root must refuse, not wrap below zero — this is the
+        // traversal escape the kernel exists to forbid.
+        assert_eq!(spec_path_component_next_depth(0, false, true), None);
+        assert_eq!(spec_path_component_next_depth(1, false, true), Some(0));
+        // A normal component at the ceiling must refuse, not wrap to zero.
+        assert_eq!(
+            spec_path_component_next_depth(usize::MAX, false, false),
+            None
+        );
+        // `.` and empty components leave depth untouched.
+        assert_eq!(spec_path_component_next_depth(3, true, false), Some(3));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

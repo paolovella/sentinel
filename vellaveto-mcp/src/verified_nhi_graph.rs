@@ -41,6 +41,73 @@ pub(crate) const fn delegation_edge_preserves_acyclicity(
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_nhi_graph.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! TOTAL discharge for both predicates: 2⁴ and 2¹.
+    //!
+    //! The successor-traversal spec folds a `Seq` of links and is not bound
+    //! here; that obligation stays under `PARITY-HAND-1`.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_delegation_link_effective_for_successor(
+        from_agent_matches_current: bool,
+        link_active: bool,
+        expiry_parsed: bool,
+        now_before_expiry: bool,
+    ) -> bool {
+        from_agent_matches_current && link_active && expiry_parsed && now_before_expiry
+    }
+
+    fn spec_delegation_edge_preserves_acyclicity(
+        path_from_delegatee_to_delegator_exists: bool,
+    ) -> bool {
+        !path_from_delegatee_to_delegator_exists
+    }
+
+    #[test]
+    fn test_production_matches_verus_spec_total_domain() {
+        for bits in 0u8..16 {
+            let f = |i: u8| bits & (1 << i) != 0;
+            let (a, b, c, d) = (f(0), f(1), f(2), f(3));
+            assert_eq!(
+                delegation_link_effective_for_successor(a, b, c, d),
+                spec_delegation_link_effective_for_successor(a, b, c, d),
+                "PARITY-HAND-1: delegation_link_effective_for_successor disagrees at \
+                 bits {bits:#06b}"
+            );
+            assert_eq!(
+                delegation_edge_preserves_acyclicity(a),
+                spec_delegation_edge_preserves_acyclicity(a),
+                "PARITY-HAND-1: delegation_edge_preserves_acyclicity disagrees at ({a})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // An edge that closes a cycle back to the delegator is refused — this
+        // is what stops a delegation graph looping into unbounded authority.
+        assert!(!spec_delegation_edge_preserves_acyclicity(true));
+        assert!(spec_delegation_edge_preserves_acyclicity(false));
+        // Every link condition is load-bearing.
+        assert!(!spec_delegation_link_effective_for_successor(
+            true, true, true, false
+        ));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

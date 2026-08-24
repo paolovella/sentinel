@@ -143,6 +143,20 @@ run_case "audit sequence may repeat (replay)" "$DIFF_GUARD" drift \
 run_case "merkle proof side inverted" "$DIFF_GUARD" drift \
     perl -0pi -e 's/    node_index % 2 == 1\n\}/    node_index % 2 == 0\n}/s' vellaveto-audit/src/verified_merkle_path.rs
 
+# The policy, delegation and approval families are bound the same way. These
+# are the three highest-consequence shapes across the newly covered crates: the
+# fail-closed base case of the verdict computation itself, a confused-deputy
+# boundary, and an approval replay.
+
+run_case "empty policy list allows (fail-open)" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/    \/\/ V2: No match produced a verdict → Deny \(fail-closed\)\n    VerdictKind::Deny\n\}/    \/\/ V2: No match produced a verdict → Deny (fail-closed)\n    VerdictKind::Allow\n}/s' vellaveto-engine/src/verified_core.rs
+
+run_case "claim trusted without delegation" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/has_active_delegation && claimed_present/has_active_delegation || claimed_present/' vellaveto-mcp/src/verified_deputy_handoff.rs
+
+run_case "session-bound approval replayable" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/!approval_has_session_binding \|\| \(request_has_session && request_matches_bound_session\)/!approval_has_session_binding || request_has_session/' vellaveto-approval/src/verified_approval_scope.rs
+
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────
 # formal/kani/Cargo.toml states the extracted code "is tested to be identical to
 # the production code via the CI diff check". These test whether that holds.

@@ -42,6 +42,15 @@ run_differential "vellaveto-mcp capability kernels ↔ their Verus specs" \
 run_differential "vellaveto-audit chain/merkle kernels ↔ their Verus specs" \
     vellaveto-audit verus_spec_differential
 
+run_differential "vellaveto-engine policy/delegation kernels ↔ their Verus specs" \
+    vellaveto-engine verus_spec_differential
+
+run_differential "vellaveto-approval consumption/scope kernels ↔ their Verus specs" \
+    vellaveto-approval verus_spec_differential
+
+run_differential "vellaveto-types transport-context kernel ↔ its Verus spec" \
+    vellaveto-types verus_spec_differential
+
 echo ""
 if [ "$FAILED" -ne 0 ]; then
     echo "=== DRIFT DETECTED ==="

@@ -219,6 +219,229 @@ pub fn compute_verdict(resolved: &[ResolvedMatch]) -> VerdictKind {
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_core.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! TOTAL discharge for `compute_single_verdict`: `ResolvedMatch` carries
+    //! nine booleans and a three-valued `condition_verdict`, so all 1,536
+    //! inhabitants of the domain the spec reads are enumerated. `priority` is
+    //! the tenth field and the spec does not read it; the enumeration varies
+    //! it anyway so that a production version which *did* read it would be
+    //! caught.
+    //!
+    //! `compute_verdict` is BOUNDED: every single-element list is checked
+    //! against the full domain, then all lists of length 0..=4 drawn from one
+    //! representative per outcome. That covers the two properties the kernel
+    //! exists for — first decided verdict wins, and an empty or
+    //! all-Continue list denies.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    // The kernel keeps `rule_override_deny`, `context_deny` and `is_deny` as
+    // three separate branches even though each yields `Deny`, because each is a
+    // distinct policy reason and their order is part of what V4 establishes.
+    // Collapsing them into one condition — which is what clippy suggests —
+    // would make this transcription structurally different from the kernel and
+    // defeat the comparison it exists to make.
+    #[allow(clippy::if_same_then_else)]
+    fn spec_single_verdict(rm: &ResolvedMatch) -> VerdictOutcome {
+        if !rm.matched {
+            VerdictOutcome::Continue
+        } else if rm.rule_override_deny {
+            VerdictOutcome::Decided(VerdictKind::Deny)
+        } else if rm.context_deny {
+            VerdictOutcome::Decided(VerdictKind::Deny)
+        } else if rm.is_deny {
+            VerdictOutcome::Decided(VerdictKind::Deny)
+        } else if rm.is_conditional {
+            if rm.require_approval {
+                VerdictOutcome::Decided(VerdictKind::RequireApproval)
+            } else if rm.all_constraints_skipped {
+                if rm.on_no_match_continue {
+                    VerdictOutcome::Continue
+                } else {
+                    VerdictOutcome::Decided(VerdictKind::Deny)
+                }
+            } else if rm.condition_fired {
+                VerdictOutcome::Decided(rm.condition_verdict)
+            } else if rm.on_no_match_continue {
+                VerdictOutcome::Continue
+            } else {
+                VerdictOutcome::Decided(VerdictKind::Allow)
+            }
+        } else {
+            VerdictOutcome::Decided(VerdictKind::Allow)
+        }
+    }
+
+    fn spec_compute_verdict_from(resolved: &[ResolvedMatch], start: usize) -> VerdictKind {
+        if start >= resolved.len() {
+            VerdictKind::Deny
+        } else {
+            match spec_single_verdict(&resolved[start]) {
+                VerdictOutcome::Decided(kind) => kind,
+                VerdictOutcome::Continue => spec_compute_verdict_from(resolved, start + 1),
+            }
+        }
+    }
+
+    const VERDICTS: [VerdictKind; 3] = [
+        VerdictKind::Allow,
+        VerdictKind::Deny,
+        VerdictKind::RequireApproval,
+    ];
+
+    /// Every `ResolvedMatch` the spec can distinguish, at one `priority`.
+    fn enumerate_matches(priority: u32) -> Vec<ResolvedMatch> {
+        let mut out = Vec::with_capacity(1536);
+        for bits in 0u16..512 {
+            let f = |i: u16| bits & (1 << i) != 0;
+            for condition_verdict in VERDICTS {
+                out.push(ResolvedMatch {
+                    matched: f(0),
+                    is_deny: f(1),
+                    is_conditional: f(2),
+                    priority,
+                    rule_override_deny: f(3),
+                    context_deny: f(4),
+                    require_approval: f(5),
+                    condition_fired: f(6),
+                    condition_verdict,
+                    on_no_match_continue: f(7),
+                    all_constraints_skipped: f(8),
+                });
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn test_compute_single_verdict_matches_verus_spec_total_domain() {
+        for priority in [0u32, 7, u32::MAX] {
+            let all = enumerate_matches(priority);
+            assert_eq!(all.len(), 1536, "enumeration collapsed");
+            for rm in &all {
+                assert_eq!(
+                    compute_single_verdict(rm),
+                    spec_single_verdict(rm),
+                    "PARITY-HAND-1: compute_single_verdict disagrees for {rm:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_compute_verdict_matches_verus_spec() {
+        // Empty input must deny — the fail-closed base case.
+        assert_eq!(
+            compute_verdict(&[]),
+            spec_compute_verdict_from(&[], 0),
+            "PARITY-HAND-1: compute_verdict disagrees on the empty list"
+        );
+
+        // Every single-element list, over the full single-verdict domain.
+        let all = enumerate_matches(1);
+        for rm in &all {
+            let list = [rm.clone()];
+            assert_eq!(
+                compute_verdict(&list),
+                spec_compute_verdict_from(&list, 0),
+                "PARITY-HAND-1: compute_verdict disagrees on [{rm:?}]"
+            );
+        }
+
+        // One representative per outcome, over all lists of length 0..=4, so
+        // ordering and the all-Continue case are both exercised.
+        let reps: Vec<ResolvedMatch> = {
+            let mut seen_continue = None;
+            let mut seen: Vec<(VerdictKind, ResolvedMatch)> = Vec::new();
+            for rm in &all {
+                match spec_single_verdict(rm) {
+                    VerdictOutcome::Continue => {
+                        if seen_continue.is_none() {
+                            seen_continue = Some(rm.clone());
+                        }
+                    }
+                    VerdictOutcome::Decided(kind) => {
+                        if !seen.iter().any(|(k, _)| *k == kind) {
+                            seen.push((kind, rm.clone()));
+                        }
+                    }
+                }
+            }
+            let mut reps: Vec<ResolvedMatch> = seen_continue.into_iter().collect();
+            reps.extend(seen.into_iter().map(|(_, rm)| rm));
+            reps
+        };
+        assert_eq!(reps.len(), 4, "expected one representative per outcome");
+
+        let mut frontier: Vec<Vec<ResolvedMatch>> = vec![Vec::new()];
+        let mut checked = 0usize;
+        for _ in 0..4 {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for rep in &reps {
+                    let mut list = prefix.clone();
+                    list.push(rep.clone());
+                    assert_eq!(
+                        compute_verdict(&list),
+                        spec_compute_verdict_from(&list, 0),
+                        "PARITY-HAND-1: compute_verdict disagrees on {list:?}"
+                    );
+                    checked += 1;
+                    next.push(list);
+                }
+            }
+            frontier = next;
+        }
+        assert_eq!(checked, 4 + 16 + 64 + 256, "enumeration collapsed");
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // The two properties this kernel exists for.
+        assert_eq!(spec_compute_verdict_from(&[], 0), VerdictKind::Deny);
+        let unmatched = ResolvedMatch {
+            matched: false,
+            is_deny: false,
+            is_conditional: false,
+            priority: 0,
+            rule_override_deny: false,
+            context_deny: false,
+            require_approval: false,
+            condition_fired: false,
+            condition_verdict: VerdictKind::Allow,
+            on_no_match_continue: false,
+            all_constraints_skipped: false,
+        };
+        // A list that never decides still denies.
+        assert_eq!(
+            spec_compute_verdict_from(&[unmatched.clone(), unmatched.clone()], 0),
+            VerdictKind::Deny
+        );
+        // A rule override denies even when the policy type would allow.
+        let overridden = ResolvedMatch {
+            matched: true,
+            rule_override_deny: true,
+            ..unmatched
+        };
+        assert_eq!(
+            spec_single_verdict(&overridden),
+            VerdictOutcome::Decided(VerdictKind::Deny)
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

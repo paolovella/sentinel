@@ -63,10 +63,15 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 34 of 59 kernels bound (33 discharged + 1 partial), 25 remain.**
+**Measured trusted base (2026-08-24): 37 of 59 kernels bound (36 discharged + 1 partial), 22 remain.**
 
-**Every mirrored kernel is now bound.** What remains is entirely kernels with no
-function to transcribe against — see the shapes below.
+An earlier revision of this count claimed every mirrored kernel was bound. That
+was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
+mirrors under a nested path (`inspection/verified_dlp_core.rs`,
+`inspection/verified_cross_call_dlp.rs`) or a different filename
+(`vellaveto-server/src/verified_approval_id.rs` for
+`verified_server_approval_id`). All three are now bound. Enumerate mirrors with
+`find vellaveto-*/src -name 'verified_*.rs'`, not a top-level glob.
 
 A discharge is *total* where the enumeration covers the entire input domain and
 *bounded* where it covers a chosen subset. The distinction matters and is not
@@ -105,14 +110,17 @@ collapsed here.
 | `verified_nhi_delegation`, `verified_nhi_graph` | total + bounded | 2²/2⁴ link and status predicates; chain depth over a boundary set |
 | `verified_entropy_gate` | bounded | boundary sets around the clamp point of `min_observations × 2` and around zero |
 | `verified_capability_path` | bounded | 6 depths including both extremes × 4 flag combinations |
+| `verified_dlp_core` | total + bounded | all 256 `u8` boundary bytes; 341 byte strings over ASCII/lead/continuation × 6 sizes; 6⁵ field-budget tuples |
+| `verified_cross_call_dlp` | bounded | 2 × 6⁵ counter tuples around the field cap, byte cap and addition overflow |
+| `verified_server_approval_id` | total + bounded | 2² acceptance; lengths exhaustive over `0..=256` plus `usize::MAX` |
 
 Alphabets and boundary sets are chosen against each proof's dependencies rather
 than for coverage. In the glob case `@` (0x40) and `[` (0x5B) sit immediately
 outside `A..=Z` so widening the fold range either way is caught; in the pattern
 case `)`/`+` and `>`/`@` bracket `*` (0x2a) and `?` (0x3f) for the same reason.
 
-Every discharge was mutation-verified on 2026-08-24: sixty semantic mutations
-across the thirty-four kernels — fail-open containment, a widened invocation budget, a
+Every discharge was mutation-verified on 2026-08-24: sixty-six semantic mutations
+across the thirty-seven kernels — fail-open containment, a widened invocation budget, a
 wrapping delegation depth, an unclamped expiry, a wildcard child slipping past an
 exact parent, last-match-wins grant selection, and a relaxed key-length check —
 each fails its differential test. On the audit and Merkle side: an entry counter
@@ -153,7 +161,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 25 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 22 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

@@ -63,8 +63,11 @@ semver = "1.0"
 vellaveto-discovery = { path = "../vellaveto-discovery", version = "7.0.0", optional = true }
 
 # Semantic guardrails dependencies
-# SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)
-lru = { version = "0.18", optional = true }
+# SECURITY: lru >= 0.16.3 fixes RUSTSEC-2026-0002 (Stacked Borrows violation);
+# lru >= 0.18.2 fixes RUSTSEC-2026-0253 (LruCache::pop is not panic-safe, leaving
+# dangling pointers in the LRU list if a key's Drop panics — CWE-416/415).
+# Reachable only with catch_unwind and a panicking key Drop; our keys are String.
+lru = { version = "0.18.2", optional = true }
 async-trait = { workspace = true, optional = true }
 
 # Cloud LLM backends

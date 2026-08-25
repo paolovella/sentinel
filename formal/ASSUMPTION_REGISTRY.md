@@ -221,6 +221,32 @@ narrowing the trusted base. These two need a decision first: reshape the kernel
 to production, or build the production design the kernel describes. Recorded
 here rather than papered over.
 
+## A difference that is not drift — `spec_spans_junction`
+
+Worth recording because it looked like a finding and was not.
+
+`verified_cross_call_split` defines `spec_spans_junction`, and production's
+`scan_with_overlap` visibly declines to filter on it:
+
+```rust
+let _ = overlap_len; // used conceptually; all cross-call findings reported
+```
+
+Checking the lemmas rather than the spec names settles it. `spec_spans_junction`
+appears only as a *hypothesis* of `lemma_junction_range_is_substring` — "if a
+range spans the junction, it is a substring of combined" — never as an
+obligation production must discharge. Every other lemma is about coverage:
+combined length is the sum, the tail survives as a prefix, the current value as
+a suffix.
+
+So production reporting every finding from the combined scan is a **superset**,
+which is the safe direction for a detector, and the comment explains why: a
+partial match in the overlap may only become complete with the new data.
+
+The rule: a spec function that has no production counterpart is not evidence of
+drift until you check whether any lemma *requires* one. Several of these kernels
+define helper predicates purely to state a hypothesis.
+
 ## VACUOUS-SPEC-1 — two axioms that escaped the escape-hatch inventory
 
 Found 2026-08-24. **Fixed the same day**, detector included.
@@ -322,6 +348,17 @@ passes. `verified_transitive_revoke` was written that way and a mutation raising
 in the transcription and assert the production constant equals it. Mutation
 testing is what found this; nothing else would have.
 
+A sweep of every binding for the same pattern found seventeen candidate sites.
+Sixteen were safe — the constant was defined inside the differential module, so
+it *is* the pinned literal. One was not: `verified_merkle`'s
+`spec_proof_sibling_count_valid` reused production's `MAX_PROOF_SIBLINGS`, and a
+mutation raising the cap from 64 to 4096 passed cleanly. Both are pinned now and
+both mutations are permanent cases in `guard-selftest.sh`.
+
+The distinction to check when reviewing a transcription: a constant defined
+*inside* the `verus_spec_differential` module is the kernel's literal restated
+and is fine; one reaching production through `use super::*` is the hole.
+
 **Equivalent mutants.** Mutation-verifying a property discharge can surface
 mutants that change the text without changing behaviour. FP-WRAP-1 is enforced
 jointly by a `clamp` and a range branch; removing either alone is equivalent,
@@ -337,7 +374,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-25): 47 of 59 kernels bound (42 discharged + 4 partial + 1 property), 12 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
+**Measured trusted base (2026-08-25): 48 of 59 kernels bound (42 discharged + 4 partial + 2 property), 11 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -387,6 +424,7 @@ collapsed here.
 | `verified_audit_integrity` | **partial** | restated primitives checked against the shipped ones over a `u64` boundary set; n-step compositions over 0..=64 steps from 8 starting points; the `seen_hashed` latch over all 256 8-step hash patterns × 2 starts. The legacy zero-sequence path is asserted, not bound — see `AUDIT-LEGACY-1` |
 | `verified_acis_action_summary` | bounded | 900 length/count combinations at and either side of every bound the kernel names, in both directions; dangerous-character rejection probed with null, control, bidi and BOM |
 | `verified_acis_envelope` | **partial** | 720 field combinations, necessary-condition only — the kernel models a subset of `validate()`, so kernel-rejects implies production-rejects. Found `ACIS-DENY-REASON-1` |
+| `verified_cross_call_split` | **property** | CC-SPLIT-1..4 checked against the shipped `format!("{tail}{current}")` join over 36 piece pairs, plus every junction-spanning range of each; end-to-end, a secret split across two calls is detected by the overlap scan and by neither half alone |
 | `verified_transitive_revoke` | total + bounded | link and collateral predicates over 2³; depth bound over a `usize` set around the limit and both extremes, with the literal 50 pinned |
 | `verified_warm_restart` | total + bounded | `should_restore` over every `SessionState` variant, with a test forcing a new variant to be classified deliberately; capacity and counter over a `usize` set including both extremes |
 | `verified_path` | bounded | 1,365 byte strings over `/ . a NUL`, matched against `normalize_decoded_path` on accept, reject and output; postconditions checked separately. Percent-decoding is out of scope — see `PATH-DECODE-1` |
@@ -445,7 +483,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 12 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 11 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

@@ -159,6 +159,15 @@ run_case "audit counter wraps instead of saturating" "$DIFF_GUARD" drift \
 run_case "audit sequence may repeat (replay)" "$DIFF_GUARD" drift \
     perl -0pi -e 's/current_sequence > prev_sequence/current_sequence >= prev_sequence/' vellaveto-audit/src/verified_audit_chain.rs
 
+# Raising a bound the kernel fixes as a literal. A transcription that reuses
+# production's constant symbolically binds the relation and not the value, so
+# this mutation escapes until the literal is pinned. Two of them did.
+run_case "merkle sibling cap raised 64x" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/pub\(crate\) const MAX_PROOF_SIBLINGS: usize = 64;/pub(crate) const MAX_PROOF_SIBLINGS: usize = 4096;/' vellaveto-audit/src/verified_merkle.rs
+
+run_case "revoke depth bound raised 10x" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/pub\(crate\) const MAX_TRANSITIVE_REVOKE_DEPTH: usize = 50;/pub(crate) const MAX_TRANSITIVE_REVOKE_DEPTH: usize = 500;/' vellaveto-mcp/src/verified_transitive_revoke.rs
+
 run_case "merkle proof side inverted" "$DIFF_GUARD" drift \
     perl -0pi -e 's/    node_index % 2 == 1\n\}/    node_index % 2 == 0\n}/s' vellaveto-audit/src/verified_merkle_path.rs
 

@@ -2752,3 +2752,180 @@ pub(super) async fn verify_manifest_from_response(
         }
     }
 }
+
+#[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`), kernel
+    //! `formal/verus/verified_replay_provenance.rs`.
+    //!
+    //! `merge_replay_status` gets a TOTAL discharge over all nine ordered pairs
+    //! of `ReplayStatus`, plus the lattice properties the kernel proves: the
+    //! merge is commutative, idempotent, and absorbing at `ReplayDetected`.
+    //!
+    //! The trust rule is bound where it is actually enforced. The kernel maps
+    //! `ReplayDetected` to rank 0 (`Quarantined`); production does that inside
+    //! `infer_trust_tier` rather than in a standalone function, so the binding
+    //! drives `infer_trust_tier` with a context carrying each status.
+    //!
+    //! The kernel also caps `NotChecked` at rank 1 (`Unknown`). Production
+    //! returns `None` there — no tier inferred, so no cap applied. That half is
+    //! pinned rather than bound; see `REPLAY-NOTCHECKED-1` in the registry.
+
+    use super::*;
+
+    const ALL_STATUSES: [ReplayStatus; 3] = [
+        ReplayStatus::NotChecked,
+        ReplayStatus::Fresh,
+        ReplayStatus::ReplayDetected,
+    ];
+
+    fn spec_replay_rank(s: ReplayStatus) -> u8 {
+        match s {
+            ReplayStatus::NotChecked => 0,
+            ReplayStatus::Fresh => 1,
+            ReplayStatus::ReplayDetected => 2,
+        }
+    }
+
+    fn spec_merge_replay(a: ReplayStatus, b: ReplayStatus) -> ReplayStatus {
+        match (a, b) {
+            (ReplayStatus::ReplayDetected, _) | (_, ReplayStatus::ReplayDetected) => {
+                ReplayStatus::ReplayDetected
+            }
+            (ReplayStatus::Fresh, _) | (_, ReplayStatus::Fresh) => ReplayStatus::Fresh,
+            _ => ReplayStatus::NotChecked,
+        }
+    }
+
+    fn spec_effective_trust_rank(replay_status: ReplayStatus, base_trust_rank: u8) -> u8 {
+        match replay_status {
+            ReplayStatus::ReplayDetected => 0,
+            ReplayStatus::NotChecked => {
+                if base_trust_rank > 1 {
+                    1
+                } else {
+                    base_trust_rank
+                }
+            }
+            ReplayStatus::Fresh => base_trust_rank,
+        }
+    }
+
+    fn context_with(status: ReplayStatus) -> RuntimeSecurityContext {
+        RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                replay_status: status,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_merge_replay_matches_verus_spec_total_domain() {
+        let mut checked = 0usize;
+        for a in ALL_STATUSES {
+            for b in ALL_STATUSES {
+                assert_eq!(
+                    merge_replay_status(a, b),
+                    spec_merge_replay(a, b),
+                    "PARITY-HAND-1: merge_replay_status disagrees at ({a:?}, {b:?})"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 9, "total domain is 3x3; enumeration collapsed");
+    }
+
+    /// A merge that is not absorbing at `ReplayDetected` would let a later
+    /// clean transport observation launder a detected replay.
+    #[test]
+    fn test_merge_is_commutative_idempotent_and_absorbing() {
+        for a in ALL_STATUSES {
+            assert_eq!(
+                merge_replay_status(a, a),
+                a,
+                "PARITY-HAND-1: merge is not idempotent at {a:?}"
+            );
+            assert_eq!(
+                merge_replay_status(a, ReplayStatus::ReplayDetected),
+                ReplayStatus::ReplayDetected,
+                "PARITY-HAND-1: a detected replay was laundered by merging {a:?} into it"
+            );
+            for b in ALL_STATUSES {
+                assert_eq!(
+                    merge_replay_status(a, b),
+                    merge_replay_status(b, a),
+                    "PARITY-HAND-1: merge is not commutative at ({a:?}, {b:?})"
+                );
+                let merged = spec_replay_rank(merge_replay_status(a, b));
+                assert!(
+                    merged >= spec_replay_rank(a) && merged >= spec_replay_rank(b),
+                    "PARITY-HAND-1: merging ({a:?}, {b:?}) lowered the replay rank"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_replay_detected_quarantines_in_infer_trust_tier() {
+        assert_eq!(
+            infer_trust_tier(&context_with(ReplayStatus::ReplayDetected), None, None),
+            Some(TrustTier::Quarantined),
+            "PARITY-HAND-1: a detected replay was not quarantined — the containment the kernel \
+             proves did not reach production"
+        );
+        assert_eq!(
+            spec_effective_trust_rank(ReplayStatus::ReplayDetected, 6),
+            0,
+            "PARITY-HAND-1: the kernel must map ReplayDetected to rank 0"
+        );
+    }
+
+    /// REPLAY-NOTCHECKED-1, pinned. Measured behaviour: `NotChecked` and
+    /// `Fresh` both yield `None` from `infer_trust_tier`, so no cap is applied
+    /// for an unverified replay status, while the kernel caps it at `Unknown`.
+    /// Asserted rather than skipped, so this fails if either side moves —
+    /// including if the gap closes.
+    #[test]
+    fn test_pinned_notchecked_cap_is_kernel_only() {
+        assert_eq!(
+            spec_effective_trust_rank(ReplayStatus::NotChecked, 6),
+            1,
+            "REPLAY-NOTCHECKED-1: the kernel is expected to cap NotChecked at Unknown"
+        );
+        assert_eq!(
+            infer_trust_tier(&context_with(ReplayStatus::NotChecked), None, None),
+            None,
+            "REPLAY-NOTCHECKED-1: production is expected to infer no tier for NotChecked, so no \
+             cap is applied. If this changed, re-check whether the gap closed and bind that half."
+        );
+        assert_eq!(
+            infer_trust_tier(&context_with(ReplayStatus::Fresh), None, None),
+            None,
+            "REPLAY-NOTCHECKED-1: production is expected to infer no tier for Fresh"
+        );
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        assert_eq!(
+            spec_merge_replay(ReplayStatus::Fresh, ReplayStatus::ReplayDetected),
+            ReplayStatus::ReplayDetected
+        );
+        assert_eq!(
+            spec_merge_replay(ReplayStatus::NotChecked, ReplayStatus::Fresh),
+            ReplayStatus::Fresh
+        );
+        assert_eq!(
+            spec_merge_replay(ReplayStatus::NotChecked, ReplayStatus::NotChecked),
+            ReplayStatus::NotChecked
+        );
+        assert_eq!(spec_effective_trust_rank(ReplayStatus::Fresh, 6), 6);
+        assert_eq!(
+            spec_effective_trust_rank(ReplayStatus::ReplayDetected, 6),
+            0
+        );
+    }
+}

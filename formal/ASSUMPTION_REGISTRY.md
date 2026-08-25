@@ -312,6 +312,35 @@ One integration fixture needed updating:
 empty reason in order to test the *depth* bound, and now tripped the earlier
 check. It was given a reason so it isolates the property it actually names.
 
+## REPLAY-NOTCHECKED-1 — a trust cap the kernel applies and production does not
+
+`formal/verus/verified_replay_provenance.rs` defines
+`spec_effective_trust_rank`, which caps trust by replay status:
+
+| status | kernel | production (`infer_trust_tier`) |
+|---|---|---|
+| `ReplayDetected` | rank 0 (`Quarantined`) | `Some(Quarantined)` — agrees |
+| `NotChecked` | capped at rank 1 (`Unknown`) | `None` — no tier inferred, no cap |
+| `Fresh` | base trust unchanged | `None` — agrees in effect |
+
+Measured, not inferred: a probe over all three statuses returned
+`NotChecked -> None`, `Fresh -> None`, `ReplayDetected -> Some(Quarantined)`.
+
+The kernel is **stricter**. Its rule is a fail-closed posture — *if replay
+verification did not run, do not extend trust past `Unknown`* — and production
+applies no cap, so a request whose replay status was never checked keeps
+whatever base trust it had. Nothing is under-enforced relative to a stated
+control; the gap is that the proof describes a containment production does not
+implement.
+
+The `ReplayDetected` half is fully bound, including the lattice properties: the
+merge is commutative, idempotent, and absorbing at `ReplayDetected`, so a later
+clean transport observation cannot launder a detected replay.
+
+The `NotChecked` half is pinned by
+`test_pinned_notchecked_cap_is_kernel_only`, which asserts the measured
+behaviour in both directions rather than skipping it.
+
 ## Parity Assumptions (PARITY-HAND-*)
 
 `PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
@@ -373,6 +402,14 @@ found both in `verified_evidence_signing`:
   without length framing those collide and a signature verifies across the
   tamper.
 
+**A mutation that does not compile is not a mutation.** An ad-hoc mutation
+harness that only greps for `test result: FAILED` reports a non-compiling tree
+as `MISSED`, which reads as a hole in the binding when nothing was actually
+tested. Classify three outcomes, and check them in this order: a failing test
+first (a failing test *also* prints a line starting with `error:`), then
+`^error\[` or `could not compile` as invalid, then missed. Getting that order
+wrong misreports caught mutations as invalid.
+
 **Equivalent mutants.** Mutation-verifying a property discharge can surface
 mutants that change the text without changing behaviour. FP-WRAP-1 is enforced
 jointly by a `clamp` and a range branch; removing either alone is equivalent,
@@ -388,7 +425,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-25): 49 of 59 kernels bound (42 discharged + 4 partial + 3 property), 10 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
+**Measured trusted base (2026-08-25): 50 of 59 kernels bound (42 discharged + 5 partial + 3 property), 9 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -438,6 +475,7 @@ collapsed here.
 | `verified_audit_integrity` | **partial** | restated primitives checked against the shipped ones over a `u64` boundary set; n-step compositions over 0..=64 steps from 8 starting points; the `seen_hashed` latch over all 256 8-step hash patterns × 2 starts. The legacy zero-sequence path is asserted, not bound — see `AUDIT-LEGACY-1` |
 | `verified_acis_action_summary` | bounded | 900 length/count combinations at and either side of every bound the kernel names, in both directions; dangerous-character rejection probed with null, control, bidi and BOM |
 | `verified_acis_envelope` | **partial** | 720 field combinations, necessary-condition only — the kernel models a subset of `validate()`, so kernel-rejects implies production-rejects. Found `ACIS-DENY-REASON-1` |
+| `verified_replay_provenance` | **partial** | `merge_replay_status` totally over all 9 status pairs plus commutativity, idempotence and absorption; `ReplayDetected` quarantine bound through `infer_trust_tier`. The `NotChecked` cap is pinned — see `REPLAY-NOTCHECKED-1` |
 | `verified_evidence_signing` | **property** | tamper coverage — 20 named field mutations must each move `signing_content()`, plus a field-boundary ambiguity check; hex-length and count-consistency predicates bound directly |
 | `verified_cross_call_split` | **property** | CC-SPLIT-1..4 checked against the shipped `format!("{tail}{current}")` join over 36 piece pairs, plus every junction-spanning range of each; end-to-end, a secret split across two calls is detected by the overlap scan and by neither half alone |
 | `verified_transitive_revoke` | total + bounded | link and collateral predicates over 2³; depth bound over a `usize` set around the limit and both extremes, with the literal 50 pinned |
@@ -498,7 +536,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 10 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 9 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

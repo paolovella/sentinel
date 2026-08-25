@@ -377,6 +377,15 @@ impl AcisDecisionEnvelope {
             .validate()
             .map_err(|e| format!("acis: {e}"))?;
 
+        // ACIS-DENY-REASON-1: a Deny must say why. The Verus kernel
+        // (`lemma_acis_deny_has_nonempty_reason`) proves this as a structural
+        // invariant of the envelope, and `validate()` did not enforce it — the
+        // gap was found by the differential binding below. A denial recorded
+        // without a reason is an audit entry that cannot be acted on.
+        if matches!(self.decision, DecisionKind::Deny) && self.reason.is_empty() {
+            return Err("acis: Deny decision must carry a non-empty reason".into());
+        }
+
         // reason (R244-ACIS-2: add dangerous chars check)
         if self.reason.len() > MAX_REASON_LEN {
             return Err("acis: reason exceeds maximum length".into());
@@ -447,6 +456,283 @@ impl AcisDecisionEnvelope {
 
 // `compute_action_fingerprint()` (SHA-256) lives in `vellaveto-engine` to avoid
 // pulling sha2+hex into this leaf crate.  See `vellaveto_engine::acis`.
+
+#[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`), covering both ACIS kernels:
+    //! `formal/verus/verified_acis_action_summary.rs` and
+    //! `formal/verus/verified_acis_envelope.rs`.
+    //!
+    //! **Necessary-condition binding.** The kernels model a *subset* of what
+    //! `validate()` checks — lengths, dangerous characters, target counts and
+    //! the Deny-implies-reason invariant, but not the timestamp format, the
+    //! session or tenant identifiers, or the transport. So the assertion is one
+    //! directional: **whatever the kernel rejects, production must also
+    //! reject.** Production rejecting more is expected and is not a failure.
+    //!
+    //! The reverse direction is checked only where the kernel accepts *and*
+    //! every unmodelled field is left at a known-good value, which is what
+    //! `modelled_envelope` provides.
+    //!
+    //! The kernel bounds are literals (256, 256, 100_000, 256, 3_600_000_000)
+    //! where production reads named constants, so this binds those too.
+
+    use super::*;
+
+    const K_MAX_TOOL_LEN: usize = 256;
+    const K_MAX_FUNCTION_LEN: usize = 256;
+    const K_MAX_TARGET_COUNT: u32 = 100_000;
+    const K_MAX_CALL_CHAIN_DEPTH: u32 = 256;
+    const K_MAX_EVALUATION_US: u64 = 3_600_000_000;
+
+    /// Transcription of `spec_action_summary_valid`.
+    fn spec_action_summary_valid(
+        tool_len: usize,
+        function_len: usize,
+        tool_has_dangerous_chars: bool,
+        function_has_dangerous_chars: bool,
+        target_path_count: u32,
+        target_domain_count: u32,
+    ) -> bool {
+        tool_len > 0
+            && tool_len <= K_MAX_TOOL_LEN
+            && function_len > 0
+            && function_len <= K_MAX_FUNCTION_LEN
+            && !tool_has_dangerous_chars
+            && !function_has_dangerous_chars
+            && target_path_count <= K_MAX_TARGET_COUNT
+            && target_domain_count <= K_MAX_TARGET_COUNT
+    }
+
+    /// Transcription of `spec_acis_envelope_fields_valid`.
+    fn spec_envelope_fields_valid(
+        decision_id_len: usize,
+        fingerprint_len: usize,
+        call_chain_depth: u32,
+        evaluation_us: Option<u64>,
+        is_deny: bool,
+        reason_len: usize,
+    ) -> bool {
+        decision_id_len > 0
+            && fingerprint_len > 0
+            && call_chain_depth <= K_MAX_CALL_CHAIN_DEPTH
+            && evaluation_us.is_none_or(|v| v <= K_MAX_EVALUATION_US)
+            && (!is_deny || reason_len > 0)
+    }
+
+    /// Transcription of `spec_deny_has_reason`.
+    fn spec_deny_has_reason(is_deny: bool, reason_len: usize) -> bool {
+        !is_deny || reason_len > 0
+    }
+
+    fn summary(tool: &str, function: &str, paths: u32, domains: u32) -> AcisActionSummary {
+        AcisActionSummary {
+            tool: tool.into(),
+            function: function.into(),
+            target_path_count: paths,
+            target_domain_count: domains,
+        }
+    }
+
+    /// An envelope whose unmodelled fields are all known-good, so acceptance is
+    /// decided purely by what the kernels model.
+    fn modelled_envelope(
+        decision_id: &str,
+        fingerprint: &str,
+        decision: DecisionKind,
+        reason: &str,
+        call_chain_depth: u32,
+        evaluation_us: Option<u64>,
+        action_summary: AcisActionSummary,
+    ) -> AcisDecisionEnvelope {
+        AcisDecisionEnvelope {
+            decision_id: decision_id.into(),
+            timestamp: "2026-03-09T10:00:00Z".into(),
+            session_id: None,
+            tenant_id: None,
+            agent_identity: None,
+            agent_id: None,
+            client_provenance: None,
+            action_summary,
+            action_fingerprint: fingerprint.into(),
+            decision,
+            origin: DecisionOrigin::PolicyEngine,
+            reason: reason.into(),
+            matched_policy_id: None,
+            transport: "stdio".into(),
+            findings: vec![],
+            semantic_taint: vec![],
+            lineage_refs: vec![],
+            effective_trust_tier: None,
+            sink_class: None,
+            containment_mode: None,
+            semantic_risk_score: None,
+            evaluation_us,
+            call_chain_depth,
+        }
+    }
+
+    /// Lengths chosen at and either side of every bound the kernel names.
+    const LENGTHS: [usize; 6] = [0, 1, 2, 255, 256, 257];
+    const COUNTS: [u32; 5] = [0, 1, 99_999, 100_000, 100_001];
+
+    #[test]
+    fn test_action_summary_rejection_is_at_least_as_strict_as_the_kernel() {
+        let mut checked = 0usize;
+        for &tool_len in &LENGTHS {
+            for &fn_len in &LENGTHS {
+                for &paths in &COUNTS {
+                    for &domains in &COUNTS {
+                        let s = summary(&"t".repeat(tool_len), &"f".repeat(fn_len), paths, domains);
+                        let spec_ok = spec_action_summary_valid(
+                            tool_len, fn_len, false, false, paths, domains,
+                        );
+                        let shipped_ok = s.validate().is_ok();
+                        if !spec_ok {
+                            assert!(
+                                !shipped_ok,
+                                "PARITY-HAND-1: the kernel rejects (tool_len={tool_len}, \
+                                 fn_len={fn_len}, paths={paths}, domains={domains}) but \
+                                 validate() accepted it"
+                            );
+                        } else {
+                            // No unmodelled field can reject here, so acceptance
+                            // must agree in both directions.
+                            assert!(
+                                shipped_ok,
+                                "PARITY-HAND-1: the kernel accepts (tool_len={tool_len}, \
+                                 fn_len={fn_len}, paths={paths}, domains={domains}) but \
+                                 validate() rejected it"
+                            );
+                        }
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 6 * 6 * 5 * 5, "enumeration collapsed");
+    }
+
+    #[test]
+    fn test_dangerous_characters_are_rejected_as_the_kernel_requires() {
+        // The kernel models this as a boolean; production computes it. Both
+        // halves are checked: a dangerous tool or function must be refused.
+        for probe in ["a\u{0}b", "a\u{7}b", "a\u{202e}b", "a\u{feff}b"] {
+            assert!(
+                summary(probe, "write", 0, 0).validate().is_err(),
+                "PARITY-HAND-1: dangerous tool name {probe:?} was accepted"
+            );
+            assert!(
+                summary("file_write", probe, 0, 0).validate().is_err(),
+                "PARITY-HAND-1: dangerous function name {probe:?} was accepted"
+            );
+            assert!(
+                !spec_action_summary_valid(3, 5, true, false, 0, 0),
+                "PARITY-HAND-1: the kernel must reject a dangerous tool name"
+            );
+        }
+    }
+
+    #[test]
+    fn test_envelope_rejection_is_at_least_as_strict_as_the_kernel() {
+        let depths = [0u32, 1, 255, 256, 257];
+        let evals = [None, Some(0u64), Some(3_600_000_000), Some(3_600_000_001)];
+        let mut checked = 0usize;
+
+        for &decision_id_len in &[0usize, 1, 36] {
+            for &fp_len in &[0usize, 1, 64] {
+                for &depth in &depths {
+                    for &eval in &evals {
+                        for decision in [DecisionKind::Allow, DecisionKind::Deny] {
+                            for reason in ["", "blocked by policy"] {
+                                let env = modelled_envelope(
+                                    &"d".repeat(decision_id_len),
+                                    &"f".repeat(fp_len),
+                                    decision,
+                                    reason,
+                                    depth,
+                                    eval,
+                                    summary("file_write", "write", 0, 0),
+                                );
+                                let spec_ok = spec_envelope_fields_valid(
+                                    decision_id_len,
+                                    fp_len,
+                                    depth,
+                                    eval,
+                                    decision == DecisionKind::Deny,
+                                    reason.len(),
+                                );
+                                if !spec_ok {
+                                    assert!(
+                                        env.validate().is_err(),
+                                        "PARITY-HAND-1: the kernel rejects an envelope \
+                                         (id_len={decision_id_len}, fp_len={fp_len}, \
+                                         depth={depth}, eval={eval:?}, {decision:?}, \
+                                         reason={reason:?}) that validate() accepted"
+                                    );
+                                }
+                                checked += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 3 * 3 * 5 * 4 * 2 * 2, "enumeration collapsed");
+    }
+
+    #[test]
+    fn test_deny_without_reason_is_refused_in_both() {
+        let denied = modelled_envelope(
+            "550e8400-e29b-41d4-a716-446655440000",
+            "a1b2c3",
+            DecisionKind::Deny,
+            "",
+            0,
+            None,
+            summary("file_write", "write", 0, 0),
+        );
+        assert!(
+            denied.validate().is_err(),
+            "PARITY-HAND-1: a Deny with no reason must be refused — the structural \
+             invariant the kernel proves"
+        );
+        assert!(!spec_deny_has_reason(true, 0));
+        assert!(spec_deny_has_reason(true, 1));
+        assert!(spec_deny_has_reason(false, 0));
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // Every bound the kernel names is exact, not approximate.
+        assert!(spec_action_summary_valid(
+            256, 256, false, false, 100_000, 100_000
+        ));
+        assert!(!spec_action_summary_valid(257, 256, false, false, 0, 0));
+        assert!(!spec_action_summary_valid(256, 257, false, false, 0, 0));
+        assert!(!spec_action_summary_valid(0, 1, false, false, 0, 0));
+        assert!(!spec_action_summary_valid(1, 1, false, false, 100_001, 0));
+        assert!(spec_envelope_fields_valid(
+            1,
+            1,
+            256,
+            Some(3_600_000_000),
+            false,
+            0
+        ));
+        assert!(!spec_envelope_fields_valid(1, 1, 257, None, false, 0));
+        assert!(!spec_envelope_fields_valid(
+            1,
+            1,
+            0,
+            Some(3_600_000_001),
+            false,
+            0
+        ));
+        assert!(!spec_envelope_fields_valid(0, 1, 0, None, false, 0));
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -256,6 +256,36 @@ detector for the class, so a new one cannot be added without either registering
 it or failing the check. The detector is itself mutation-tested by
 `formal/tools/guard-selftest.sh`.
 
+## ACIS-DENY-REASON-1 — a proven invariant the validator did not enforce
+
+Found 2026-08-24 by the differential binding. **Fixed the same day.**
+
+`formal/verus/verified_acis_envelope.rs` proves
+`lemma_acis_deny_has_nonempty_reason`: a `Deny` envelope carries a non-empty
+reason. It is stated as a structural invariant of the envelope, part of
+`spec_envelope_valid`.
+
+`AcisDecisionEnvelope::validate()` bounded the reason's length and rejected
+dangerous characters in it, but **never related `decision` to `reason`**. A
+`Deny` with an empty reason validated cleanly.
+
+Direction: the kernel was **stricter** than the shipped code, so nothing was
+under-enforced — but since R244 made envelope validation the gate before audit
+persistence, the invariant that a denial explains itself was being claimed by
+the proof and not enforced by the code. A denial recorded without a reason is an
+audit entry nobody can act on.
+
+**Resolution.** `validate()` now enforces it. The tightening is safe: every
+`Verdict::Deny` in the workspace is constructed with a `format!` reason, and
+`build_acis_envelope` copies that reason straight through, so no production path
+produced an empty one. Confirmed by the full suite — 7,917 unit tests across
+seven crates and all 122 integration suites pass.
+
+One integration fixture needed updating:
+`test_acis_envelope_rejects_oversized_call_chain_depth` built a `Deny` with an
+empty reason in order to test the *depth* bound, and now tripped the earlier
+check. It was given a reason so it isolates the property it actually names.
+
 ## Parity Assumptions (PARITY-HAND-*)
 
 `PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
@@ -299,7 +329,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 44 of 59 kernels bound (40 discharged + 3 partial + 1 property), 15 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
+**Measured trusted base (2026-08-25): 46 of 59 kernels bound (41 discharged + 4 partial + 1 property), 13 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -347,6 +377,8 @@ collapsed here.
 | `verified_entropy_gate` | bounded | boundary sets around the clamp point of `min_observations × 2` and around zero |
 | `verified_capability_path` | bounded | 6 depths including both extremes × 4 flag combinations |
 | `verified_audit_integrity` | **partial** | restated primitives checked against the shipped ones over a `u64` boundary set; n-step compositions over 0..=64 steps from 8 starting points; the `seen_hashed` latch over all 256 8-step hash patterns × 2 starts. The legacy zero-sequence path is asserted, not bound — see `AUDIT-LEGACY-1` |
+| `verified_acis_action_summary` | bounded | 900 length/count combinations at and either side of every bound the kernel names, in both directions; dangerous-character rejection probed with null, control, bidi and BOM |
+| `verified_acis_envelope` | **partial** | 720 field combinations, necessary-condition only — the kernel models a subset of `validate()`, so kernel-rejects implies production-rejects. Found `ACIS-DENY-REASON-1` |
 | `verified_warm_restart` | total + bounded | `should_restore` over every `SessionState` variant, with a test forcing a new variant to be classified deliberately; capacity and counter over a `usize` set including both extremes |
 | `verified_path` | bounded | 1,365 byte strings over `/ . a NUL`, matched against `normalize_decoded_path` on accept, reject and output; postconditions checked separately. Percent-decoding is out of scope — see `PATH-DECODE-1` |
 | `verified_dlp_core` | total + bounded | all 256 `u8` boundary bytes; 341 byte strings over ASCII/lead/continuation × 6 sizes; 6⁵ field-budget tuples |
@@ -404,7 +436,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 15 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 13 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

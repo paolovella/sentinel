@@ -215,7 +215,10 @@ fn test_acis_envelope_rejects_oversized_call_chain_depth() {
         action_fingerprint: "deadbeef".into(),
         decision: DecisionKind::Deny,
         origin: DecisionOrigin::PolicyEngine,
-        reason: String::new(),
+        // ACIS-DENY-REASON-1: validate() now enforces that a Deny carries a
+        // reason, so this fixture needs one to isolate the depth bound it is
+        // actually testing rather than tripping the earlier check.
+        reason: "denied for call-chain depth test".into(),
         matched_policy_id: None,
         transport: "http".into(),
         findings: vec![],

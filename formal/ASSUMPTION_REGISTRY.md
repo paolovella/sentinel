@@ -312,6 +312,32 @@ One integration fixture needed updating:
 empty reason in order to test the *depth* bound, and now tripped the earlier
 check. It was given a reason so it isolates the property it actually names.
 
+### The validator alone was not enough
+
+Tracing the call path after the fix showed a second problem the fix itself
+introduced. `AuditLogger::log_entry_with_acis` returns `Err` **without writing
+the entry** when validation fails, and both proxy call sites swallow that error
+with a `tracing::warn!` and continue. So a `Deny` with an empty reason would
+have gone from *"audit entry written with an empty reason"* to *"no audit entry
+at all"* — strictly worse for a security control, and the opposite of the
+intent.
+
+Exposure was zero: every `Verdict::Deny` in the workspace is built with a
+`format!` carrying literal text, and `build_acis_envelope` copies it through
+unchanged. But the risk was structural — `log_entry_with_acis` is public API,
+and the failure mode is a warn line nobody reads.
+
+So the invariant is now established **at construction** as well.
+`build_acis_envelope_with_security_context` substitutes a placeholder for an
+empty `Deny` reason, and every envelope in the system is built through it
+(`build_secondary_acis_envelope*` delegates to it). `validate()` stays strict
+for externally-supplied envelopes; the builder guarantees internally-generated
+ones. Removing the guard fails three tests in `vellaveto-mcp/src/mediation.rs`.
+
+The general rule: before tightening a validator, check what the *caller* does
+with the rejection. A validator that gates persistence turns "malformed record"
+into "no record", and for audit data that trade is usually the wrong way round.
+
 ## REPLAY-NOTCHECKED-1 — a trust cap the kernel applies and production does not
 
 `formal/verus/verified_replay_provenance.rs` defines

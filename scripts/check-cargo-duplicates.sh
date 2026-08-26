@@ -49,16 +49,29 @@ BASELINE = {
     # to a single version once x509-parser updates.
     "syn": ["2.0.119", "3.0.3"],
     "untrusted": ["0.7.1", "0.9.0"],
-    "windows-sys": ["0.52.0", "0.59.0", "0.60.2", "0.61.2"],
-    "windows-targets": ["0.52.6", "0.53.5"],
-    "windows_aarch64_gnullvm": ["0.52.6", "0.53.1"],
-    "windows_aarch64_msvc": ["0.52.6", "0.53.1"],
-    "windows_i686_gnu": ["0.52.6", "0.53.1"],
+    # The 0.48 line arrived with the RUSTSEC-2026-0258 fix. Bumping h2 made
+    # cargo re-resolve windows-sys *downward* in anstyle-query, anstream and
+    # errno (0.61.2 -> 0.60.2/0.52.0), which in turn made the winapi-util 0.1.11
+    # chain reachable:
+    #   vellaveto-server -> notify 8.2.0 -> walkdir -> same-file -> winapi-util
+    # That is a normal (non-dev) path, so this is compiled surface on Windows
+    # targets, not just a lockfile entry. This project builds and ships on
+    # Linux, so nothing we distribute is affected today.
+    #
+    # Accepted rather than avoided: the alternatives were a full `cargo update`
+    # (too broad for a security fix, and it still left one delta) or leaving two
+    # advisories open. Revisit when notify/walkdir move off winapi-util, or
+    # during the next dependency sweep.
+    "windows-sys": ["0.48.0", "0.52.0", "0.59.0", "0.60.2", "0.61.2"],
+    "windows-targets": ["0.48.5", "0.52.6", "0.53.5"],
+    "windows_aarch64_gnullvm": ["0.48.5", "0.52.6", "0.53.1"],
+    "windows_aarch64_msvc": ["0.48.5", "0.52.6", "0.53.1"],
+    "windows_i686_gnu": ["0.48.5", "0.52.6", "0.53.1"],
     "windows_i686_gnullvm": ["0.52.6", "0.53.1"],
-    "windows_i686_msvc": ["0.52.6", "0.53.1"],
-    "windows_x86_64_gnu": ["0.52.6", "0.53.1"],
-    "windows_x86_64_gnullvm": ["0.52.6", "0.53.1"],
-    "windows_x86_64_msvc": ["0.52.6", "0.53.1"],
+    "windows_i686_msvc": ["0.48.5", "0.52.6", "0.53.1"],
+    "windows_x86_64_gnu": ["0.48.5", "0.52.6", "0.53.1"],
+    "windows_x86_64_gnullvm": ["0.48.5", "0.52.6", "0.53.1"],
+    "windows_x86_64_msvc": ["0.48.5", "0.52.6", "0.53.1"],
     # wit-bindgen dropped out of the duplicate set in this update; the entry is
     # removed rather than left behind, so a future reintroduction is flagged.
 }

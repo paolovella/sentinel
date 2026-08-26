@@ -822,7 +822,7 @@ version = "0.14.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.h2]]
-version = "0.4.15"
+version = "0.4.16"
 criteria = "safe-to-deploy"
 
 [[exemptions.half]]
@@ -1162,7 +1162,7 @@ version = "0.7.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.lru]]
-version = "0.18.1"
+version = "0.18.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.lru-slab]]

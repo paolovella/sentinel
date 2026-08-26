@@ -88,8 +88,11 @@ base64 = { workspace = true }
 rand = { workspace = true }
 flate2 = { workspace = true, features = ["zlib"] }
 roxmltree = "0.21"
-# SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)
-lru = "0.18"
+# SECURITY: lru >= 0.16.3 fixes RUSTSEC-2026-0002 (Stacked Borrows violation);
+# lru >= 0.18.2 fixes RUSTSEC-2026-0253 (LruCache::pop is not panic-safe, leaving
+# dangling pointers in the LRU list if a key's Drop panics — CWE-416/415).
+# Reachable only with catch_unwind and a panicking key Drop; our keys are String.
+lru = "0.18.2"
 # Phase 43: Centralized Audit Store (PostgreSQL backend)
 sqlx = { workspace = true, optional = true }
 

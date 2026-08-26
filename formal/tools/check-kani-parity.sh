@@ -184,6 +184,10 @@ PROD_UNICODE="$PROJECT_DIR/vellaveto-types/src/unicode.rs"
 PROD_SANITIZER="$PROJECT_DIR/vellaveto-mcp-shield/src/sanitizer.rs"
 PROD_INJECTION="$PROJECT_DIR/vellaveto-mcp/src/inspection/injection.rs"
 PROD_ENTROPY_GATE="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
+# The float-to-millibit conversion was extracted out of entropy_gate.rs into its
+# own mirror so verified_entropy_fixed_point.rs has a named counterpart to bind
+# against. entropy_gate re-exports it; these checks follow the definitions.
+PROD_ENTROPY_FIXED_POINT="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_fixed_point.rs"
 PROD_COLLUSION_DETECTION="$PROJECT_DIR/vellaveto-engine/src/collusion.rs"
 PROD_CREDENTIAL_VAULT="$PROJECT_DIR/vellaveto-mcp-shield/src/credential_vault.rs"
 PROD_TLS="$PROJECT_DIR/vellaveto-tls/src/lib.rs"
@@ -224,9 +228,9 @@ check_symbol_parity "shield sanitizer reverse pass" "$PROD_SANITIZER" "pub[[:spa
 check_symbol_parity "temporal window extraction source" "$PROD_COLLUSION" "pub[[:space:]]+fn[[:space:]]+compute_entropy" "$KANI_DIR/temporal_window.rs" "pub[[:space:]]+fn[[:space:]]+expire_events"
 check_symbol_parity "circuit-breaker state machine extraction source" "$PROD_CASCADING" "pub[[:space:]]+fn[[:space:]]+record_pipeline_error" "$KANI_DIR/cascading_fsm.rs" "pub[[:space:]]+fn[[:space:]]+should_break"
 check_symbol_parity "injection decode pipeline" "$PROD_INJECTION" "pub[[:space:]]+fn[[:space:]]+inspect_for_injection" "$KANI_DIR/injection_pipeline.rs" "pub[[:space:]]+fn[[:space:]]+run_decode_pipeline"
-check_symbol_parity "entropy fixed-point wrapper" "$PROD_ENTROPY_GATE" "fn[[:space:]]+entropy_fixed_point" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_fixed_point"
-check_symbol_parity "entropy threshold floor helper" "$PROD_ENTROPY_GATE" "fn[[:space:]]+entropy_threshold_millibits" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_threshold_millibits"
-check_symbol_parity "entropy observation ceil helper" "$PROD_ENTROPY_GATE" "fn[[:space:]]+entropy_observation_millibits" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_observation_millibits"
+check_symbol_parity "entropy fixed-point wrapper" "$PROD_ENTROPY_FIXED_POINT" "fn[[:space:]]+entropy_fixed_point" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_fixed_point"
+check_symbol_parity "entropy threshold floor helper" "$PROD_ENTROPY_FIXED_POINT" "fn[[:space:]]+entropy_threshold_millibits" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_threshold_millibits"
+check_symbol_parity "entropy observation ceil helper" "$PROD_ENTROPY_FIXED_POINT" "fn[[:space:]]+entropy_observation_millibits" "$KANI_DIR/entropy_wrapper.rs" "pub[[:space:]]+fn[[:space:]]+entropy_observation_millibits"
 check_symbol_parity "collusion config validation" "$PROD_COLLUSION_DETECTION" "pub[[:space:]]+fn[[:space:]]+validate" "$KANI_DIR/collusion_detection.rs" "pub[[:space:]]+fn[[:space:]]+validate"
 check_symbol_parity "collusion tracked-agent capacity bound" "$PROD_COLLUSION_DETECTION" "const[[:space:]]+MAX_TRACKED_AGENTS:[[:space:]]+usize[[:space:]]*=[[:space:]]*10_000;" "$KANI_DIR/collusion_detection.rs" "pub[[:space:]]+const[[:space:]]+MAX_TRACKED_AGENTS:[[:space:]]+usize[[:space:]]*=[[:space:]]*10_000;"
 check_symbol_parity "collusion half-open denial window" "$PROD_COLLUSION_DETECTION" "ts >= window_start && ts < window_end" "$KANI_DIR/collusion_detection.rs" "ts >= window_start && ts < window_end"

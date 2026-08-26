@@ -62,6 +62,57 @@ pub(crate) fn fold_peak_into_root(peak: [u8; 32], acc: [u8; 32]) -> [u8; 32] {
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! **Partial** differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Only `next_level_len` is bound here. The rest of
+    //! `formal/verus/verified_merkle_fold.rs` states its specs over abstract
+    //! hash sequences (`Seq<Seq<int>>`), so a differential test would have to
+    //! supply a hash model rather than transcribe a pure function — and a
+    //! binding against a *modelled* hash establishes less than it appears to.
+    //! Those obligations stay under `PARITY-HAND-1`, and the registry counts
+    //! this kernel as partial rather than discharged.
+
+    use super::*;
+
+    fn spec_next_level_len(level_len: usize) -> usize {
+        level_len / 2 + level_len % 2
+    }
+
+    #[test]
+    fn test_next_level_len_matches_verus_spec_exhaustive_small_and_top() {
+        // Level lengths are bounded by leaf count in practice; 0..=1024 covers
+        // every parity and halving case, and the top of the range is included
+        // because `level_len / 2 + level_len % 2` must not overflow there.
+        for level_len in 0usize..=1024 {
+            assert_eq!(
+                next_level_len(level_len),
+                spec_next_level_len(level_len),
+                "PARITY-HAND-1: next_level_len disagrees at {level_len}"
+            );
+        }
+        for &level_len in &[usize::MAX - 1, usize::MAX] {
+            assert_eq!(
+                next_level_len(level_len),
+                spec_next_level_len(level_len),
+                "PARITY-HAND-1: next_level_len disagrees at {level_len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // A trailing odd node is promoted, so an odd level rounds up.
+        assert_eq!(spec_next_level_len(0), 0);
+        assert_eq!(spec_next_level_len(1), 1);
+        assert_eq!(spec_next_level_len(2), 1);
+        assert_eq!(spec_next_level_len(3), 2);
+        assert_eq!(spec_next_level_len(4), 2);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

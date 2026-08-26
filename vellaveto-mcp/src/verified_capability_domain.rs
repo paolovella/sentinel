@@ -235,6 +235,108 @@ pub(crate) fn domain_pattern_is_subset(parent_pattern: &str, child_pattern: &str
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_capability_domain.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the function this crate ships, which is the step that carries the proof
+    //! to production. Symbol parity cannot see this: `check-verus-parity.sh`
+    //! greps for names.
+    //!
+    //! TOTAL discharge for all four predicates: they range over 3, 2, 3 and 4
+    //! booleans respectively, so every combination is enumerated.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_domain_pattern_shape_valid(
+        has_wildcard_prefix: bool,
+        has_other_metacharacters: bool,
+        suffix_is_empty: bool,
+    ) -> bool {
+        !has_other_metacharacters && (!has_wildcard_prefix || !suffix_is_empty)
+    }
+
+    fn spec_normalized_domain_suffix_matches(
+        candidate_equals_suffix: bool,
+        candidate_has_suffix_with_dot_boundary: bool,
+    ) -> bool {
+        candidate_equals_suffix || candidate_has_suffix_with_dot_boundary
+    }
+
+    fn spec_normalized_domain_pattern_matches(
+        pattern_is_wildcard: bool,
+        wildcard_suffix_match: bool,
+        exact_match: bool,
+    ) -> bool {
+        if pattern_is_wildcard {
+            wildcard_suffix_match
+        } else {
+            exact_match
+        }
+    }
+
+    fn spec_normalized_domain_pattern_subset(
+        parent_is_wildcard: bool,
+        child_is_wildcard: bool,
+        child_matches_parent_suffix: bool,
+        exact_patterns_equal: bool,
+    ) -> bool {
+        if parent_is_wildcard {
+            child_matches_parent_suffix
+        } else {
+            !child_is_wildcard && exact_patterns_equal
+        }
+    }
+
+    #[test]
+    fn test_production_matches_verus_spec_total_domain() {
+        for bits in 0u8..16 {
+            let f = |i: u8| bits & (1 << i) != 0;
+            let (a, b, c, d) = (f(0), f(1), f(2), f(3));
+
+            assert_eq!(
+                domain_pattern_shape_valid(a, b, c),
+                spec_domain_pattern_shape_valid(a, b, c),
+                "PARITY-HAND-1: domain_pattern_shape_valid disagrees at ({a}, {b}, {c})"
+            );
+            assert_eq!(
+                normalized_domain_suffix_matches(a, b),
+                spec_normalized_domain_suffix_matches(a, b),
+                "PARITY-HAND-1: normalized_domain_suffix_matches disagrees at ({a}, {b})"
+            );
+            assert_eq!(
+                normalized_domain_pattern_matches(a, b, c),
+                spec_normalized_domain_pattern_matches(a, b, c),
+                "PARITY-HAND-1: normalized_domain_pattern_matches disagrees at ({a}, {b}, {c})"
+            );
+            assert_eq!(
+                normalized_domain_pattern_subset(a, b, c, d),
+                spec_normalized_domain_pattern_subset(a, b, c, d),
+                "PARITY-HAND-1: normalized_domain_pattern_subset disagrees at \
+                 ({a}, {b}, {c}, {d})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // A wildcard pattern with an empty suffix is `*.` and must be refused.
+        assert!(!spec_domain_pattern_shape_valid(true, false, true));
+        // Any other metacharacter placement is refused regardless.
+        assert!(!spec_domain_pattern_shape_valid(false, true, false));
+        // A wildcard child must never be contained by an exact parent.
+        assert!(!spec_normalized_domain_pattern_subset(
+            false, true, true, true
+        ));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

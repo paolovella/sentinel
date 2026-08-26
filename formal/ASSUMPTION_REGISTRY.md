@@ -33,6 +33,103 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-3` | `floor(y) ≤ ceil(y)` for any y ∈ [0.0, 8000.0] — threshold (floor) is at most observation (ceil) for the same input | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_floor_le_ceil` in allowlist |
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
+| `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; **no such diff check exists**, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **undischarged** — in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+
+## Parity Assumptions (PARITY-HAND-*)
+
+`PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
+assumptions in this registry. Everything a Verus or Kani proof establishes
+reaches shipped behaviour only through them.
+
+They were measured on 2026-08-24 by mutating production mirrors and observing
+whether anything fired:
+
+| Mutation to `vellaveto-mcp/src/verified_capability_glob.rs` | `check-verus-parity.sh` | crate test suite |
+|---|---|---|
+| body replaced with `return true` (containment disabled) | PASSED | 3 failures |
+| case-fold `A..Z` → `A..<Z` (breaks folding for `Z` only) | PASSED | **1950 passed, 0 failed** |
+| `?` widened to zero-or-one (fail-open) | PASSED | 2 failures |
+
+The second row is the shape of the problem: a one-character semantic change that
+no guard and no test detects, while the kernel continues to prove
+case-insensitivity as a universal property.
+
+**Discharge mechanism.** A differential test that transcribes the kernel's
+`spec` function and asserts it agrees with the shipped function over an
+exhaustively enumerated input space. Verus proves *exec == spec*; the
+differential test binds *spec == shipped*; together they reach production.
+`formal/tools/check-differential-parity.sh` runs them, and every discharge is
+itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
+cannot fail would reinstate the assumption while appearing to remove it.
+
+**Measured trusted base (2026-08-24): 15 of 59 kernels discharged, 44 remain.**
+
+A discharge is *total* where the enumeration covers the entire input domain and
+*bounded* where it covers a chosen subset. The distinction matters and is not
+collapsed here.
+
+| Kernel | Discharge | Input space |
+|---|---|---|
+| `verified_capability_literal` | total | 2² per predicate |
+| `verified_capability_identity` | total | 2¹/2²/2¹ |
+| `verified_capability_coverage` | total | 2⁶ = 64 |
+| `verified_capability_domain` | total | 2³/2²/2³/2⁴ |
+| `verified_capability_pattern` | total + bounded | 2³ for the guard; 400 strings over `) * + > ? @ a` for metacharacter detection |
+| `verified_capability_attenuation` | total + bounded | all 256 `u8` depths; 7⁴ = 2,401 expiry tuples around the overflow, clamp and ttl edges |
+| `verified_capability_grant` | total + bounded | 2⁴ restriction combinations × 25 invocation pairs |
+| `verified_capability_verification` | total + bounded | booleans totally; lengths exhaustive over `0..=128`; skew over a 10-value boundary set |
+| `verified_capability_selection` | bounded | 32 tuples including both `usize` extremes |
+| `verified_capability_glob` | bounded | 342,225 pairs — all strings of length 0–3 over `* ? @ A Z [ a z` |
+
+| `verified_audit_chain` | total + bounded | 2⁶ for the step guards; 6×6 sequence pairs × both `has_prev` values |
+| `verified_rotation_manifest` | total + bounded | 2³ and 2⁴ for the reference predicates; 5 file counts |
+| `verified_audit_append` | bounded | 8-value `u64` boundary set built around zero and the saturation point |
+| `verified_merkle` | bounded | 6×6 `u64` count pairs; sizes exhaustive over `0..=128` plus `usize::MAX` |
+| `verified_merkle_fold` | **partial** | `next_level_len` only, exhaustive over `0..=1024` plus the top of the range; the abstract-hash fold obligations are not bound |
+| `verified_merkle_path` | bounded | indices exhaustive over `0..=256` plus the top of the range; 65×65 sibling-lookup pairs |
+
+Alphabets and boundary sets are chosen against each proof's dependencies rather
+than for coverage. In the glob case `@` (0x40) and `[` (0x5B) sit immediately
+outside `A..=Z` so widening the fold range either way is caught; in the pattern
+case `)`/`+` and `>`/`@` bracket `*` (0x2a) and `?` (0x3f) for the same reason.
+
+Every discharge was mutation-verified on 2026-08-24: twenty-four semantic
+mutations across the fifteen kernels and one partial — fail-open containment, a widened invocation budget, a
+wrapping delegation depth, an unclamped expiry, a wildcard child slipping past an
+exact parent, last-match-wins grant selection, and a relaxed key-length check —
+each fails its differential test. On the audit and Merkle side: an entry counter
+that wraps instead of saturating, a rotation that restarts the count at 1, a
+sequence number permitted to repeat, accepted non-UTC timestamps, a hashed entry
+allowed to drop its hash, a permitted path traversal in a rotated-file
+reference, a relaxed sibling-hash length, an append past capacity, an inverted
+Merkle proof side, and an off-by-one parent index. Six representative cases —
+one per input shape and per family — are pinned permanently in
+`formal/tools/guard-selftest.sh`.
+
+Three shapes of undischarged kernel exist and they are not equally tractable:
+
+- **Mirrored** — the kernel pairs with an extracted `verified_*.rs` module whose
+  functions are small and pure. These discharge the way the fifteen above did,
+  and are the cheapest remaining work.
+- **Inline** — the kernel pairs directly with a large hot-path file and the
+  logic it models was never factored out. `verified_capability_chain`,
+  `verified_audit_integrity` and `verified_merkle_integrity` are the examples:
+  `check-verus-parity.sh` pairs each against a whole production file, so there
+  is no function to transcribe against. Discharging these needs the production
+  logic extracted into a mirror first — a code change, not only a test change.
+- **Abstract** — the kernel's specs range over opaque values rather than
+  concrete ones. `verified_merkle_fold` states its fold over `Seq<Seq<int>>`
+  hashes, so a differential test would have to supply a *hash model*, and a
+  binding against a modelled hash establishes materially less than one against
+  a pure function. Its `next_level_len` is bound (marked **partial** above);
+  the fold obligations stay under `PARITY-HAND-1` and are deliberately not
+  counted as discharged.
+
+The remaining 44 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+differential binding, its proof constrains the kernel and not the shipped code,
+and no claim should say otherwise.
+
 ## Artifact Map
 
 | Artifact | Role | Status |

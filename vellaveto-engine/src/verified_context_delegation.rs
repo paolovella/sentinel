@@ -49,6 +49,101 @@ pub(crate) const fn delegation_depth_within_limit(
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_context_delegation.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! MIXED: the two presence predicates are enumerated TOTALLY. The depth
+    //! limits carry `usize` operands and use a boundary set including both
+    //! extremes, since the comparison is inclusive and an off-by-one there
+    //! widens the delegation chain.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_identified_principal_present(
+        agent_identity_present: bool,
+        agent_id_present: bool,
+    ) -> bool {
+        agent_identity_present || agent_id_present
+    }
+
+    fn spec_principal_requirement_satisfied(
+        require_principal: bool,
+        principal_present: bool,
+    ) -> bool {
+        !require_principal || principal_present
+    }
+
+    fn spec_chain_depth_within_limit(chain_depth: usize, max_depth: usize) -> bool {
+        chain_depth <= max_depth
+    }
+
+    /// The kernel states both operands as `nat`. Production narrows the cap to
+    /// `u8` and widens it back at the comparison, so the transcription follows
+    /// production's types while keeping the kernel's inclusive comparison.
+    fn spec_delegation_depth_within_limit(
+        delegation_depth: usize,
+        max_delegation_depth: u8,
+    ) -> bool {
+        delegation_depth <= max_delegation_depth as usize
+    }
+
+    #[test]
+    fn test_production_matches_verus_spec() {
+        for a in [false, true] {
+            for b in [false, true] {
+                assert_eq!(
+                    identified_principal_present(a, b),
+                    spec_identified_principal_present(a, b),
+                    "PARITY-HAND-1: identified_principal_present disagrees at ({a}, {b})"
+                );
+                assert_eq!(
+                    principal_requirement_satisfied(a, b),
+                    spec_principal_requirement_satisfied(a, b),
+                    "PARITY-HAND-1: principal_requirement_satisfied disagrees at ({a}, {b})"
+                );
+            }
+        }
+
+        let values = [0usize, 1, 2, 8, 64, usize::MAX - 1, usize::MAX];
+        for &depth in &values {
+            for &max in &values {
+                assert_eq!(
+                    chain_depth_within_limit(depth, max),
+                    spec_chain_depth_within_limit(depth, max),
+                    "PARITY-HAND-1: chain_depth_within_limit disagrees at ({depth}, {max})"
+                );
+            }
+            for &max8 in &[0u8, 1, 2, 8, 64, u8::MAX - 1, u8::MAX] {
+                assert_eq!(
+                    delegation_depth_within_limit(depth, max8),
+                    spec_delegation_depth_within_limit(depth, max8),
+                    "PARITY-HAND-1: delegation_depth_within_limit disagrees at ({depth}, {max8})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // Requiring a principal is not satisfied by its absence.
+        assert!(!spec_principal_requirement_satisfied(true, false));
+        // The limits are inclusive: at the cap is fine, one past is not.
+        assert!(spec_chain_depth_within_limit(8, 8));
+        assert!(!spec_chain_depth_within_limit(9, 8));
+        assert!(!spec_delegation_depth_within_limit(9, 8u8));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -32,6 +32,80 @@ pub const fn presented_approval_id_value_accepted(
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_presented_approval_id.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function, which is the step that carries the proof to
+    //! production. Symbol parity cannot see this: `check-verus-parity.sh`
+    //! greps for names.
+    //!
+    //! MIXED: the acceptance predicate is enumerated TOTALLY over its two
+    //! booleans. The length predicate is exhaustive over `0..=512`, which
+    //! brackets the 256-byte cap on both sides, plus `usize::MAX`.
+    //!
+    //! The kernel fixes the cap at a literal 256 while production reads
+    //! `MAX_PRESENTED_APPROVAL_ID_LEN`, so this also binds that constant.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_max_presented_approval_id_len() -> usize {
+        256
+    }
+
+    fn spec_presented_approval_id_length_valid(len: usize) -> bool {
+        len <= spec_max_presented_approval_id_len()
+    }
+
+    fn spec_presented_approval_id_value_accepted(
+        length_valid: bool,
+        contains_dangerous_chars: bool,
+    ) -> bool {
+        length_valid && !contains_dangerous_chars
+    }
+
+    #[test]
+    fn test_production_matches_verus_spec() {
+        for len in 0usize..=512 {
+            assert_eq!(
+                presented_approval_id_length_valid(len),
+                spec_presented_approval_id_length_valid(len),
+                "PARITY-HAND-1: presented_approval_id_length_valid disagrees at {len}"
+            );
+        }
+        assert_eq!(
+            presented_approval_id_length_valid(usize::MAX),
+            spec_presented_approval_id_length_valid(usize::MAX),
+            "PARITY-HAND-1: presented_approval_id_length_valid disagrees at usize::MAX"
+        );
+        for a in [false, true] {
+            for b in [false, true] {
+                assert_eq!(
+                    presented_approval_id_value_accepted(a, b),
+                    spec_presented_approval_id_value_accepted(a, b),
+                    "PARITY-HAND-1: presented_approval_id_value_accepted disagrees at ({a}, {b})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // The cap is inclusive at 256 and rejects 257.
+        assert!(spec_presented_approval_id_length_valid(256));
+        assert!(!spec_presented_approval_id_length_valid(257));
+        // Dangerous characters are refused regardless of length.
+        assert!(!spec_presented_approval_id_value_accepted(true, true));
+        assert!(!spec_presented_approval_id_value_accepted(false, false));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

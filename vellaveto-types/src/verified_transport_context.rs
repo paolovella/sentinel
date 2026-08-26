@@ -62,6 +62,71 @@ pub fn project_capability_token_from_transport(
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_transport_context.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! TOTAL discharge: both predicates range over booleans only.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_trusted_transport_preserves_agent_identity(
+        transport_trusted: bool,
+        identity_present: bool,
+    ) -> bool {
+        transport_trusted && identity_present
+    }
+
+    fn spec_trusted_transport_preserves_capability_token(
+        transport_trusted: bool,
+        capability_token_present: bool,
+    ) -> bool {
+        transport_trusted && capability_token_present
+    }
+
+    #[test]
+    fn test_production_matches_verus_spec_total_domain() {
+        for a in [false, true] {
+            for b in [false, true] {
+                assert_eq!(
+                    trusted_transport_preserves_agent_identity(a, b),
+                    spec_trusted_transport_preserves_agent_identity(a, b),
+                    "PARITY-HAND-1: trusted_transport_preserves_agent_identity disagrees at \
+                     ({a}, {b})"
+                );
+                assert_eq!(
+                    trusted_transport_preserves_capability_token(a, b),
+                    spec_trusted_transport_preserves_capability_token(a, b),
+                    "PARITY-HAND-1: trusted_transport_preserves_capability_token disagrees at \
+                     ({a}, {b})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // An untrusted transport carries neither identity nor capability
+        // across the boundary, whatever it presents.
+        assert!(!spec_trusted_transport_preserves_agent_identity(
+            false, true
+        ));
+        assert!(!spec_trusted_transport_preserves_capability_token(
+            false, true
+        ));
+        assert!(spec_trusted_transport_preserves_agent_identity(true, true));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::CapabilityGrant;

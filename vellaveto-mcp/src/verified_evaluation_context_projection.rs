@@ -70,6 +70,113 @@ pub(crate) const fn project_evaluation_context(
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_evaluation_context_projection.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! TOTAL discharge: three booleans and a `u8`, so all 2,048 inhabitants of
+    //! the domain are enumerated.
+    //!
+    //! Production builds the projection by composing
+    //! `verified_deputy_handoff` and `verified_delegation_projection`; the
+    //! kernel states it as two flat expressions. The shipped function does not
+    //! contain the spec's expressions at all, only calls that add up to them,
+    //! which is precisely what symbol parity cannot check.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_projected_agent_source(
+        configured_present: bool,
+        claimed_present: bool,
+        has_active_delegation: bool,
+    ) -> EvaluationContextAgentSource {
+        if configured_present {
+            EvaluationContextAgentSource::Configured
+        } else if has_active_delegation && claimed_present {
+            EvaluationContextAgentSource::DeputyValidatedClaim
+        } else {
+            EvaluationContextAgentSource::None
+        }
+    }
+
+    fn spec_projected_call_chain_len(has_active_delegation: bool, delegation_depth: u8) -> usize {
+        if has_active_delegation {
+            delegation_depth as usize
+        } else {
+            0
+        }
+    }
+
+    #[test]
+    fn test_production_matches_verus_spec_total_domain() {
+        let mut checked = 0usize;
+        for configured_present in [false, true] {
+            for claimed_present in [false, true] {
+                for has_active_delegation in [false, true] {
+                    for delegation_depth in 0u8..=u8::MAX {
+                        let shipped = project_evaluation_context(
+                            configured_present,
+                            claimed_present,
+                            has_active_delegation,
+                            delegation_depth,
+                        );
+                        assert_eq!(
+                            shipped.agent_source,
+                            spec_projected_agent_source(
+                                configured_present,
+                                claimed_present,
+                                has_active_delegation
+                            ),
+                            "PARITY-HAND-1: agent_source disagrees at ({configured_present}, \
+                             {claimed_present}, {has_active_delegation}, {delegation_depth})"
+                        );
+                        assert_eq!(
+                            shipped.projected_call_chain_len,
+                            spec_projected_call_chain_len(has_active_delegation, delegation_depth),
+                            "PARITY-HAND-1: projected_call_chain_len disagrees at \
+                             ({has_active_delegation}, {delegation_depth})"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            checked, 2048,
+            "total domain is 2^3 x 256; enumeration collapsed"
+        );
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // A claimed principal is only promoted behind an active delegation.
+        assert_eq!(
+            spec_projected_agent_source(false, true, false),
+            EvaluationContextAgentSource::None
+        );
+        assert_eq!(
+            spec_projected_agent_source(false, true, true),
+            EvaluationContextAgentSource::DeputyValidatedClaim
+        );
+        // A configured principal always wins.
+        assert_eq!(
+            spec_projected_agent_source(true, true, true),
+            EvaluationContextAgentSource::Configured
+        );
+        // No delegation means no projected chain, whatever depth is claimed.
+        assert_eq!(spec_projected_call_chain_len(false, 9), 0);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

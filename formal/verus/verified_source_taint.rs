@@ -45,13 +45,20 @@ pub const VERIFIED: u8 = 6;
 // ── Sink trust requirements ────────────────────────────────────────
 
 pub open spec fn spec_min_trust_for_sink(sink_class: u8) -> u8 {
-    if sink_class == 0 { UNKNOWN }       // ReadOnly
+    // Mirrors `minimum_trust_tier_for_sink` in
+    // `vellaveto-types/src/provenance.rs`, indexed by `SinkClass::rank()`.
+    // Bound to shipped behaviour by the differential test in that module —
+    // do not edit one side without the other.
+    if sink_class == 0 { UNKNOWN }        // ReadOnly
     else if sink_class == 1 { LOW }       // LowRiskWrite
     else if sink_class == 2 { MEDIUM }    // FilesystemWrite
     else if sink_class == 3 { MEDIUM }    // NetworkEgress
-    else if sink_class == 4 { VERIFIED }  // CodeExecution
-    else if sink_class == 5 { VERIFIED }  // PolicyMutation
-    else { UNKNOWN }                      // Unknown → fail-safe
+    else if sink_class == 4 { HIGH }      // MemoryWrite
+    else if sink_class == 5 { HIGH }      // ApprovalUi
+    else if sink_class == 6 { VERIFIED }  // CodeExecution
+    else if sink_class == 7 { VERIFIED }  // CredentialAccess
+    else if sink_class == 8 { VERIFIED }  // PolicyMutation
+    else { VERIFIED }                     // Out of range → fail-closed
 }
 
 pub fn min_trust_for_sink(sink_class: u8) -> (result: u8)
@@ -61,9 +68,12 @@ pub fn min_trust_for_sink(sink_class: u8) -> (result: u8)
     else if sink_class == 1 { LOW }
     else if sink_class == 2 { MEDIUM }
     else if sink_class == 3 { MEDIUM }
-    else if sink_class == 4 { VERIFIED }
-    else if sink_class == 5 { VERIFIED }
-    else { UNKNOWN }
+    else if sink_class == 4 { HIGH }
+    else if sink_class == 5 { HIGH }
+    else if sink_class == 6 { VERIFIED }
+    else if sink_class == 7 { VERIFIED }
+    else if sink_class == 8 { VERIFIED }
+    else { VERIFIED }
 }
 
 // ── Trust floor computation ────────────────────────────────────────
@@ -166,8 +176,11 @@ pub proof fn lemma_sink_gate_fail_closed(trust_floor: u8, sink_class: u8)
 /// Privileged sinks always blocked at untrusted floor.
 pub proof fn lemma_privileged_sinks_blocked_when_untrusted()
     ensures
-        !spec_sink_accessible(UNTRUSTED, 4),  // CodeExecution
-        !spec_sink_accessible(UNTRUSTED, 5),  // PolicyMutation
+        !spec_sink_accessible(UNTRUSTED, 6),  // CodeExecution
+        !spec_sink_accessible(UNTRUSTED, 7),  // CredentialAccess
+        !spec_sink_accessible(UNTRUSTED, 8),  // PolicyMutation
+        !spec_sink_accessible(UNTRUSTED, 4),  // MemoryWrite
+        !spec_sink_accessible(UNTRUSTED, 5),  // ApprovalUi
         !spec_sink_accessible(UNTRUSTED, 2),  // FilesystemWrite
         !spec_sink_accessible(UNTRUSTED, 3),  // NetworkEgress
 {
@@ -180,8 +193,11 @@ pub proof fn lemma_quarantined_blocks_all_but_readonly()
         !spec_sink_accessible(QUARANTINED, 1),  // LowRiskWrite
         !spec_sink_accessible(QUARANTINED, 2),  // FilesystemWrite
         !spec_sink_accessible(QUARANTINED, 3),  // NetworkEgress
-        !spec_sink_accessible(QUARANTINED, 4),  // CodeExecution
-        !spec_sink_accessible(QUARANTINED, 5),  // PolicyMutation
+        !spec_sink_accessible(QUARANTINED, 4),  // MemoryWrite
+        !spec_sink_accessible(QUARANTINED, 5),  // ApprovalUi
+        !spec_sink_accessible(QUARANTINED, 6),  // CodeExecution
+        !spec_sink_accessible(QUARANTINED, 7),  // CredentialAccess
+        !spec_sink_accessible(QUARANTINED, 8),  // PolicyMutation
         !spec_sink_accessible(QUARANTINED, 0),  // ReadOnly needs UNKNOWN=1
 {
 }
@@ -194,8 +210,8 @@ pub proof fn lemma_untrusted_source_blocks_privileged_sinks(initial_floor: u8)
         initial_floor >= UNTRUSTED,
     ensures ({
         let new_floor = spec_update_trust_floor(initial_floor, UNTRUSTED);
-        !spec_sink_accessible(new_floor, 4)  // CodeExecution blocked
-        && !spec_sink_accessible(new_floor, 5)  // PolicyMutation blocked
+        !spec_sink_accessible(new_floor, 6)  // CodeExecution blocked
+        && !spec_sink_accessible(new_floor, 8)  // PolicyMutation blocked
     }),
 {
 }

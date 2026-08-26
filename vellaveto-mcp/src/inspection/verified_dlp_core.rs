@@ -163,6 +163,173 @@ pub fn overlap_covers_secret(
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`).
+    //!
+    //! Verus proves `exec == spec` for `formal/verus/verified_dlp_core.rs`.
+    //! The transcriptions below restate that `spec` and assert it agrees with
+    //! the shipped function. Symbol parity cannot see this:
+    //! `check-verus-parity.sh` greps for names.
+    //!
+    //! MIXED: `is_utf8_char_boundary` is discharged TOTALLY — all 256 `u8`
+    //! values. `extract_tail` is bounded-exhaustive over byte strings drawn
+    //! from an alphabet holding ASCII, a UTF-8 lead byte and two continuation
+    //! bytes, which is what the boundary scan exists to skip. `can_track_field`
+    //! uses a boundary set built around the addition overflow the spec
+    //! forbids.
+    //!
+    //! Keep each transcription in step with the kernel; if it drifts, the
+    //! assumption returns silently.
+
+    use super::*;
+
+    fn spec_is_char_boundary(b: u8) -> bool {
+        (b & 0xC0u8) != 0x80u8
+    }
+
+    fn spec_advance_to_boundary(value: &[u8], start: usize) -> usize {
+        if start >= value.len() {
+            value.len()
+        } else if spec_is_char_boundary(value[start]) {
+            start
+        } else {
+            spec_advance_to_boundary(value, start + 1)
+        }
+    }
+
+    fn spec_extract_tail_start(value: &[u8], max_size: usize) -> usize {
+        if value.is_empty() || max_size == 0 {
+            value.len()
+        } else {
+            let raw_start = if value.len() > max_size {
+                value.len() - max_size
+            } else {
+                0
+            };
+            spec_advance_to_boundary(value, raw_start)
+        }
+    }
+
+    fn spec_can_track_field(
+        current_fields: usize,
+        max_fields: usize,
+        current_bytes: usize,
+        new_buffer_bytes: usize,
+        max_total_bytes: usize,
+    ) -> bool {
+        current_fields < max_fields
+            && match current_bytes.checked_add(new_buffer_bytes) {
+                // The kernel writes the no-overflow condition as
+                // `current + new >= current`, which over unbounded `nat` is
+                // vacuous and over `usize` is exactly "the addition did not
+                // wrap". `checked_add` is that condition, stated directly.
+                Some(total) => total <= max_total_bytes,
+                None => false,
+            }
+    }
+
+    #[test]
+    fn test_is_char_boundary_matches_verus_spec_total_domain() {
+        for b in 0u8..=u8::MAX {
+            assert_eq!(
+                is_utf8_char_boundary(b),
+                spec_is_char_boundary(b),
+                "PARITY-HAND-1: is_utf8_char_boundary disagrees at {b:#04x}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_tail_matches_verus_spec_bounded_exhaustive() {
+        // 0x41 is ASCII, 0xC3 a two-byte lead, 0x80/0xBF continuation bytes —
+        // the scan exists to walk off the last two.
+        const ALPHABET: &[u8] = &[0x41, 0xC3, 0x80, 0xBF];
+        const MAX_LEN: usize = 4;
+
+        let mut all: Vec<Vec<u8>> = vec![Vec::new()];
+        let mut frontier = vec![Vec::new()];
+        for _ in 0..MAX_LEN {
+            let mut next = Vec::new();
+            for prefix in &frontier {
+                for &symbol in ALPHABET {
+                    let mut candidate: Vec<u8> = prefix.clone();
+                    candidate.push(symbol);
+                    next.push(candidate);
+                }
+            }
+            all.extend(next.iter().cloned());
+            frontier = next;
+        }
+        assert_eq!(all.len(), 341, "enumeration size changed; recount");
+
+        for value in &all {
+            for max_size in 0usize..=5 {
+                let (start, end) = extract_tail(value, max_size);
+                assert_eq!(
+                    start,
+                    spec_extract_tail_start(value, max_size),
+                    "PARITY-HAND-1: extract_tail start disagrees for {value:?} max={max_size}"
+                );
+                assert_eq!(
+                    end,
+                    value.len(),
+                    "PARITY-HAND-1: extract_tail end must always be the input length"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_can_track_field_matches_verus_spec_at_boundaries() {
+        let values = [0usize, 1, 2, 16, usize::MAX - 1, usize::MAX];
+        for &current_fields in &values {
+            for &max_fields in &values {
+                for &current_bytes in &values {
+                    for &new_buffer_bytes in &values {
+                        for &max_total_bytes in &values {
+                            assert_eq!(
+                                can_track_field(
+                                    current_fields,
+                                    max_fields,
+                                    current_bytes,
+                                    new_buffer_bytes,
+                                    max_total_bytes
+                                ),
+                                spec_can_track_field(
+                                    current_fields,
+                                    max_fields,
+                                    current_bytes,
+                                    new_buffer_bytes,
+                                    max_total_bytes
+                                ),
+                                "PARITY-HAND-1: can_track_field disagrees at \
+                                 ({current_fields}, {max_fields}, {current_bytes}, \
+                                 {new_buffer_bytes}, {max_total_bytes})"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // Continuation bytes are not boundaries; everything else is.
+        assert!(!spec_is_char_boundary(0x80));
+        assert!(!spec_is_char_boundary(0xBF));
+        assert!(spec_is_char_boundary(0x41));
+        assert!(spec_is_char_boundary(0xC3));
+        // A byte budget that would overflow must fail closed, not wrap.
+        assert!(!spec_can_track_field(0, 1, usize::MAX, 1, usize::MAX));
+        assert!(spec_can_track_field(0, 1, 1, 1, 2));
+        // At the field cap nothing more is tracked.
+        assert!(!spec_can_track_field(1, 1, 0, 0, 0));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

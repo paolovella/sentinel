@@ -203,6 +203,108 @@ mod verus_spec_differential {
         }
     }
 
+    // ── verified_entropy_pipeline ─────────────────────────────────────────
+    //
+    // A second kernel, `formal/verus/verified_entropy_pipeline.rs`, composes
+    // these predicates into an alerting pipeline. Its `spec_should_alert` and
+    // `spec_alert_severity` both carry a `min_observations > 0` guard that the
+    // predicates in this module do NOT have — production enforces it earlier,
+    // in `CollusionConfig::validate()`. See ENTROPY-CONFIG-1 in
+    // `formal/ASSUMPTION_REGISTRY.md`.
+
+    fn spec_pipeline_should_alert(count: u32, min_observations: u32) -> bool {
+        min_observations > 0 && count >= min_observations
+    }
+
+    // The kernel keeps "config invalid" and "below the floor" as two branches
+    // even though both yield no alert, because they are different reasons and
+    // only the first is what ENTROPY-CONFIG-1 is about. Collapsing them, which
+    // is what clippy suggests, would blur exactly the distinction being pinned.
+    #[allow(clippy::if_same_then_else)]
+    fn spec_pipeline_alert_severity(
+        count: u32,
+        min_observations: u32,
+    ) -> Option<EntropyAlertLevel> {
+        if min_observations == 0 {
+            None
+        } else if count < min_observations {
+            None
+        } else if count >= spec_high_severity_entropy_threshold(min_observations) {
+            Some(EntropyAlertLevel::High)
+        } else {
+            Some(EntropyAlertLevel::Medium)
+        }
+    }
+
+    /// For every validated configuration — `min_observations > 0` — the
+    /// pipeline kernel and the shipped predicates agree.
+    #[test]
+    fn test_pipeline_matches_production_for_validated_configs() {
+        let counts = [0u32, 1, 2, 3, 4, 10, u32::MAX / 2, u32::MAX - 1, u32::MAX];
+        for &count in &counts {
+            for &min_obs in &counts {
+                if min_obs == 0 {
+                    continue;
+                }
+                assert_eq!(
+                    should_alert_on_high_entropy_count(count, min_obs),
+                    spec_pipeline_should_alert(count, min_obs),
+                    "PARITY-HAND-1: should_alert disagrees with the pipeline kernel at ({count}, {min_obs})"
+                );
+                assert_eq!(
+                    entropy_alert_severity(count, min_obs),
+                    spec_pipeline_alert_severity(count, min_obs),
+                    "PARITY-HAND-1: entropy_alert_severity disagrees with the pipeline kernel at ({count}, {min_obs})"
+                );
+            }
+        }
+    }
+
+    /// ENTROPY-CONFIG-1: pinned record of where the two diverge, and of the
+    /// validation that makes the divergence unreachable.
+    ///
+    /// At `min_observations == 0` the pipeline kernel returns no alert, while
+    /// the shipped predicates alert on every call — the flood R231-COLL-1
+    /// fixed. Production closes it in `CollusionConfig::validate()`, not in the
+    /// predicate, so the kernel's guarantee holds only for validated configs.
+    /// Both halves are asserted here: the divergence, and the validation that
+    /// makes it unreachable.
+    #[test]
+    fn test_pinned_zero_observation_divergence_and_its_guard() {
+        // The divergence itself.
+        assert!(
+            should_alert_on_high_entropy_count(0, 0),
+            "ENTROPY-CONFIG-1: the shipped predicate is expected to alert at zero"
+        );
+        assert!(
+            !spec_pipeline_should_alert(0, 0),
+            "ENTROPY-CONFIG-1: the pipeline kernel is expected to refuse at zero"
+        );
+        assert_eq!(
+            spec_pipeline_alert_severity(5, 0),
+            None,
+            "ENTROPY-CONFIG-1: the pipeline kernel must produce no severity at zero"
+        );
+        assert!(
+            entropy_alert_severity(5, 0).is_some(),
+            "ENTROPY-CONFIG-1: the shipped predicate is expected to produce a severity at zero"
+        );
+
+        // The guard that makes it unreachable. If this stops rejecting zero,
+        // the kernel's precondition is no longer established anywhere.
+        let config = crate::collusion::CollusionConfig {
+            min_entropy_observations: 0,
+            ..Default::default()
+        };
+        let err = config
+            .validate()
+            .expect_err("ENTROPY-CONFIG-1: validate() must reject zero min_entropy_observations");
+        assert!(
+            format!("{err:?}").contains("min_entropy_observations"),
+            "ENTROPY-CONFIG-1: validate() rejected zero but not for this reason: {err:?}"
+        );
+    }
+
     #[test]
     fn test_spec_oracle_can_reject() {
         // The doubled threshold must clamp rather than overflow.

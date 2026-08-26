@@ -36,6 +36,79 @@ it is considered part of the reviewed proof surface.
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
 | `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; **no such diff check exists**, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **undischarged** — in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
+## TAINT-MODEL-DRIFT — found, then closed
+
+Found 2026-08-24 by the differential binding, and passing
+`check-verus-parity.sh` the whole time. **Fixed the same day.**
+
+Two kernels modelled `minimum_trust_tier_for_sink` and neither described the
+shipped function. `verified_source_taint` modelled `SinkClass` as six classes
+with an `else -> UNKNOWN` fail-safe; `verified_trust_lattice` used a third
+mapping again, under a doc comment claiming to mirror production. Production
+ships nine classes. All three agreed only at rank 0.
+
+The concerning half was `verified_source_taint` at ranks 4..=5, where the
+kernel demanded `Verified` and the shipped code accepts `High` — a guarantee
+claimed that the code did not provide. Everything else was
+production-stricter, so nothing was under-enforced.
+
+**Resolution.** Both kernels were corrected to the shipped nine-variant mapping
+and re-verified under Verus (`verified_source_taint` 21 verified / 0 errors,
+`verified_trust_lattice` 29 / 0 — unchanged counts, with three more lemma
+obligations in the first). The lemma indices in `verified_source_taint` were
+wrong too: `4` and `5` were labelled `CodeExecution` and `PolicyMutation` when
+those ranks are `MemoryWrite` and `ApprovalUi`; the privileged-sink and
+quarantine lemmas now cover all nine classes at the right indices. The
+out-of-range branch was changed from `UNKNOWN` to `VERIFIED` so an unreachable
+input fails closed rather than open.
+
+The pins that recorded the divergence are replaced by
+`test_both_kernels_and_production_agree_on_every_sink_class`, which asserts
+full three-way agreement so the drift cannot reopen silently, and by
+`test_shipped_sink_thresholds_are_monotone`, which checks the shipped mapping
+satisfies the monotonicity `lemma_sink_threshold_monotone` proves.
+
+All nine sink classes are now bound across all seven trust tiers, so
+`verified_source_taint` and `verified_trust_lattice` move from *partial* to
+fully discharged.
+
+## ENTROPY-CONFIG-1 — a kernel precondition established somewhere else
+
+`formal/verus/verified_entropy_pipeline.rs` guards both `spec_should_alert` and
+`spec_alert_severity` with `min_observations > 0`. The shipped predicates in
+`vellaveto-engine/src/verified_entropy_gate.rs` carry no such guard: at
+`min_entropy_observations == 0`, `high_entropy_count >= 0` is always true and
+every call alerts — the flood R231-COLL-1 fixed.
+
+Production closes it, but in `CollusionConfig::validate()`
+(`vellaveto-engine/src/collusion.rs`), not in the predicate. So the kernel's
+guarantee is real *only for validated configurations*, and that precondition is
+carried by a different function in a different module.
+
+This is not a defect; it is an assumption that was implicit and is now named.
+The binding asserts both halves — the divergence at zero, and the validation
+that makes it unreachable — so the guarantee cannot lose its foundation
+silently. Removing the guard from `validate()` fails
+`test_pinned_zero_observation_divergence_and_its_guard`.
+
+For every validated configuration the kernel and the shipped predicates agree,
+across 9×9 count/threshold pairs including both `u32` extremes.
+
+**Deliberately not "fixed".** Unlike TAINT-MODEL-DRIFT, changing either side
+here would make the system worse:
+
+- Making the shipped predicate return "no alert" at zero would mean that if an
+  unvalidated zero config ever reached it, entropy detection would **silently
+  disable**. Missing detections is a worse failure than the alert flood
+  R231-COLL-1 fixed.
+- Making the kernel model the always-alert behaviour would be formalising the
+  flood as correct.
+
+The real defence is the config rejection, and it is already there. What was
+missing was that the dependency was invisible — the kernel appeared to model a
+guard production did not have. It is now named, asserted at both ends, and
+cannot lose its foundation without failing a test. That is the fix.
+
 ## Parity Assumptions (PARITY-HAND-*)
 
 `PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
@@ -55,6 +128,22 @@ The second row is the shape of the problem: a one-character semantic change that
 no guard and no test detects, while the kernel continues to prove
 case-insensitivity as a universal property.
 
+**Two kinds of discharge.** Most kernels prove `exec == spec`, so the binding
+transcribes the `spec` and asserts equality — a *transcription* discharge. A few
+prove *properties* of a function rather than an algorithm it equals
+(`verified_entropy_fixed_point` proves FP-WRAP-1..5). There is no `spec` to
+restate, so the binding checks each property directly against shipped behaviour.
+That is a **property** discharge and it is weaker in one specific way: it
+establishes the named properties hold, not that the function is the one the
+kernel reasoned about. It is recorded separately in the table for that reason.
+
+**Equivalent mutants.** Mutation-verifying a property discharge can surface
+mutants that change the text without changing behaviour. FP-WRAP-1 is enforced
+jointly by a `clamp` and a range branch; removing either alone is equivalent,
+and only removing both fails the test. A mutation that does not fail is not
+automatically a hole — check whether it changed behaviour at all before
+recording one.
+
 **Discharge mechanism.** A differential test that transcribes the kernel's
 `spec` function and asserts it agrees with the shipped function over an
 exhaustively enumerated input space. Verus proves *exec == spec*; the
@@ -63,10 +152,15 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 34 of 59 kernels bound (33 discharged + 1 partial), 25 remain.**
+**Measured trusted base (2026-08-24): 41 of 59 kernels bound (38 discharged + 2 partial + 1 property), 18 remain.**
 
-**Every mirrored kernel is now bound.** What remains is entirely kernels with no
-function to transcribe against — see the shapes below.
+An earlier revision of this count claimed every mirrored kernel was bound. That
+was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
+mirrors under a nested path (`inspection/verified_dlp_core.rs`,
+`inspection/verified_cross_call_dlp.rs`) or a different filename
+(`vellaveto-server/src/verified_approval_id.rs` for
+`verified_server_approval_id`). All three are now bound. Enumerate mirrors with
+`find vellaveto-*/src -name 'verified_*.rs'`, not a top-level glob.
 
 A discharge is *total* where the enumeration covers the entire input domain and
 *bounded* where it covers a chosen subset. The distinction matters and is not
@@ -105,14 +199,21 @@ collapsed here.
 | `verified_nhi_delegation`, `verified_nhi_graph` | total + bounded | 2²/2⁴ link and status predicates; chain depth over a boundary set |
 | `verified_entropy_gate` | bounded | boundary sets around the clamp point of `min_observations × 2` and around zero |
 | `verified_capability_path` | bounded | 6 depths including both extremes × 4 flag combinations |
+| `verified_dlp_core` | total + bounded | all 256 `u8` boundary bytes; 341 byte strings over ASCII/lead/continuation × 6 sizes; 6⁵ field-budget tuples |
+| `verified_cross_call_dlp` | bounded | 2 × 6⁵ counter tuples around the field cap, byte cap and addition overflow |
+| `verified_server_approval_id` | total + bounded | 2² acceptance; lengths exhaustive over `0..=256` plus `usize::MAX` |
+| `verified_entropy_fixed_point` | **property** | FP-WRAP-1..5 checked directly against the shipped conversion over a 24-value float sample reaching every branch |
+| `verified_source_taint` | total | all 9 sink classes × 7 trust tiers; the trust-floor update over 7×7. Kernel corrected — see `TAINT-MODEL-DRIFT` |
+| `verified_trust_lattice` | total | join, meet, `can_flow_to` and the declassification escape over 7×7×2 and 7×9×2; rank bounds for all tiers and sinks; sink mapping over all 9 classes. Kernel corrected — see `TAINT-MODEL-DRIFT` |
+| `verified_entropy_pipeline` | **partial** | bound over 9×9 count/threshold pairs for every validated configuration; the `min_observations == 0` case is pinned, not bound — see `ENTROPY-CONFIG-1` |
 
 Alphabets and boundary sets are chosen against each proof's dependencies rather
 than for coverage. In the glob case `@` (0x40) and `[` (0x5B) sit immediately
 outside `A..=Z` so widening the fold range either way is caught; in the pattern
 case `)`/`+` and `>`/`@` bracket `*` (0x2a) and `?` (0x3f) for the same reason.
 
-Every discharge was mutation-verified on 2026-08-24: sixty semantic mutations
-across the thirty-four kernels — fail-open containment, a widened invocation budget, a
+Every discharge was mutation-verified on 2026-08-24: sixty-six semantic mutations
+across the thirty-seven kernels — fail-open containment, a widened invocation budget, a
 wrapping delegation depth, an unclamped expiry, a wildcard child slipping past an
 exact parent, last-match-wins grant selection, and a relaxed key-length check —
 each fails its differential test. On the audit and Merkle side: an entry counter
@@ -153,7 +254,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 25 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 18 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

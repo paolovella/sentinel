@@ -51,6 +51,9 @@ run_differential "vellaveto-approval consumption/scope kernels ↔ their Verus s
 run_differential "vellaveto-types transport-context kernel ↔ its Verus spec" \
     vellaveto-types verus_spec_differential
 
+run_differential "vellaveto-server approval-id kernel ↔ its Verus spec" \
+    vellaveto-server verus_spec_differential
+
 echo ""
 if [ "$FAILED" -ne 0 ]; then
     echo "=== DRIFT DETECTED ==="

@@ -16,42 +16,9 @@ pub(crate) use crate::verified_entropy_gate::{
     entropy_alert_severity, is_high_entropy_millibits, EntropyAlertLevel,
 };
 
-/// Fixed-point scale for entropy alert decisions (1/1000 bit precision).
-pub(crate) const ENTROPY_DECISION_SCALE: u16 = 1000;
-/// Maximum Shannon entropy for byte data, scaled to millibits.
-pub(crate) const MAX_ENTROPY_DECISION_MILLIBITS: u16 = 8 * ENTROPY_DECISION_SCALE;
-
-pub(crate) fn entropy_fixed_point(bits_per_byte: f64, round_up: bool) -> u16 {
-    if !bits_per_byte.is_finite() {
-        return 0;
-    }
-
-    let clamped = bits_per_byte.clamp(0.0, 8.0);
-    let scaled = clamped * f64::from(ENTROPY_DECISION_SCALE);
-    let rounded = if round_up {
-        scaled.ceil()
-    } else {
-        scaled.floor()
-    };
-
-    if rounded <= 0.0 {
-        0
-    } else if rounded >= f64::from(MAX_ENTROPY_DECISION_MILLIBITS) {
-        MAX_ENTROPY_DECISION_MILLIBITS
-    } else {
-        rounded as u16
-    }
-}
-
-/// Convert a configured entropy threshold into the conservative decision score.
-pub(crate) fn entropy_threshold_millibits(threshold_bits: f64) -> u16 {
-    entropy_fixed_point(threshold_bits, false)
-}
-
-/// Convert an observed entropy value into the conservative decision score.
-pub(crate) fn entropy_observation_millibits(bits_per_byte: f64) -> u16 {
-    entropy_fixed_point(bits_per_byte, true)
-}
+pub(crate) use crate::verified_entropy_fixed_point::{
+    entropy_observation_millibits, entropy_threshold_millibits,
+};
 
 #[cfg(test)]
 mod tests {

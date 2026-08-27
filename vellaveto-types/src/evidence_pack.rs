@@ -556,3 +556,240 @@ impl EvidencePackStatus {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`), kernel
+    //! `formal/verus/verified_evidence_signing.rs`.
+    //!
+    //! **Property discharge — tamper coverage.** The kernel does not model an
+    //! algorithm `signing_content()` equals. It states which fields the signed
+    //! payload must cover: at least twelve scalars plus the period bounds and a
+    //! sections header, every section's id, title and item count, the
+    //! recommendation count and each recommendation.
+    //!
+    //! The only way to check "covered" against a digest is to mutate the field
+    //! and require the digest to move. That is exactly the property R263-EP-1
+    //! restored — before it, sections, recommendations and period bounds were
+    //! excluded, so an attacker could strip evidence items or alter the audit
+    //! period without invalidating the signature. Every case below would have
+    //! failed against that older payload.
+
+    use super::*;
+
+    /// The kernel's literals, pinned rather than read from production so that
+    /// widening a bound is caught — see the constant-binding rule in the
+    /// registry.
+    const K_SIGNATURE_HEX_LEN: usize = 128;
+    const K_VERIFYING_KEY_HEX_LEN: usize = 64;
+    const K_MINIMUM_SIGNING_FIELDS: usize = 12;
+
+    fn spec_signature_hex_valid(len: usize) -> bool {
+        len == K_SIGNATURE_HEX_LEN
+    }
+
+    fn spec_verifying_key_hex_valid(len: usize) -> bool {
+        len == K_VERIFYING_KEY_HEX_LEN
+    }
+
+    fn spec_requirement_count_consistent(
+        covered: usize,
+        partial: usize,
+        uncovered: usize,
+        total: usize,
+    ) -> bool {
+        covered
+            .checked_add(partial)
+            .and_then(|s| s.checked_add(uncovered))
+            .is_some_and(|sum| sum <= total)
+    }
+
+    fn spec_coverage_valid(pct_is_finite: bool, pct_in_range: bool) -> bool {
+        pct_is_finite && pct_in_range
+    }
+
+    fn item() -> EvidenceItem {
+        EvidenceItem {
+            requirement_id: "r1".into(),
+            requirement_title: "Requirement one".into(),
+            article_ref: "Art 1".into(),
+            vellaveto_capability: "policy-engine".into(),
+            evidence_description: "covered by policy evaluation".into(),
+            confidence: EvidenceConfidence::High,
+            gaps: vec![],
+        }
+    }
+
+    fn pack() -> EvidencePack {
+        EvidencePack {
+            framework: EvidenceFramework::EuAiAct,
+            framework_name: "EU AI Act".into(),
+            generated_at: "2026-08-25T00:00:00Z".into(),
+            organization_name: "Acme".into(),
+            system_id: "sys-1".into(),
+            period_start: Some("2026-01-01T00:00:00Z".into()),
+            period_end: Some("2026-06-30T00:00:00Z".into()),
+            sections: vec![EvidenceSection {
+                section_id: "annex-iv".into(),
+                title: "Annex IV".into(),
+                description: "desc".into(),
+                items: vec![item()],
+                section_coverage_percent: 80.0,
+            }],
+            overall_coverage_percent: 80.0,
+            total_requirements: 10,
+            covered_requirements: 8,
+            partial_requirements: 1,
+            uncovered_requirements: 1,
+            critical_gaps: vec!["gap-a".into()],
+            recommendations: vec!["do the thing".into()],
+            signature: None,
+            verifying_key: None,
+        }
+    }
+
+    /// Every field the kernel says the payload covers must move the digest.
+    #[test]
+    fn test_signing_content_covers_every_field_the_kernel_names() {
+        let baseline = pack().signing_content();
+
+        // One mutation per covered field. Each is a tamper an attacker would
+        // want: shrinking the evidence, widening the coverage claim, moving the
+        // audit period, dropping a recommendation.
+        type Mutation = (&'static str, fn(&mut EvidencePack));
+        let mutations: &[Mutation] = &[
+            ("framework_name", |p| p.framework_name = "Other".into()),
+            ("generated_at", |p| {
+                p.generated_at = "2020-01-01T00:00:00Z".into()
+            }),
+            ("organization_name", |p| p.organization_name = "Evil".into()),
+            ("system_id", |p| p.system_id = "sys-2".into()),
+            ("overall_coverage_percent", |p| {
+                p.overall_coverage_percent = 100.0
+            }),
+            ("total_requirements", |p| p.total_requirements = 1),
+            ("covered_requirements", |p| p.covered_requirements = 10),
+            ("partial_requirements", |p| p.partial_requirements = 0),
+            ("uncovered_requirements", |p| p.uncovered_requirements = 0),
+            ("period_start", |p| {
+                p.period_start = Some("2019-01-01T00:00:00Z".into())
+            }),
+            ("period_end", |p| p.period_end = None),
+            ("sections (count)", |p| p.sections.clear()),
+            ("section_id", |p| p.sections[0].section_id = "other".into()),
+            ("section title", |p| p.sections[0].title = "Other".into()),
+            ("section item count", |p| p.sections[0].items.clear()),
+            ("section coverage", |p| {
+                p.sections[0].section_coverage_percent = 100.0
+            }),
+            ("critical_gaps (count)", |p| p.critical_gaps.clear()),
+            // Clearing changes the count; rewriting changes only the content.
+            // Mutation testing caught that testing only the former left the
+            // per-gap hashing loop free to be deleted.
+            ("critical_gap text", |p| {
+                p.critical_gaps[0] = "no gaps at all".into()
+            }),
+            ("recommendations (count)", |p| p.recommendations.clear()),
+            ("recommendation text", |p| {
+                p.recommendations[0] = "nothing".into()
+            }),
+        ];
+
+        assert!(
+            mutations.len() >= K_MINIMUM_SIGNING_FIELDS,
+            "PARITY-HAND-1: the kernel requires at least {K_MINIMUM_SIGNING_FIELDS} covered fields"
+        );
+
+        for (name, mutate) in mutations {
+            let mut p = pack();
+            mutate(&mut p);
+            assert_ne!(
+                p.signing_content(),
+                baseline,
+                "PARITY-HAND-1: tampering with `{name}` did not change signing_content(), so the \
+                 signature does not cover it — the R263-EP-1 class of gap"
+            );
+        }
+    }
+
+    /// The payload length-prefixes every field before hashing it. Without that
+    /// framing, adjacent fields concatenate ambiguously and two different packs
+    /// can share a digest — an attacker moves a byte across a field boundary
+    /// and the signature still verifies.
+    ///
+    /// Mutation testing found this: deleting the length prefix passed every
+    /// other case here, because they all change total content rather than only
+    /// where a boundary falls.
+    #[test]
+    fn test_field_boundaries_are_unambiguous() {
+        let mut left = pack();
+        left.organization_name = "ab".into();
+        left.system_id = "c".into();
+
+        let mut right = pack();
+        right.organization_name = "a".into();
+        right.system_id = "bc".into();
+
+        assert_ne!(
+            left.signing_content(),
+            right.signing_content(),
+            "PARITY-HAND-1: two packs differing only in where a field boundary falls share a \
+             digest — the length prefix is missing, so adjacent fields concatenate ambiguously"
+        );
+    }
+
+    #[test]
+    fn test_hex_length_predicates_match_verus_spec() {
+        for len in 0usize..=192 {
+            assert_eq!(
+                spec_signature_hex_valid(len),
+                len == 128,
+                "PARITY-HAND-1: signature hex length predicate disagrees at {len}"
+            );
+            assert_eq!(
+                spec_verifying_key_hex_valid(len),
+                len == 64,
+                "PARITY-HAND-1: verifying key hex length predicate disagrees at {len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_requirement_counts_are_consistent_in_the_fixture() {
+        let p = pack();
+        assert!(
+            spec_requirement_count_consistent(
+                p.covered_requirements,
+                p.partial_requirements,
+                p.uncovered_requirements,
+                p.total_requirements
+            ),
+            "PARITY-HAND-1: the fixture violates the count invariant the kernel proves"
+        );
+        assert!(spec_coverage_valid(
+            p.overall_coverage_percent.is_finite(),
+            (0.0..=100.0).contains(&p.overall_coverage_percent)
+        ));
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // Counts must not exceed the total, and must not overflow into looking
+        // consistent.
+        assert!(!spec_requirement_count_consistent(9, 1, 1, 10));
+        assert!(spec_requirement_count_consistent(8, 1, 1, 10));
+        assert!(!spec_requirement_count_consistent(
+            usize::MAX,
+            1,
+            0,
+            usize::MAX
+        ));
+        // Coverage must be finite and in range.
+        assert!(!spec_coverage_valid(false, true));
+        assert!(!spec_coverage_valid(true, false));
+        // The hex lengths are exact.
+        assert!(!spec_signature_hex_valid(127));
+        assert!(!spec_signature_hex_valid(129));
+    }
+}

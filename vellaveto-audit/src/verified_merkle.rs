@@ -88,7 +88,13 @@ mod verus_spec_differential {
 
     use super::*;
 
-    const HASH_SIZE: usize = 32;
+    // The kernel fixes both bounds as literals. Writing production's
+    // `MAX_PROOF_SIBLINGS` on both sides of the comparison would bind the
+    // relation and not the value — raising the cap would move both sides and
+    // the test would still pass. Verified: a mutation from 64 to 4096 escaped
+    // before these literals were pinned.
+    const K_HASH_SIZE: usize = 32;
+    const K_MAX_PROOF_SIBLINGS: usize = 64;
 
     fn spec_append_allowed(leaf_count: u64, max_leaf_count: u64) -> bool {
         leaf_count < max_leaf_count
@@ -107,11 +113,11 @@ mod verus_spec_differential {
     }
 
     fn spec_proof_sibling_count_valid(sibling_count: usize) -> bool {
-        sibling_count <= MAX_PROOF_SIBLINGS
+        sibling_count <= K_MAX_PROOF_SIBLINGS
     }
 
     fn spec_sibling_hash_len_valid(sibling_len: usize) -> bool {
-        sibling_len == HASH_SIZE
+        sibling_len == K_HASH_SIZE
     }
 
     #[test]
@@ -145,6 +151,10 @@ mod verus_spec_differential {
 
     #[test]
     fn test_size_predicates_match_verus_spec_exhaustive_around_caps() {
+        assert_eq!(
+            MAX_PROOF_SIBLINGS, K_MAX_PROOF_SIBLINGS,
+            "PARITY-HAND-1: production MAX_PROOF_SIBLINGS no longer matches the kernel's literal"
+        );
         // Exhaustive across both caps with headroom on either side.
         for n in 0usize..=128 {
             assert_eq!(
@@ -174,7 +184,8 @@ mod verus_spec_differential {
         assert!(!spec_append_allowed(4, 4));
         assert!(spec_stored_leaf_count_valid(4, 4));
         // Both caps are exact.
-        assert!(!spec_proof_sibling_count_valid(MAX_PROOF_SIBLINGS + 1));
+        assert!(spec_proof_sibling_count_valid(64));
+        assert!(!spec_proof_sibling_count_valid(65));
         assert!(!spec_sibling_hash_len_valid(31));
         assert!(!spec_sibling_hash_len_valid(33));
     }

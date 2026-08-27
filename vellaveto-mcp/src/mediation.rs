@@ -507,6 +507,27 @@ pub fn build_acis_envelope_with_security_context(
         _ => "unknown verdict variant".to_string(),
     };
 
+    // ACIS-DENY-REASON-1: a Deny envelope must carry a reason. The Verus
+    // kernel proves it (`lemma_acis_deny_has_nonempty_reason`) and
+    // `AcisDecisionEnvelope::validate()` now enforces it — but validate()
+    // gates audit persistence in `log_entry_with_acis`, and the proxy call
+    // sites swallow that error with a `warn!`. An empty reason arriving here
+    // would therefore turn a recorded denial into *no audit record at all*,
+    // which is strictly worse than an incomplete one.
+    //
+    // So the invariant is established at construction rather than left to the
+    // validator. Every path builds envelopes through this function, including
+    // `build_secondary_acis_envelope_with_security_context`, so this is the
+    // single place it needs to hold. No current caller can produce an empty
+    // Deny reason — every `Verdict::Deny` in the workspace is built with a
+    // `format!` carrying literal text — and this keeps that true for callers
+    // that do not exist yet.
+    let reason = if matches!(decision, DecisionKind::Deny) && reason.is_empty() {
+        "denied (no reason supplied by the policy path)".to_string()
+    } else {
+        reason
+    };
+
     let call_chain_depth = context
         .map(|ctx| {
             u32::try_from(ctx.call_chain.len())
@@ -879,6 +900,77 @@ fn sanitize_client_provenance_for_audit(provenance: ClientProvenance) -> ClientP
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ACIS-DENY-REASON-1: the builder must guarantee a Deny carries a reason,
+    /// so `validate()` can enforce the invariant without ever being the thing
+    /// that drops an audit record.
+    ///
+    /// Both halves are asserted: the envelope validates, and the reason it
+    /// carries is non-empty. Checking only `validate().is_ok()` would pass if
+    /// the guard were removed *and* the validator weakened together.
+    #[test]
+    fn test_deny_with_empty_reason_is_given_one_at_construction() {
+        let action = Action::new("tool", "fn", serde_json::json!({}));
+        let verdict = Verdict::Deny {
+            reason: String::new(),
+        };
+
+        let envelope = build_secondary_acis_envelope(
+            &action,
+            &verdict,
+            DecisionOrigin::PolicyEngine,
+            "stdio",
+            None,
+        );
+
+        assert_eq!(envelope.decision, DecisionKind::Deny);
+        assert!(
+            !envelope.reason.is_empty(),
+            "ACIS-DENY-REASON-1: the builder left a Deny envelope without a reason, so \
+             validate() would reject it and log_entry_with_acis would drop the audit entry"
+        );
+        assert!(
+            envelope.validate().is_ok(),
+            "ACIS-DENY-REASON-1: a builder-produced Deny envelope must validate"
+        );
+    }
+
+    /// A supplied reason is never overwritten by the guard.
+    #[test]
+    fn test_deny_with_a_reason_keeps_it_verbatim() {
+        let action = Action::new("tool", "fn", serde_json::json!({}));
+        let verdict = Verdict::Deny {
+            reason: "blocked by policy p-42".to_string(),
+        };
+
+        let envelope = build_secondary_acis_envelope(
+            &action,
+            &verdict,
+            DecisionOrigin::PolicyEngine,
+            "stdio",
+            None,
+        );
+
+        assert_eq!(envelope.reason, "blocked by policy p-42");
+    }
+
+    /// The guard must not manufacture reasons for non-Deny verdicts — an Allow
+    /// carries no reason, and that is what the kernel models.
+    #[test]
+    fn test_allow_still_carries_no_reason() {
+        let action = Action::new("tool", "fn", serde_json::json!({}));
+        let envelope = build_secondary_acis_envelope(
+            &action,
+            &Verdict::Allow,
+            DecisionOrigin::PolicyEngine,
+            "stdio",
+            None,
+        );
+        assert_eq!(envelope.decision, DecisionKind::Allow);
+        assert!(envelope.reason.is_empty());
+        assert!(envelope.validate().is_ok());
+    }
+
     use serde_json::json;
     use vellaveto_types::identity::{AgentIdentity, CallChainEntry};
     use vellaveto_types::{

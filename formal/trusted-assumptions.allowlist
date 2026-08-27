@@ -6,6 +6,7 @@
 #   verus-axiom
 #   verus-external-body
 #   verus-external-fn-spec
+#   verus-vacuous-spec
 #   verus-trusted-marker
 verus-axiom	formal/verus/float_boundary_axioms.rs	pub broadcast axiom fn axiom_entropy_conv_bounded(x: f64, round_up: bool)
 verus-axiom	formal/verus/float_boundary_axioms.rs	pub broadcast axiom fn axiom_entropy_conv_nonfinite_zero(x: f64, round_up: bool)
@@ -24,3 +25,5 @@ verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_
 verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_internal_second_preimage_resistance(
 verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_codec_roundtrip(hash: Seq<u8>)
 verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_codec_decoded_hash_len(
+verus-vacuous-spec	formal/verus/verified_acis_action_summary.rs	pub open spec fn spec_sort_idempotent<T>(sorted: Seq<T>) -> bool
+verus-vacuous-spec	formal/verus/verified_transitive_revoke.rs	pub open spec fn assumption_depth_exceeded_caught_by_chain_resolution() -> bool

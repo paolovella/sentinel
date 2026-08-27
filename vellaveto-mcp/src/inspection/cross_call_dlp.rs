@@ -224,6 +224,163 @@ impl Default for CrossCallDlpTracker {
 }
 
 #[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`), kernel
+    //! `formal/verus/verified_cross_call_split.rs`.
+    //!
+    //! **Property discharge.** The kernel's lemmas are about *coverage*, not
+    //! about an algorithm this module equals: combined length is the sum,
+    //! the tail survives as a prefix, the current value survives as a suffix,
+    //! and any byte range spanning the junction is a substring of the combined
+    //! string. Together those are the security claim — a secret split across
+    //! two calls appears whole in what gets scanned.
+    //!
+    //! One thing the kernel does **not** require: that findings be filtered to
+    //! those spanning the junction. `spec_spans_junction` appears only as a
+    //! *hypothesis* of `lemma_junction_range_is_substring`, never as an
+    //! obligation. Production reports every finding from the combined scan and
+    //! says so at the `let _ = overlap_len` line — a superset, which is the
+    //! safe direction for a detector. That is a deliberate difference, not
+    //! drift.
+
+    use super::*;
+
+    /// Transcription of `spec_combined`.
+    fn spec_combined(tail: &[u8], current: &[u8]) -> Vec<u8> {
+        let mut out = tail.to_vec();
+        out.extend_from_slice(current);
+        out
+    }
+
+    /// Transcription of `spec_spans_junction`.
+    fn spec_spans_junction(start: usize, len: usize, tail_len: usize, combined_len: usize) -> bool {
+        start < tail_len && start + len > tail_len && start + len <= combined_len
+    }
+
+    /// Transcription of `spec_is_substring_at`.
+    fn spec_is_substring_at(s: &[u8], t: &[u8], pos: usize) -> bool {
+        pos + s.len() <= t.len() && t[pos..pos + s.len()] == *s
+    }
+
+    /// The concatenation production actually performs, in
+    /// `scan_with_overlap`: `format!("{tail_str}{current_value}")`.
+    fn shipped_combined(tail: &str, current: &str) -> String {
+        format!("{tail}{current}")
+    }
+
+    const PIECES: [&str; 6] = ["", "a", "ab", "AKIA", "secret-", "0123456789"];
+
+    /// CC-SPLIT-1: combined length is the sum of the parts.
+    #[test]
+    fn test_combined_length_matches_the_lemma() {
+        for tail in PIECES {
+            for current in PIECES {
+                let shipped = shipped_combined(tail, current);
+                assert_eq!(
+                    shipped.len(),
+                    tail.len() + current.len(),
+                    "PARITY-HAND-1 (CC-SPLIT-1): combined length is not the sum for \
+                     {tail:?} + {current:?}"
+                );
+                assert_eq!(
+                    shipped.as_bytes(),
+                    spec_combined(tail.as_bytes(), current.as_bytes()).as_slice(),
+                    "PARITY-HAND-1: shipped concatenation disagrees with spec_combined"
+                );
+            }
+        }
+    }
+
+    /// CC-SPLIT-2/3: the tail survives as a prefix, the current value as a
+    /// suffix. If either failed, a secret straddling the boundary would be
+    /// corrupted before the scanner ever saw it.
+    #[test]
+    fn test_both_parts_survive_the_join() {
+        for tail in PIECES {
+            for current in PIECES {
+                let combined = shipped_combined(tail, current);
+                assert_eq!(
+                    &combined.as_bytes()[..tail.len()],
+                    tail.as_bytes(),
+                    "PARITY-HAND-1 (CC-SPLIT-2): tail is not the prefix of combined"
+                );
+                assert_eq!(
+                    &combined.as_bytes()[tail.len()..],
+                    current.as_bytes(),
+                    "PARITY-HAND-1 (CC-SPLIT-3): current is not the suffix of combined"
+                );
+            }
+        }
+    }
+
+    /// CC-SPLIT-4: any range spanning the junction is a substring of combined.
+    /// This is the lemma that makes cross-call detection sound.
+    #[test]
+    fn test_junction_spanning_ranges_are_substrings_of_combined() {
+        let mut checked = 0usize;
+        for tail in PIECES {
+            for current in PIECES {
+                let combined = shipped_combined(tail, current);
+                let (tail_len, combined_len) = (tail.len(), combined.len());
+                for start in 0..=combined_len {
+                    for len in 0..=(combined_len - start) {
+                        if !spec_spans_junction(start, len, tail_len, combined_len) {
+                            continue;
+                        }
+                        let slice = &combined.as_bytes()[start..start + len];
+                        assert!(
+                            spec_is_substring_at(slice, combined.as_bytes(), start),
+                            "PARITY-HAND-1 (CC-SPLIT-4): a junction-spanning range \
+                             [{start}, {len}) is not a substring of combined for \
+                             {tail:?} + {current:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked > 50, "junction enumeration collapsed to {checked}");
+    }
+
+    /// The security claim end to end: a secret split across two calls is found
+    /// by the overlap scan, and is *not* found by scanning either half alone.
+    #[test]
+    fn test_split_secret_is_detected_only_across_the_junction() {
+        let secret = "AKIAIOSFODNN7EXAMPLE";
+        let (first, second) = secret.split_at(9);
+
+        let mut tracker = CrossCallDlpTracker::new();
+        let first_findings = tracker.scan_with_overlap("field", first);
+        assert!(
+            first_findings.is_empty(),
+            "PARITY-HAND-1: the first half alone should not trip the scanner"
+        );
+
+        let second_findings = tracker.scan_with_overlap("field", second);
+        assert!(
+            !second_findings.is_empty(),
+            "PARITY-HAND-1 (CC-SPLIT-4): a secret split across two calls was not detected \
+             by the overlap scan — the coverage the kernel proves did not reach production"
+        );
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // A range entirely inside either half does not span the junction.
+        assert!(!spec_spans_junction(0, 2, 4, 10));
+        assert!(!spec_spans_junction(5, 3, 4, 10));
+        // One that crosses it does.
+        assert!(spec_spans_junction(3, 3, 4, 10));
+        // A range running past the end is not a junction range.
+        assert!(!spec_spans_junction(3, 20, 4, 10));
+        // Substring check is position-sensitive.
+        assert!(spec_is_substring_at(b"bc", b"abcd", 1));
+        assert!(!spec_is_substring_at(b"bc", b"abcd", 2));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

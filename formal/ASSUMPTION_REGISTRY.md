@@ -28,6 +28,8 @@ it is considered part of the reviewed proof surface.
 | `AUDIT-FS-3` | `metadata()` and `read()` reflect the current on-disk state | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` | documented local trust boundary |
 | `AUDIT-FS-4` | `truncate`/`set_len` preserves the valid prefix during Merkle recovery | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` | documented local trust boundary |
 | `AUDIT-FS-5` | `rename` preserves cross-rotation continuity for audit segments and leaf files | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` | documented local trust boundary |
+| `SORT-IDEM-1` | `sort(sort(x)) == sort(x)` for the ACIS target-path and target-domain ordering. Stated as a spec function returning `true`, so every lemma that ensures it is discharged vacuously. | `formal/verus/verified_acis_action_summary.rs` | `spec_sort_idempotent` in allowlist (kind `verus-vacuous-spec`) |
+| `REVOKE-DEPTH-1` | A transitive revocation that exceeds `MAX_TRANSITIVE_REVOKE_DEPTH` is caught downstream by chain resolution (NHI-DEL-8), so the BFS may stop at the bound without leaving an active link. Stated as a spec function returning `true`. | `formal/verus/verified_transitive_revoke.rs` | `assumption_depth_exceeded_caught_by_chain_resolution` in allowlist (kind `verus-vacuous-spec`) |
 | `FLOAT-CONV-1` | `entropy_fixed_point` output always in [0, 8000] (from the explicit three-way range check at function exit; `as u16` cast safe because 8000 < u16::MAX) | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_bounded` in allowlist |
 | `FLOAT-CONV-2` | Non-finite f64 inputs (NaN, ±∞) map to 0 (from the unconditional `!is_finite()` guard at function entry per IEEE 754) | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_nonfinite_zero` in allowlist |
 | `FLOAT-CONV-3` | `floor(y) ≤ ceil(y)` for any y ∈ [0.0, 8000.0] — threshold (floor) is at most observation (ceil) for the same input | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_floor_le_ceil` in allowlist |
@@ -109,6 +111,262 @@ missing was that the dependency was invisible — the kernel appeared to model a
 guard production did not have. It is now named, asserted at both ends, and
 cannot lose its foundation without failing a test. That is the fix.
 
+## PATH-DECODE-1 — the kernel models the post-decode stage only
+
+`formal/verus/verified_path.rs` models path normalization as: split on `/`,
+skip empty and `.`, pop on `..`, render with a leading `/`. It does not model
+percent-decoding — the byte `0x25` appears nowhere in it.
+
+Production layers a decode loop on top. `normalize_path` calls
+`normalize_path_bounded`, which iteratively percent-decodes until stable and
+fails closed at `DEFAULT_MAX_PATH_DECODE_ITERATIONS`, and only then runs the
+stage the kernel models (`normalize_decoded_path`).
+
+So the binding targets `normalize_decoded_path`, and it holds exactly: across
+1,365 byte strings over `/ . a NUL` the shipped function and the kernel's spec
+agree on every input, accepted and rejected alike, including the postconditions
+the kernel proves of its output — no surviving `..` component, no surviving
+null, always rooted.
+
+**The decode loop is outside the proof.** Nothing in the Verus program says the
+iterative decode terminates, stabilizes, or cannot be used to smuggle a `..`
+past the normalizer. That is covered by tests and by the Kani harnesses in
+`formal/kani/src/path.rs`, not by this kernel, and no claim about
+`normalize_path` should be sourced to it.
+
+## AUDIT-LEGACY-1 — the composition kernel rejects what production accepts
+
+`formal/verus/verified_audit_integrity.rs` restates chain-step validity with
+`prev_seq == 0 || current_seq > prev_seq`, treating only a zero *predecessor* as
+the legacy skip. Production's `sequence_monotonic` is
+`current_seq == 0 || !has_prev || current_seq > prev_seq` — it also skips when
+the *current* entry carries no sequence number, which is how pre-sequencing
+audit entries are accepted.
+
+So at `prev_seq = 5, current_seq = 0` production accepts and the kernel rejects.
+The kernel is **stricter**, so nothing is under-enforced; the gap is that
+AUDIT-INT-4 does not cover production's legacy-entry path, and no claim about
+legacy entries should be sourced to it.
+
+Asserted rather than skipped by `test_chain_step_matches_the_shipped_guards` in
+`vellaveto-audit/src/verified_audit_append.rs`, in both directions: it fails if
+the kernel starts accepting legacy entries (remove the carve-out) and if
+production stops accepting them (the gap closed a different way).
+
+### Why a composition kernel needs its own binding
+
+`verified_audit_integrity` does not model a new function. It **restates**
+primitives that `verified_audit_append` and `verified_audit_chain` already
+model, then proves properties of composing them n times. That leaves a failure
+the per-primitive bindings structurally cannot catch: the composition reasoning
+about a *different* primitive than the one that ships, because it carries its
+own copy of each definition.
+
+The binding therefore checks the restated primitives against the shipped ones
+first, and only then checks the n-step results against iterating the shipped
+functions. AUDIT-LEGACY-1 is exactly what that first half is for.
+
+## MODEL-SHAPE-1/2 — kernels modelling a design production does not implement
+
+Found 2026-08-24 while attempting to bind them. Both pass
+`check-verus-parity.sh`, which pairs them by *symbol name* against production
+files whose structures are unrelated to what the kernel models.
+
+Unlike TAINT-MODEL-DRIFT (a wrong value in a right-shaped model) these two
+model a **different design**. Neither is a vulnerability — both are stricter or
+simply absent — but no claim about the running system should be sourced to
+them until the shapes are reconciled.
+
+### MODEL-SHAPE-1 — `verified_intent_scope`
+
+The kernel models scope as `ScopeState { allowed_mask: u8, .. }`, an 8-bit
+bitmask, with `spec_in_scope(allowed_mask, sink_bit) = sink_bit < 8 && ...`.
+Production models it as
+`IntentScopeConfig { allowed_sink_classes: Vec<SinkClass>, .. }`.
+
+Two mismatches:
+
+- **Representation.** A bitmask and a `Vec<SinkClass>` are not the same
+  structure, so `spec_restrict_scope = current & restriction` (bitwise AND) has
+  no counterpart in `restrict_to_trust_floor`, which the parity guard
+  nonetheless pairs it with.
+- **Width.** The mask holds 8 bits and `SinkClass` has **nine** variants, so the
+  kernel cannot represent rank 8 — `PolicyMutation`, the highest-privilege sink.
+  `spec_in_scope` returns false for it unconditionally.
+
+The width half is the same root cause as `TAINT-MODEL-DRIFT`: kernels written
+against a six-or-eight-class world while production ships nine. It is
+fail-closed (the kernel refuses what production may allow), so nothing is
+under-enforced.
+
+### MODEL-SHAPE-2 — `verified_sequence_analysis`
+
+The kernel models `anomaly_confidence: u8` gated by
+`RESTRICTION_THRESHOLD: u8 = 70`, and a warm-up gate `WARMUP_CALLS: u32 = 3`.
+
+Production's `SequenceAnomaly.confidence` is **`u32`**, `max_confidence()`
+returns `u32`, and its emitted confidences are 60/80/85/90. Neither
+`RESTRICTION_THRESHOLD` nor `WARMUP_CALLS` exists anywhere in the workspace, and
+no restriction gate is built from them.
+
+So the kernel proves properties of a gate production has not implemented. It is
+not wrong so much as unattached.
+
+### Why these are not bound
+
+A differential test needs two things to compare. Where the shapes differ this
+much, writing one would mean inventing an adapter — and an adapter is a third
+piece of hand-written code that could itself be wrong, which is the opposite of
+narrowing the trusted base. These two need a decision first: reshape the kernel
+to production, or build the production design the kernel describes. Recorded
+here rather than papered over.
+
+## A difference that is not drift — `spec_spans_junction`
+
+Worth recording because it looked like a finding and was not.
+
+`verified_cross_call_split` defines `spec_spans_junction`, and production's
+`scan_with_overlap` visibly declines to filter on it:
+
+```rust
+let _ = overlap_len; // used conceptually; all cross-call findings reported
+```
+
+Checking the lemmas rather than the spec names settles it. `spec_spans_junction`
+appears only as a *hypothesis* of `lemma_junction_range_is_substring` — "if a
+range spans the junction, it is a substring of combined" — never as an
+obligation production must discharge. Every other lemma is about coverage:
+combined length is the sum, the tail survives as a prefix, the current value as
+a suffix.
+
+So production reporting every finding from the combined scan is a **superset**,
+which is the safe direction for a detector, and the comment explains why: a
+partial match in the overlap may only become complete with the new data.
+
+The rule: a spec function that has no production counterpart is not evidence of
+drift until you check whether any lemma *requires* one. Several of these kernels
+define helper predicates purely to state a hypothesis.
+
+## VACUOUS-SPEC-1 — two axioms that escaped the escape-hatch inventory
+
+Found 2026-08-24. **Fixed the same day**, detector included.
+
+`check-formal-trusted-assumptions.sh` is the machine-checked inventory of proof
+escape hatches. It scans for `assume`/`admit`, `axiom fn`,
+`verifier::external_body` and `verifier::external_fn_specification` — all
+keyword greps, all single-line.
+
+A `pub open spec fn` whose entire body is `true` is an axiom in disguise: every
+lemma that `ensures` it is discharged vacuously and establishes nothing. It
+contains none of those keywords, and its body spans two lines, so a line-based
+grep cannot match it. The inventory could not see this class at all.
+
+A sweep of `formal/verus/` found eleven vacuous spec bodies. Nine are the
+registration markers in `assumptions.rs`, which are vacuous by design and are
+checked separately by `check_verus_kernel_assumption_bindings`. **Two were real
+trusted assumptions that appeared nowhere** — not in the allowlist, not in this
+registry, not routed through `assumptions.rs`:
+
+- `spec_sort_idempotent` — "Axiomatized: sort(sort(x)) == sort(x) for any total
+  ordering", now `SORT-IDEM-1`.
+- `assumption_depth_exceeded_caught_by_chain_resolution` — labelled "Trusted
+  assumption — see NHI-DEL-8" in its own comment, now `REVOKE-DEPTH-1`.
+
+The second is the sharper one: it was *explicitly named as a trusted assumption
+in a code comment* and still escaped the inventory whose entire job is to
+enumerate trusted assumptions.
+
+**Resolution.** Both are registered above and in the allowlist under a new kind,
+`verus-vacuous-spec`. `check-formal-trusted-assumptions.sh` gained a multi-line
+detector for the class, so a new one cannot be added without either registering
+it or failing the check. The detector is itself mutation-tested by
+`formal/tools/guard-selftest.sh`.
+
+## ACIS-DENY-REASON-1 — a proven invariant the validator did not enforce
+
+Found 2026-08-24 by the differential binding. **Fixed the same day.**
+
+`formal/verus/verified_acis_envelope.rs` proves
+`lemma_acis_deny_has_nonempty_reason`: a `Deny` envelope carries a non-empty
+reason. It is stated as a structural invariant of the envelope, part of
+`spec_envelope_valid`.
+
+`AcisDecisionEnvelope::validate()` bounded the reason's length and rejected
+dangerous characters in it, but **never related `decision` to `reason`**. A
+`Deny` with an empty reason validated cleanly.
+
+Direction: the kernel was **stricter** than the shipped code, so nothing was
+under-enforced — but since R244 made envelope validation the gate before audit
+persistence, the invariant that a denial explains itself was being claimed by
+the proof and not enforced by the code. A denial recorded without a reason is an
+audit entry nobody can act on.
+
+**Resolution.** `validate()` now enforces it. The tightening is safe: every
+`Verdict::Deny` in the workspace is constructed with a `format!` reason, and
+`build_acis_envelope` copies that reason straight through, so no production path
+produced an empty one. Confirmed by the full suite — 7,917 unit tests across
+seven crates and all 122 integration suites pass.
+
+One integration fixture needed updating:
+`test_acis_envelope_rejects_oversized_call_chain_depth` built a `Deny` with an
+empty reason in order to test the *depth* bound, and now tripped the earlier
+check. It was given a reason so it isolates the property it actually names.
+
+### The validator alone was not enough
+
+Tracing the call path after the fix showed a second problem the fix itself
+introduced. `AuditLogger::log_entry_with_acis` returns `Err` **without writing
+the entry** when validation fails, and both proxy call sites swallow that error
+with a `tracing::warn!` and continue. So a `Deny` with an empty reason would
+have gone from *"audit entry written with an empty reason"* to *"no audit entry
+at all"* — strictly worse for a security control, and the opposite of the
+intent.
+
+Exposure was zero: every `Verdict::Deny` in the workspace is built with a
+`format!` carrying literal text, and `build_acis_envelope` copies it through
+unchanged. But the risk was structural — `log_entry_with_acis` is public API,
+and the failure mode is a warn line nobody reads.
+
+So the invariant is now established **at construction** as well.
+`build_acis_envelope_with_security_context` substitutes a placeholder for an
+empty `Deny` reason, and every envelope in the system is built through it
+(`build_secondary_acis_envelope*` delegates to it). `validate()` stays strict
+for externally-supplied envelopes; the builder guarantees internally-generated
+ones. Removing the guard fails three tests in `vellaveto-mcp/src/mediation.rs`.
+
+The general rule: before tightening a validator, check what the *caller* does
+with the rejection. A validator that gates persistence turns "malformed record"
+into "no record", and for audit data that trade is usually the wrong way round.
+
+## REPLAY-NOTCHECKED-1 — a trust cap the kernel applies and production does not
+
+`formal/verus/verified_replay_provenance.rs` defines
+`spec_effective_trust_rank`, which caps trust by replay status:
+
+| status | kernel | production (`infer_trust_tier`) |
+|---|---|---|
+| `ReplayDetected` | rank 0 (`Quarantined`) | `Some(Quarantined)` — agrees |
+| `NotChecked` | capped at rank 1 (`Unknown`) | `None` — no tier inferred, no cap |
+| `Fresh` | base trust unchanged | `None` — agrees in effect |
+
+Measured, not inferred: a probe over all three statuses returned
+`NotChecked -> None`, `Fresh -> None`, `ReplayDetected -> Some(Quarantined)`.
+
+The kernel is **stricter**. Its rule is a fail-closed posture — *if replay
+verification did not run, do not extend trust past `Unknown`* — and production
+applies no cap, so a request whose replay status was never checked keeps
+whatever base trust it had. Nothing is under-enforced relative to a stated
+control; the gap is that the proof describes a containment production does not
+implement.
+
+The `ReplayDetected` half is fully bound, including the lattice properties: the
+merge is commutative, idempotent, and absorbing at `ReplayDetected`, so a later
+clean transport observation cannot launder a detected replay.
+
+The `NotChecked` half is pinned by
+`test_pinned_notchecked_cap_is_kernel_only`, which asserts the measured
+behaviour in both directions rather than skipping it.
+
 ## Parity Assumptions (PARITY-HAND-*)
 
 `PARITY-HAND-1` and `PARITY-HAND-2` are the load-bearing undischarged
@@ -137,6 +395,47 @@ That is a **property** discharge and it is weaker in one specific way: it
 establishes the named properties hold, not that the function is the one the
 kernel reasoned about. It is recorded separately in the table for that reason.
 
+**Bind the value, not just the relation.** A transcription that writes the same
+named constant on both sides of a comparison binds the *relation* and not the
+*value*: raising the production constant moves both sides and the test still
+passes. `verified_transitive_revoke` was written that way and a mutation raising
+`MAX_TRANSITIVE_REVOKE_DEPTH` from 50 to 500 escaped. Pin the kernel's literal
+in the transcription and assert the production constant equals it. Mutation
+testing is what found this; nothing else would have.
+
+A sweep of every binding for the same pattern found seventeen candidate sites.
+Sixteen were safe — the constant was defined inside the differential module, so
+it *is* the pinned literal. One was not: `verified_merkle`'s
+`spec_proof_sibling_count_valid` reused production's `MAX_PROOF_SIBLINGS`, and a
+mutation raising the cap from 64 to 4096 passed cleanly. Both are pinned now and
+both mutations are permanent cases in `guard-selftest.sh`.
+
+The distinction to check when reviewing a transcription: a constant defined
+*inside* the `verus_spec_differential` module is the kernel's literal restated
+and is fine; one reaching production through `use super::*` is the hole.
+
+**A tamper-coverage binding needs two kinds of mutation.** Checking that a
+signed payload covers a field means mutating it and requiring the digest to
+move. Two failure modes escape a careless version of that, and mutation testing
+found both in `verified_evidence_signing`:
+
+- *Count versus content.* Clearing a `Vec` changes its length, which the payload
+  hashes separately. Deleting the per-element hashing loop then survives. Test
+  both — clear the collection **and** rewrite an element in place.
+- *Boundary ambiguity.* Every case that changes total content still moves the
+  digest even with the length prefix removed. Add a pair of inputs that differ
+  only in *where* a field boundary falls (`"ab"`+`"c"` versus `"a"`+`"bc"`);
+  without length framing those collide and a signature verifies across the
+  tamper.
+
+**A mutation that does not compile is not a mutation.** An ad-hoc mutation
+harness that only greps for `test result: FAILED` reports a non-compiling tree
+as `MISSED`, which reads as a hole in the binding when nothing was actually
+tested. Classify three outcomes, and check them in this order: a failing test
+first (a failing test *also* prints a line starting with `error:`), then
+`^error\[` or `could not compile` as invalid, then missed. Getting that order
+wrong misreports caught mutations as invalid.
+
 **Equivalent mutants.** Mutation-verifying a property discharge can surface
 mutants that change the text without changing behaviour. FP-WRAP-1 is enforced
 jointly by a `clamp` and a range branch; removing either alone is equivalent,
@@ -152,7 +451,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-24): 41 of 59 kernels bound (38 discharged + 2 partial + 1 property), 18 remain.**
+**Measured trusted base (2026-08-25): 51 of 59 kernels bound (43 discharged + 5 partial + 3 property), 8 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -199,6 +498,16 @@ collapsed here.
 | `verified_nhi_delegation`, `verified_nhi_graph` | total + bounded | 2²/2⁴ link and status predicates; chain depth over a boundary set |
 | `verified_entropy_gate` | bounded | boundary sets around the clamp point of `min_observations × 2` and around zero |
 | `verified_capability_path` | bounded | 6 depths including both extremes × 4 flag combinations |
+| `verified_audit_integrity` | **partial** | restated primitives checked against the shipped ones over a `u64` boundary set; n-step compositions over 0..=64 steps from 8 starting points; the `seen_hashed` latch over all 256 8-step hash patterns × 2 starts. The legacy zero-sequence path is asserted, not bound — see `AUDIT-LEGACY-1` |
+| `verified_acis_action_summary` | bounded | 900 length/count combinations at and either side of every bound the kernel names, in both directions; dangerous-character rejection probed with null, control, bidi and BOM |
+| `verified_acis_envelope` | **partial** | 720 field combinations, necessary-condition only — the kernel models a subset of `validate()`, so kernel-rejects implies production-rejects. Found `ACIS-DENY-REASON-1` |
+| `verified_capability_chain` | bounded | chain lengths 0..=64 from all 256 `u8` starting depths, checked against iterating the shipped depth primitive; 8-step expiry chains over 5×5 root/ttl pairs; step identity rules cross-checked against the shipped `verified_capability_identity` predicates |
+| `verified_replay_provenance` | **partial** | `merge_replay_status` totally over all 9 status pairs plus commutativity, idempotence and absorption; `ReplayDetected` quarantine bound through `infer_trust_tier`. The `NotChecked` cap is pinned — see `REPLAY-NOTCHECKED-1` |
+| `verified_evidence_signing` | **property** | tamper coverage — 20 named field mutations must each move `signing_content()`, plus a field-boundary ambiguity check; hex-length and count-consistency predicates bound directly |
+| `verified_cross_call_split` | **property** | CC-SPLIT-1..4 checked against the shipped `format!("{tail}{current}")` join over 36 piece pairs, plus every junction-spanning range of each; end-to-end, a secret split across two calls is detected by the overlap scan and by neither half alone |
+| `verified_transitive_revoke` | total + bounded | link and collateral predicates over 2³; depth bound over a `usize` set around the limit and both extremes, with the literal 50 pinned |
+| `verified_warm_restart` | total + bounded | `should_restore` over every `SessionState` variant, with a test forcing a new variant to be classified deliberately; capacity and counter over a `usize` set including both extremes |
+| `verified_path` | bounded | 1,365 byte strings over `/ . a NUL`, matched against `normalize_decoded_path` on accept, reject and output; postconditions checked separately. Percent-decoding is out of scope — see `PATH-DECODE-1` |
 | `verified_dlp_core` | total + bounded | all 256 `u8` boundary bytes; 341 byte strings over ASCII/lead/continuation × 6 sizes; 6⁵ field-budget tuples |
 | `verified_cross_call_dlp` | bounded | 2 × 6⁵ counter tuples around the field cap, byte cap and addition overflow |
 | `verified_server_approval_id` | total + bounded | 2² acceptance; lengths exhaustive over `0..=256` plus `usize::MAX` |
@@ -254,7 +563,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 18 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 8 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

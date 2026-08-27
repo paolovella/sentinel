@@ -102,8 +102,6 @@ fn transitive_revoke(
     delegations: &mut HashMap<(String, String), NhiDelegationLink>,
     revoked_agent: &str,
 ) -> Vec<(String, String)> {
-    const MAX_TRANSITIVE_REVOKE_DEPTH: usize = 50;
-
     let mut deactivated = Vec::new();
     let mut frontier = VecDeque::from([revoked_agent.to_string()]);
     let mut visited = HashSet::from([revoked_agent.to_string()]);
@@ -111,10 +109,11 @@ fn transitive_revoke(
 
     while let Some(current) = frontier.pop_front() {
         depth = depth.saturating_add(1);
-        if depth > MAX_TRANSITIVE_REVOKE_DEPTH {
+        if !crate::verified_transitive_revoke::depth_within_bound(depth) {
             tracing::warn!(
                 agent = revoked_agent,
-                "transitive_revoke: hit depth limit {MAX_TRANSITIVE_REVOKE_DEPTH}, stopping"
+                "transitive_revoke: hit depth limit {}, stopping",
+                crate::verified_transitive_revoke::MAX_TRANSITIVE_REVOKE_DEPTH
             );
             break;
         }
@@ -128,7 +127,18 @@ fn transitive_revoke(
 
         // Deactivate all active delegations FROM the current agent.
         for link in delegations.values_mut() {
-            if (link.from_agent == current || link.to_agent == current) && link.active {
+            let from_is_current = link.from_agent == current;
+            let to_is_current = link.to_agent == current;
+            // Links touching neither side of the revocation are left alone —
+            // the no-collateral-damage property the kernel states explicitly.
+            if crate::verified_transitive_revoke::no_collateral(from_is_current, to_is_current) {
+                continue;
+            }
+            if crate::verified_transitive_revoke::link_should_deactivate(
+                from_is_current,
+                to_is_current,
+                link.active,
+            ) {
                 link.active = false;
                 deactivated.push((link.from_agent.clone(), link.to_agent.clone()));
             }

@@ -648,11 +648,11 @@ impl SessionGuard {
         let mut restored = 0usize;
         for (id, ctx) in persisted {
             // Only restore security-critical states.
-            if !matches!(ctx.state, SessionState::Locked | SessionState::Suspicious) {
+            if !crate::verified_warm_restart::should_restore(ctx.state) {
                 continue;
             }
             // Respect max_sessions bound.
-            if sessions.len() >= self.config.max_sessions {
+            if !crate::verified_warm_restart::can_insert(sessions.len(), self.config.max_sessions) {
                 tracing::warn!(
                     "warm_restart: hit max_sessions ({}) — stopping restoration",
                     self.config.max_sessions
@@ -660,7 +660,7 @@ impl SessionGuard {
                 break;
             }
             sessions.insert(id, ctx);
-            restored = restored.saturating_add(1);
+            restored = crate::verified_warm_restart::next_restored(restored);
         }
 
         tracing::info!(

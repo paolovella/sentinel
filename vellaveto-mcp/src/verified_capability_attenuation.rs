@@ -176,6 +176,217 @@ mod verus_spec_differential {
 }
 
 #[cfg(test)]
+mod verus_chain_composition_differential {
+    //! Differential binding for `PARITY-HAND-1`, composition kernel
+    //! `formal/verus/verified_capability_chain.rs` (CAP-CHAIN-1..6).
+    //!
+    //! Like `verified_audit_integrity`, this kernel models no new function. It
+    //! composes the depth and expiry primitives this module already binds, then
+    //! proves properties of an n-step delegation chain. The failure the
+    //! per-primitive bindings cannot catch is the composition reasoning about a
+    //! *different* primitive than the one that ships, so the binding iterates
+    //! the shipped functions and checks each lemma against the result.
+    //!
+    //! `spec_delegation_step_valid` composes rules
+    //! `verified_capability_identity` already binds — child issuer equals
+    //! parent holder, no self-delegation — so those are checked through the
+    //! shipped predicates rather than restated.
+    //!
+    //! BOUNDED: chain lengths 0..=64 from every `u8` starting depth (all 256),
+    //! and expiry chains over a boundary set around the clamp and overflow
+    //! edges.
+
+    use super::*;
+    use crate::verified_capability_identity::{
+        delegated_child_issuer_valid, delegation_holder_distinct,
+    };
+
+    /// Transcription of `spec_depth_after_n_steps`.
+    fn spec_depth_after_n_steps(n: u32, initial_depth: u8) -> u8 {
+        let mut depth = initial_depth;
+        for _ in 0..n {
+            if depth == 0 {
+                return 0;
+            }
+            depth -= 1;
+        }
+        depth
+    }
+
+    /// Transcription of `spec_delegation_step_valid`, over the abstract
+    /// principal identities the kernel uses.
+    fn spec_delegation_step_valid(
+        parent_remaining_depth: u8,
+        parent_holder: u32,
+        child_issuer: u32,
+        child_holder: u32,
+    ) -> bool {
+        parent_remaining_depth > 0 && child_issuer == parent_holder && child_holder != child_issuer
+    }
+
+    /// Iterate the *shipped* depth primitive n times.
+    fn shipped_depth_after_n_steps(n: u32, initial_depth: u8) -> u8 {
+        let mut depth = initial_depth;
+        for _ in 0..n {
+            match attenuated_remaining_depth(depth) {
+                Some(next) => depth = next,
+                None => return 0,
+            }
+        }
+        depth
+    }
+
+    /// CAP-CHAIN-1: after n steps from a depth of at least n, the remaining
+    /// depth is exactly `initial_depth - n`. Checked against the shipped
+    /// primitive, not just the transcription.
+    #[test]
+    fn test_chain_depth_exact_matches_iterating_the_shipped_primitive() {
+        for initial in 0u8..=u8::MAX {
+            for n in 0u32..=64 {
+                let shipped = shipped_depth_after_n_steps(n, initial);
+                assert_eq!(
+                    shipped,
+                    spec_depth_after_n_steps(n, initial),
+                    "PARITY-HAND-1: chain depth diverges after {n} steps from {initial}"
+                );
+                if u32::from(initial) >= n {
+                    assert_eq!(
+                        u32::from(shipped),
+                        u32::from(initial) - n,
+                        "CAP-CHAIN-1: {n} steps from {initial} did not leave initial - n"
+                    );
+                }
+            }
+        }
+    }
+
+    /// CAP-CHAIN-2/3: the chain depth is monotone decreasing, and every step
+    /// with depth remaining strictly reduces it. A step that failed to reduce
+    /// would make the delegation budget unbounded.
+    #[test]
+    fn test_each_step_strictly_reduces_until_exhausted() {
+        for initial in 0u8..=u8::MAX {
+            let mut previous = initial;
+            for step in 1u32..=64 {
+                let current = shipped_depth_after_n_steps(step, initial);
+                assert!(
+                    current <= previous,
+                    "CAP-CHAIN-2: depth rose from {previous} to {current} at step {step}"
+                );
+                if previous > 0 {
+                    assert_eq!(
+                        current,
+                        previous - 1,
+                        "CAP-CHAIN-3: step {step} from depth {previous} did not reduce by one"
+                    );
+                } else {
+                    assert_eq!(current, 0, "CAP-CHAIN-4: exhausted depth did not stay zero");
+                }
+                previous = current;
+            }
+        }
+    }
+
+    /// CAP-CHAIN-5/6: depth is exhausted after exactly `initial` steps, and no
+    /// further delegation is possible past that point.
+    #[test]
+    fn test_exhaustion_is_terminal() {
+        for initial in 0u8..=64 {
+            let at_exhaustion = shipped_depth_after_n_steps(u32::from(initial), initial);
+            assert_eq!(
+                at_exhaustion, 0,
+                "CAP-CHAIN-5: depth {initial} was not exhausted after {initial} steps"
+            );
+            assert_eq!(
+                attenuated_remaining_depth(at_exhaustion),
+                None,
+                "CAP-CHAIN-6: a further delegation was permitted after exhaustion"
+            );
+            assert!(
+                !spec_delegation_step_valid(at_exhaustion, 1, 1, 2),
+                "CAP-CHAIN-6: the step predicate permits delegation at zero depth"
+            );
+        }
+    }
+
+    /// The step predicate's identity rules are the ones
+    /// `verified_capability_identity` binds, so check the composition agrees
+    /// with those shipped predicates rather than restating them.
+    #[test]
+    fn test_step_identity_rules_agree_with_the_shipped_predicates() {
+        for depth in [0u8, 1, 2, u8::MAX] {
+            for parent_holder in 0u32..3 {
+                for child_issuer in 0u32..3 {
+                    for child_holder in 0u32..3 {
+                        let composed = spec_delegation_step_valid(
+                            depth,
+                            parent_holder,
+                            child_issuer,
+                            child_holder,
+                        );
+                        // Production expresses the same two rules as booleans.
+                        let issuer_ok =
+                            delegated_child_issuer_valid(true, child_issuer == parent_holder);
+                        let holder_ok = delegation_holder_distinct(child_holder == child_issuer);
+                        assert_eq!(
+                            composed,
+                            depth > 0 && issuer_ok && holder_ok,
+                            "PARITY-HAND-1: the chain step predicate disagrees with the shipped \
+                             identity rules at ({depth}, {parent_holder}, {child_issuer}, \
+                             {child_holder})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// CAP-CHAIN expiry: a child's expiry never exceeds its parent's, so the
+    /// bound holds transitively along a chain.
+    #[test]
+    fn test_expiry_never_exceeds_the_root_along_a_chain() {
+        let roots = [1u64, 2, 100, 1_000, u64::MAX];
+        let ttls = [0u64, 1, 50, 10_000, u64::MAX];
+        for &root_expiry in &roots {
+            for &ttl in &ttls {
+                let mut parent = root_expiry;
+                for step in 0..8 {
+                    let Some(child) = attenuated_expiry_epoch(parent, 0, ttl, u64::MAX) else {
+                        break;
+                    };
+                    assert!(
+                        child <= parent,
+                        "CAP-CHAIN: step {step} produced a child expiry {child} above its \
+                         parent {parent}"
+                    );
+                    assert!(
+                        child <= root_expiry,
+                        "CAP-CHAIN: step {step} produced an expiry {child} above the root \
+                         {root_expiry}"
+                    );
+                    parent = child;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // Zero depth admits no step, whatever the identities.
+        assert!(!spec_delegation_step_valid(0, 1, 1, 2));
+        // The child's issuer must be the parent's holder.
+        assert!(!spec_delegation_step_valid(1, 1, 2, 3));
+        // Self-delegation is refused.
+        assert!(!spec_delegation_step_valid(1, 1, 1, 1));
+        // A well-formed step is accepted.
+        assert!(spec_delegation_step_valid(1, 1, 1, 2));
+        // Depth zero propagates rather than wrapping.
+        assert_eq!(spec_depth_after_n_steps(10, 0), 0);
+        assert_eq!(spec_depth_after_n_steps(3, 5), 2);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

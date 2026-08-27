@@ -110,6 +110,8 @@ pub(crate) mod verified_deputy_handoff;
 pub(crate) mod verified_evaluation_context_projection;
 pub(crate) mod verified_nhi_delegation;
 pub(crate) mod verified_nhi_graph;
+pub(crate) mod verified_transitive_revoke;
+pub(crate) mod verified_warm_restart;
 pub mod wire;
 pub mod workflow_tracker;
 

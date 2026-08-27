@@ -219,6 +219,186 @@ pub fn compute_verdict(resolved: &[ResolvedMatch]) -> VerdictKind {
 }
 
 #[cfg(test)]
+mod verus_refinement_differential {
+    //! Differential binding for `PARITY-HAND-1`, refinement kernels
+    //! `formal/verus/verified_refinement_safety.rs` and
+    //! `formal/verus/verified_refinement_completeness.rs`.
+    //!
+    //! Neither kernel models a new function. Both describe the abstract
+    //! evaluation state machine that `compute_verdict` realises: safety says
+    //! what the verdict must be in the terminal cases, completeness says how
+    //! the state advances. `verified_core` already binds the function itself,
+    //! so these two are bound as **properties of that same function** — the
+    //! composition-kernel shape, where the risk is the abstract model drifting
+    //! from the concrete one it is supposed to describe.
+    //!
+    //! `AbstractVerdict` maps to `VerdictKind`, and `EngineState`'s
+    //! `Matching`/`Applying` to the loop position: `Continue` advances the
+    //! index, `Decided` stops.
+
+    use super::*;
+
+    fn rm(matched: bool, is_deny: bool, is_conditional: bool) -> ResolvedMatch {
+        ResolvedMatch {
+            matched,
+            is_deny,
+            is_conditional,
+            priority: 0,
+            rule_override_deny: false,
+            context_deny: false,
+            require_approval: false,
+            condition_fired: false,
+            condition_verdict: VerdictKind::Allow,
+            on_no_match_continue: false,
+            all_constraints_skipped: false,
+        }
+    }
+
+    // ── verified_refinement_safety ────────────────────────────────────────
+
+    /// SAFETY-1: `spec_empty_policy_verdict() == Deny`. The fail-closed base
+    /// case — an empty policy set denies.
+    #[test]
+    fn test_empty_policy_set_denies() {
+        assert_eq!(
+            compute_verdict(&[]),
+            VerdictKind::Deny,
+            "PARITY-HAND-1 (SAFETY-1): an empty policy set did not deny"
+        );
+    }
+
+    /// SAFETY-2: `spec_exhausted_no_match_verdict() == Deny`, and
+    /// `spec_no_match_in_trace` is the precondition. A trace in which nothing
+    /// matched must exhaust to Deny, however long it is.
+    #[test]
+    fn test_exhausted_trace_with_no_match_denies() {
+        for len in 0..8usize {
+            let trace: Vec<ResolvedMatch> = (0..len).map(|_| rm(false, false, false)).collect();
+            assert!(
+                trace.iter().all(|m| !m.matched),
+                "spec_no_match_in_trace precondition does not hold of the fixture"
+            );
+            assert_eq!(
+                compute_verdict(&trace),
+                VerdictKind::Deny,
+                "PARITY-HAND-1 (SAFETY-2): a {len}-entry trace with no match did not deny"
+            );
+        }
+    }
+
+    /// SAFETY-3: `spec_deny_contribution_produces_deny`. If the first matching
+    /// entry contributes Deny, the verdict is Deny — regardless of what
+    /// follows it. This is the property that stops a later allow overriding an
+    /// earlier deny.
+    #[test]
+    fn test_first_matching_deny_contribution_produces_deny() {
+        let deny = rm(true, true, false);
+        let allow = rm(true, false, false);
+        let skip = rm(false, false, false);
+
+        assert!(
+            matches!(
+                compute_single_verdict(&deny),
+                VerdictOutcome::Decided(VerdictKind::Deny)
+            ),
+            "the fixture is not a deny contribution"
+        );
+
+        // The deny at the first *matching* position, with any number of
+        // non-matching entries before it and allows after.
+        for lead in 0..4usize {
+            for trail in 0..4usize {
+                let mut trace: Vec<ResolvedMatch> = (0..lead).map(|_| skip.clone()).collect();
+                trace.push(deny.clone());
+                trace.extend((0..trail).map(|_| allow.clone()));
+                assert_eq!(
+                    compute_verdict(&trace),
+                    VerdictKind::Deny,
+                    "PARITY-HAND-1 (SAFETY-3): a first-matching deny contribution did not \
+                     produce Deny with {lead} skips before and {trail} allows after"
+                );
+            }
+        }
+    }
+
+    // ── verified_refinement_completeness ──────────────────────────────────
+
+    /// COMPLETENESS-1/2: `spec_match_miss` advances the index and stays in
+    /// `Matching`; `spec_match_hit` holds the index and moves to `Applying`.
+    /// Concretely: a non-matching entry yields `Continue` (advance), and a
+    /// matching one yields `Decided` (stop).
+    #[test]
+    fn test_state_transitions_match_the_abstract_machine() {
+        // Miss: not matched -> Continue, so evaluation advances past it.
+        assert!(
+            matches!(
+                compute_single_verdict(&rm(false, false, false)),
+                VerdictOutcome::Continue
+            ),
+            "PARITY-HAND-1 (COMPLETENESS-1): a miss did not advance"
+        );
+        // Hit: matched and decisive -> Decided, so evaluation stops here.
+        assert!(
+            matches!(
+                compute_single_verdict(&rm(true, true, false)),
+                VerdictOutcome::Decided(_)
+            ),
+            "PARITY-HAND-1 (COMPLETENESS-2): a hit did not reach a decision"
+        );
+    }
+
+    /// COMPLETENESS-3/4: `spec_apply_allow_verdict` and
+    /// `spec_apply_require_approval_verdict` — the two non-deny terminal
+    /// verdicts the abstract machine can apply.
+    #[test]
+    fn test_apply_verdicts_match_the_abstract_machine() {
+        let allow = rm(true, false, false);
+        assert_eq!(compute_verdict(&[allow]), VerdictKind::Allow);
+
+        let mut approval = rm(true, false, true);
+        approval.require_approval = true;
+        assert_eq!(compute_verdict(&[approval]), VerdictKind::RequireApproval);
+    }
+
+    /// COMPLETENESS-5: `spec_continue_to_next` advances by exactly one, so the
+    /// first entry that decides is the one whose verdict is returned. Checked
+    /// by placing the decisive entry at every position in a run of skips.
+    #[test]
+    fn test_evaluation_stops_at_the_first_deciding_entry() {
+        let skip = rm(false, false, false);
+        let allow = rm(true, false, false);
+        let deny = rm(true, true, false);
+
+        for pos in 0..5usize {
+            let mut trace: Vec<ResolvedMatch> = (0..pos).map(|_| skip.clone()).collect();
+            trace.push(allow.clone());
+            trace.push(deny.clone()); // a later deny must NOT win
+            assert_eq!(
+                compute_verdict(&trace),
+                VerdictKind::Allow,
+                "PARITY-HAND-1 (COMPLETENESS-5): evaluation did not stop at the first deciding \
+                 entry (allow at index {pos}, deny after it)"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // The safety properties are only meaningful if the fixtures really do
+        // decide differently.
+        assert_eq!(compute_verdict(&[rm(true, true, false)]), VerdictKind::Deny);
+        assert_eq!(
+            compute_verdict(&[rm(true, false, false)]),
+            VerdictKind::Allow
+        );
+        assert_eq!(
+            compute_verdict(&[rm(false, false, false)]),
+            VerdictKind::Deny
+        );
+    }
+}
+
+#[cfg(test)]
 mod verus_spec_differential {
     //! Differential binding for `PARITY-HAND-1` (see
     //! `formal/ASSUMPTION_REGISTRY.md`).

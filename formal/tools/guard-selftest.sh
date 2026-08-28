@@ -267,6 +267,12 @@ run_case "kani path copy: raw null-byte check removed" "$DIFF_GUARD" drift \
 run_case "kani path copy: backslash normalization dropped" "$DIFF_GUARD" drift \
     perl -0pi -e "s/let decoded = if decoded\\.contains\\('\\\\\\\\'\\) \\{/let decoded = if false {/" formal/kani/src/path.rs
 
+run_case "kani ip copy: CGNAT mask widened" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/\\(octets\\[1\\] & 0xC0\\) == 64/(octets[1] & 0xE0) == 64/' formal/kani/src/ip.rs
+
+run_case "kani ip copy: loopback check removed" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/let is_loopback = octets\\[0\\] == 127;/let is_loopback = false;/' formal/kani/src/ip.rs
+
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────
 # formal/kani/Cargo.toml states the extracted code "is tested to be identical to
 # the production code via the CI diff check". These test whether that holds.

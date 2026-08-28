@@ -44,6 +44,7 @@ mod entropy_gate;
 mod error;
 pub mod impact;
 mod ip;
+mod kani_ip_differential;
 mod kani_path_differential;
 pub mod least_agency;
 mod legacy;

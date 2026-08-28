@@ -5,7 +5,7 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: MPL-2.0
 
-//! Materializes the Kani path extraction so it can be compiled and compared
+//! Materializes the Kani extractions so they can be compiled and compared
 //! against production. See `src/kani_path_differential.rs` and `PARITY-HAND-2`
 //! in `formal/ASSUMPTION_REGISTRY.md`.
 //!
@@ -23,16 +23,27 @@ fn main() {
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is always set by cargo");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR is always set by cargo");
 
-    let extraction = Path::new(&manifest_dir).join("../formal/kani/src/path.rs");
-    println!("cargo:rerun-if-changed={}", extraction.display());
     println!("cargo:rerun-if-changed=build.rs");
 
-    // Absent (a slim checkout, a published crate) the differential test is
-    // skipped rather than failing the build; the test asserts on the marker so
-    // a silent skip cannot masquerade as a pass.
-    let Ok(source) = std::fs::read_to_string(&extraction) else {
+    for (module, out_name) in [
+        ("path", "kani_path_extraction.rs"),
+        ("ip", "kani_ip_extraction.rs"),
+    ] {
+        let extraction = Path::new(&manifest_dir).join(format!("../formal/kani/src/{module}.rs"));
+        println!("cargo:rerun-if-changed={}", extraction.display());
+        materialize(&extraction, &Path::new(&out_dir).join(out_name));
+    }
+}
+
+/// Copy one extraction into `OUT_DIR`, turning `//!` into `//`.
+///
+/// Absent (a slim checkout, a published crate) a stub is written instead of
+/// failing the build; each differential test asserts on `EXTRACTION_PRESENT`
+/// so a silent skip cannot masquerade as a pass.
+fn materialize(extraction: &Path, destination: &Path) {
+    let Ok(source) = std::fs::read_to_string(extraction) else {
         std::fs::write(
-            Path::new(&out_dir).join("kani_path_extraction.rs"),
+            destination,
             "// Kani extraction not present in this checkout.\n\
              pub const EXTRACTION_PRESENT: bool = false;\n",
         )
@@ -56,9 +67,5 @@ fn main() {
         rewritten.push('\n');
     }
 
-    std::fs::write(
-        Path::new(&out_dir).join("kani_path_extraction.rs"),
-        rewritten,
-    )
-    .expect("writing to OUT_DIR");
+    std::fs::write(destination, rewritten).expect("writing to OUT_DIR");
 }

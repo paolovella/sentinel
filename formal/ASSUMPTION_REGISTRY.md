@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **1 of 35 discharged** (2026-08-28) — `path.rs` is now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6; see `KANI-PATH-BOUND-1`. The other 34 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **2 of 35 discharged** (2026-08-28) — `path.rs` and `ip.rs` are now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6 each; see `KANI-PATH-BOUND-1`. The other 33 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -679,7 +679,7 @@ containing the pattern cannot either.** Eight cases covering these checks are
 now in `formal/tools/guard-selftest.sh`, so the property is re-tested on every
 run rather than established once by hand.
 
-## KANI-PATH-BOUND-1 — the first Kani extraction actually compared to production
+## KANI-PATH-BOUND-1 — the first Kani extractions actually compared to production
 
 Added 2026-08-28. `PARITY-HAND-1` is now fully discharged (59 of 59 Verus
 kernels); this begins the same work on the Kani side, which had none.
@@ -725,10 +725,33 @@ Mutation-verified 6/6: iteration bound 20→30, either null-byte check removed,
 backslash normalization dropped, the limit comparison weakened to `>`, and the
 parent-dir-at-root absorb removed are all caught.
 
-**Remaining: 34 extractions.** This is the pattern for the rest, and the cost is
-now known — the mechanism (build.rs materialization + a corpus + reason
-comparison) is reusable, so the remaining work is per-module corpus design
-rather than new machinery.
+**`ip.rs` followed the same day**, and needed a different shape. Its header
+claims "each function is a verbatim translation of the production logic — the
+only difference is the type representation (`[u8; 4]` vs `Ipv4Addr`, `[u16; 8]`
+vs `Ipv6Addr`)", which makes textual comparison inapplicable: the binding builds
+the `std::net` value from the same octets and requires the classifications to
+agree. It sweeps all 65,536 `a.b.1.1` addresses — the classification branches
+almost entirely on the first two octets, so that covers the branch structure
+exhaustively in the dimension that matters rather than sampling 2^32 — plus the
+boundary immediately outside each RFC range, the IPv6 transition mechanisms, and
+K30's embedded-IPv4 recovery. Mutation-verified 6/6: CGNAT mask widened,
+RFC 1918 `172.16/12` mask dropped, loopback and link-local checks removed, the
+benchmarking mask narrowed, and `192.168/16` widened to `192/8`.
+
+What rides on it: `is_private_ip` is what `block_private` enforces, so a
+disagreement means the SSRF and DNS-rebinding proofs describe a classifier that
+is not the one deciding.
+
+One thing to know before mutating that file: the classifier appears **twice**,
+in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
+is what K29's "parity" is about). A mutation anchored on the shared text hits
+both; anchor on the first occurrence to test the function the sweep exercises.
+
+**Remaining: 33 extractions.** The mechanism (build.rs materialization, a
+corpus, and comparison of the reason and not only the outcome) is reusable, so
+the remaining work is per-module corpus design rather than new machinery. Two
+shapes have been seen so far: verbatim (`path.rs`, compare directly) and
+representation-shifted (`ip.rs`, bridge the declared difference explicitly).
 
 ## Artifact Map
 

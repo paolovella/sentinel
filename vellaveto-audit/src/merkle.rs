@@ -508,6 +508,211 @@ impl MerkleTree {
 }
 
 #[cfg(test)]
+mod verus_integrity_differential {
+    //! Differential binding for `PARITY-HAND-1`, kernel
+    //! `formal/verus/verified_merkle_integrity.rs`.
+    //!
+    //! That kernel declares no spec functions of its own — it is twelve proof
+    //! obligations restating the trusted Merkle axioms (`MERKLE-HASH-1/2`,
+    //! `MERKLE-CODEC-1`) and deriving consequences from them.
+    //!
+    //! The axioms stay trusted; they are registered in the allowlist and are
+    //! about SHA-256's collision and second-preimage resistance, which no test
+    //! can establish. What *is* checkable is that the **consequences** hold of
+    //! the shipped hashing: RFC 6962 domain separation, the 32-byte lengths,
+    //! codec round-tripping and injectivity, and that a changed leaf changes
+    //! its parent and grandparent.
+    //!
+    //! So this is a property discharge of the derived layer, with the
+    //! cryptographic assumptions left where they belong — named, not tested.
+
+    use super::*;
+
+    fn corpus() -> Vec<Vec<u8>> {
+        vec![
+            vec![],
+            vec![0x00],
+            vec![0x01],
+            b"a".to_vec(),
+            b"b".to_vec(),
+            b"audit-entry-1".to_vec(),
+            b"audit-entry-2".to_vec(),
+            vec![0xff; 64],
+        ]
+    }
+
+    /// `lemma_leaf_hash_len_is_32` / `lemma_internal_hash_len_is_32`.
+    #[test]
+    fn test_hash_outputs_are_always_32_bytes() {
+        for d in corpus() {
+            assert_eq!(
+                hash_leaf(&d).len(),
+                32,
+                "PARITY-HAND-1: leaf hash of {d:?} is not 32 bytes"
+            );
+        }
+        let a = hash_leaf(b"a");
+        let b = hash_leaf(b"b");
+        assert_eq!(hash_internal(&a, &b).len(), 32);
+    }
+
+    /// `lemma_leaf_and_internal_hash_never_equal` and
+    /// `lemma_no_type_confusion_in_proof` — RFC 6962 domain separation. Without
+    /// distinct prefixes an attacker can present an internal node as a leaf and
+    /// forge an inclusion proof for data that was never logged.
+    #[test]
+    fn test_leaf_and_internal_hashes_are_domain_separated() {
+        let a = hash_leaf(b"a");
+        let b = hash_leaf(b"b");
+        let internal = hash_internal(&a, &b);
+
+        // The concatenation an attacker would try to pass off as leaf data.
+        let mut concat = Vec::with_capacity(64);
+        concat.extend_from_slice(&a);
+        concat.extend_from_slice(&b);
+
+        assert_ne!(
+            internal,
+            hash_leaf(&concat),
+            "PARITY-HAND-1: an internal node hashes identically to a leaf over the same bytes — \
+             domain separation is missing and inclusion proofs can be forged by type confusion"
+        );
+
+        // And no leaf in the corpus collides with the internal node either.
+        for d in corpus() {
+            assert_ne!(
+                hash_leaf(&d),
+                internal,
+                "PARITY-HAND-1: leaf {d:?} collides with an internal node hash"
+            );
+        }
+
+        // The RFC 6962 second-preimage attack itself. Without the *leaf*
+        // prefix, hash_leaf(0x01 || a || b) reduces to SHA-256(0x01 || a || b),
+        // which is exactly hash_internal(a, b) — so an attacker submits an
+        // internal node's preimage as leaf data and the tree cannot tell them
+        // apart. Mutation testing found this: dropping the leaf prefix passed
+        // every other case here, because the internal prefix alone still kept
+        // plain concatenations distinct.
+        let mut forged_leaf = Vec::with_capacity(65);
+        forged_leaf.push(0x01);
+        forged_leaf.extend_from_slice(&a);
+        forged_leaf.extend_from_slice(&b);
+        assert_ne!(
+            hash_leaf(&forged_leaf),
+            internal,
+            "PARITY-HAND-1: a leaf carrying an internal node's preimage hashes to that node — \
+             the RFC 6962 leaf prefix is missing and second-preimage forgery is possible"
+        );
+    }
+
+    /// `lemma_leaf_hash_unique` / `lemma_internal_hash_unique`, in the only
+    /// direction a test can establish: distinct inputs in this corpus produce
+    /// distinct digests. The converse — that no collision exists anywhere — is
+    /// `MERKLE-HASH-2` and stays trusted.
+    #[test]
+    fn test_distinct_inputs_give_distinct_hashes_in_the_corpus() {
+        let c = corpus();
+        for (i, x) in c.iter().enumerate() {
+            for (j, y) in c.iter().enumerate() {
+                if i < j {
+                    assert_ne!(
+                        hash_leaf(x),
+                        hash_leaf(y),
+                        "PARITY-HAND-1: distinct leaves {x:?} and {y:?} share a digest"
+                    );
+                }
+            }
+        }
+    }
+
+    /// `lemma_internal_hash_unique` in its argument-order sense: swapping left
+    /// and right must change the parent, or the tree shape carries no
+    /// information and a proof can be replayed against a reordered tree.
+    #[test]
+    fn test_internal_hash_is_order_sensitive() {
+        let a = hash_leaf(b"a");
+        let b = hash_leaf(b"b");
+        assert_ne!(
+            hash_internal(&a, &b),
+            hash_internal(&b, &a),
+            "PARITY-HAND-1: hash_internal is order-insensitive, so sibling order carries no \
+             information and an inclusion proof can be replayed against a reordered tree"
+        );
+    }
+
+    /// `lemma_different_leaf_means_different_parent` and
+    /// `..._grandparent` — a change to any leaf must propagate to the root.
+    /// This is the tamper-evidence property the whole structure exists for.
+    #[test]
+    fn test_a_changed_leaf_changes_parent_and_grandparent() {
+        let a = hash_leaf(b"audit-entry-1");
+        let a_tampered = hash_leaf(b"audit-entry-2");
+        let b = hash_leaf(b"sibling");
+        let c = hash_leaf(b"uncle");
+
+        let parent = hash_internal(&a, &b);
+        let parent_tampered = hash_internal(&a_tampered, &b);
+        assert_ne!(
+            parent, parent_tampered,
+            "PARITY-HAND-1: changing a leaf did not change its parent"
+        );
+
+        let grandparent = hash_internal(&parent, &c);
+        let grandparent_tampered = hash_internal(&parent_tampered, &c);
+        assert_ne!(
+            grandparent, grandparent_tampered,
+            "PARITY-HAND-1: changing a leaf did not propagate to the grandparent — tampering \
+             would not reach the root"
+        );
+    }
+
+    /// `lemma_codec_roundtrip`, `lemma_decoded_hash_len` and
+    /// `lemma_encoding_injective` (`MERKLE-CODEC-1`). K141/K142 discharge the
+    /// per-byte roundtrip under Kani; this checks the whole-digest form against
+    /// the encoding production actually uses.
+    #[test]
+    fn test_hex_codec_roundtrips_and_is_injective() {
+        let mut seen = std::collections::HashSet::new();
+        for d in corpus() {
+            let h = hash_leaf(&d);
+            let encoded = hex::encode(h);
+            assert_eq!(
+                encoded.len(),
+                64,
+                "PARITY-HAND-1: a 32-byte hash did not encode to 64 hex chars"
+            );
+
+            let decoded = hex::decode(&encoded).expect("round-trip decode");
+            assert_eq!(
+                decoded.len(),
+                32,
+                "PARITY-HAND-1: decoded hash is not 32 bytes"
+            );
+            assert_eq!(
+                decoded.as_slice(),
+                h.as_slice(),
+                "PARITY-HAND-1: hex round-trip did not preserve the digest"
+            );
+            assert!(
+                seen.insert(encoded),
+                "PARITY-HAND-1: two distinct digests encoded to the same string — encoding is \
+                 not injective"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // The properties are only meaningful if the hashes genuinely differ.
+        assert_ne!(hash_leaf(b"a"), hash_leaf(b"b"));
+        assert_eq!(hash_leaf(b"a"), hash_leaf(b"a"));
+        let a = hash_leaf(b"a");
+        assert_ne!(hash_internal(&a, &a), a);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

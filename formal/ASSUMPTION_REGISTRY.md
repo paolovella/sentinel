@@ -436,6 +436,14 @@ first (a failing test *also* prints a line starting with `error:`), then
 `^error\[` or `could not compile` as invalid, then missed. Getting that order
 wrong misreports caught mutations as invalid.
 
+**Domain separation needs the forgery, not just a difference.** Checking that a
+leaf hash and an internal hash merely *differ* is too weak: dropping the RFC 6962
+**leaf** prefix leaves them different anyway, because the internal prefix alone
+still separates plain concatenations. The test has to construct the actual
+second preimage — `hash_leaf(0x01 || left || right)` against
+`hash_internal(left, right)` — which collide exactly when the leaf prefix is
+missing. Mutation testing found this; the weaker check passed the mutant.
+
 **Equivalent mutants.** Mutation-verifying a property discharge can surface
 mutants that change the text without changing behaviour. FP-WRAP-1 is enforced
 jointly by a `clamp` and a range branch; removing either alone is equivalent,
@@ -451,7 +459,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-27): 54 of 59 kernels bound (43 discharged + 5 partial + 6 property), 5 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
+**Measured trusted base (2026-08-28): 55 of 59 kernels bound (43 discharged + 5 partial + 7 property), 4 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -504,6 +512,7 @@ collapsed here.
 | `verified_capability_chain` | bounded | chain lengths 0..=64 from all 256 `u8` starting depths, checked against iterating the shipped depth primitive; 8-step expiry chains over 5×5 root/ttl pairs; step identity rules cross-checked against the shipped `verified_capability_identity` predicates |
 | `verified_replay_provenance` | **partial** | `merge_replay_status` totally over all 9 status pairs plus commutativity, idempotence and absorption; `ReplayDetected` quarantine bound through `infer_trust_tier`. The `NotChecked` cap is pinned — see `REPLAY-NOTCHECKED-1` |
 | `verified_evidence_signing` | **property** | tamper coverage — 20 named field mutations must each move `signing_content()`, plus a field-boundary ambiguity check; hex-length and count-consistency predicates bound directly |
+| `verified_merkle_integrity` | **property** | the twelve derived lemmas checked against shipped hashing: 32-byte lengths, RFC 6962 domain separation including the second-preimage forgery, order sensitivity, corpus-distinctness, leaf-to-root propagation, and hex codec round-trip and injectivity. The collision-resistance axioms it rests on stay trusted — `MERKLE-HASH-1/2` |
 | `verified_refinement_safety` | **property** | SAFETY-1..3 against the shipped `compute_verdict`: empty set denies, an all-miss trace of length 0..7 denies, and a first-matching deny contribution denies across 16 lead/trail shapes |
 | `verified_refinement_completeness` | **property** | COMPLETENESS-1..5 against `compute_single_verdict`/`compute_verdict`: miss advances, hit decides, both non-deny terminal verdicts apply, and evaluation stops at the first deciding entry with the decisive one placed at every position |
 | `verified_refinement_sort_stutter` | **property** | postcondition binding — all 120 permutations of a 5-policy corpus forcing each comparator tier; ordering totality; deny-override checked independently of the id tiebreak |
@@ -566,7 +575,7 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 5 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 4 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
 

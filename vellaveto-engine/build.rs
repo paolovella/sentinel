@@ -6,24 +6,40 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Materializes the Kani extractions so they can be compiled and compared
-//! against production. See `src/kani_path_differential.rs` and `PARITY-HAND-2`
-//! in `formal/ASSUMPTION_REGISTRY.md`.
+//! against production. See `src/kani_path_differential.rs`,
+//! `src/kani_ip_differential.rs`, the `kani_parity_differential_cache` module
+//! in `src/cache.rs`, and `PARITY-HAND-2` in `formal/ASSUMPTION_REGISTRY.md`.
 //!
-//! The extraction cannot be pulled in with a bare `include!` because it opens
+//! An extraction cannot be pulled in with a bare `include!` because it opens
 //! with `//!` inner doc comments, and Rust rejects inner attributes that arrive
 //! from a macro expansion. The only transformation applied here is turning
 //! those `//!` lines into `//`. Nothing else is touched: if this script ever
-//! needs to rewrite code to make the extraction compile, the extraction has
-//! stopped being the thing the Kani proofs run against and that is a finding.
+//! needs to rewrite code to make an extraction compile, the extraction has
+//! stopped being the thing the Kani proofs run against, and that is a finding.
+//!
+//! No `unwrap`, `expect` or `panic!`: CI treats build scripts like runtime code,
+//! and a script that panics gives a worse diagnostic than one that says what it
+//! could not do.
 
 use std::path::Path;
 
-fn main() {
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is always set by cargo");
-    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR is always set by cargo");
+/// Report and exit non-zero. A build script has no error channel other than
+/// stderr and its exit code.
+fn fail(message: &str) -> ! {
+    eprintln!("cargo:warning={message}");
+    eprintln!("{message}");
+    std::process::exit(1)
+}
 
+fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+
+    let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
+        fail("CARGO_MANIFEST_DIR is not set; cannot locate the Kani extractions")
+    };
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        fail("OUT_DIR is not set; cannot materialize the Kani extractions")
+    };
 
     for (module, out_name) in [
         ("path", "kani_path_extraction.rs"),
@@ -38,17 +54,16 @@ fn main() {
 
 /// Copy one extraction into `OUT_DIR`, turning `//!` into `//`.
 ///
-/// Absent (a slim checkout, a published crate) a stub is written instead of
-/// failing the build; each differential test asserts on `EXTRACTION_PRESENT`
-/// so a silent skip cannot masquerade as a pass.
+/// When the file is absent (a slim checkout, a published crate) a stub is
+/// written instead of failing the build; each differential test asserts on
+/// `EXTRACTION_PRESENT`, so a silent skip cannot masquerade as a pass.
 fn materialize(extraction: &Path, destination: &Path) {
     let Ok(source) = std::fs::read_to_string(extraction) else {
-        std::fs::write(
+        write_or_fail(
             destination,
             "// Kani extraction not present in this checkout.\n\
              pub const EXTRACTION_PRESENT: bool = false;\n",
-        )
-        .expect("writing to OUT_DIR");
+        );
         return;
     };
 
@@ -68,5 +83,14 @@ fn materialize(extraction: &Path, destination: &Path) {
         rewritten.push('\n');
     }
 
-    std::fs::write(destination, rewritten).expect("writing to OUT_DIR");
+    write_or_fail(destination, &rewritten);
+}
+
+fn write_or_fail(destination: &Path, contents: &str) {
+    if let Err(error) = std::fs::write(destination, contents) {
+        fail(&format!(
+            "could not write {}: {error}",
+            destination.display()
+        ));
+    }
 }

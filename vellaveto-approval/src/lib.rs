@@ -322,6 +322,22 @@ impl PendingApproval {
     }
 }
 
+/// Return true when an approval must be refused on lineage grounds.
+///
+/// The disjunction the relay applies: a drift reason was found, **or** the
+/// approval store could not be read. The second disjunct is the fail-closed
+/// half — a store error previously left drift undetected and let the approval
+/// be consumed unverified (R265-RELAY-3).
+///
+/// Extracted from the inline flags in the relay so
+/// `formal/verus/verified_approval_drift.rs` has a named counterpart for
+/// `spec_fail_closed_drift`.
+#[inline]
+#[must_use = "security decisions must not be discarded"]
+pub const fn approval_refused_for_drift(store_error: bool, drift_reason_found: bool) -> bool {
+    store_error || drift_reason_found
+}
+
 /// Phase 3: Check if a pending approval should be invalidated due to
 /// lineage drift — the session's trust or taint state has changed since
 /// the approval was created.
@@ -1857,6 +1873,159 @@ impl ApprovalStore {
         file.sync_data().await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod verus_drift_differential {
+    //! Differential binding for `PARITY-HAND-1`, kernel
+    //! `formal/verus/verified_approval_drift.rs`.
+    //!
+    //! Three of the four predicates already have a named production home in
+    //! `check_approval_lineage_drift`, so they are bound against it directly
+    //! rather than extracted. The fourth, `spec_fail_closed_drift`, was inline
+    //! in the relay as a pair of boolean flags; it is now
+    //! `approval_refused_for_drift`.
+    //!
+    //! TOTAL for the fail-closed disjunction (2²) and for the drift decision
+    //! across every ordered pair of `TrustTier` ranks crossed with a taint
+    //! boundary set.
+
+    use super::*;
+
+    fn spec_trust_downgraded(approval_rank: u8, current_rank: u8) -> bool {
+        current_rank < approval_rank
+    }
+
+    fn spec_taint_accumulated(approval_taint_count: usize, current_taint_count: usize) -> bool {
+        current_taint_count > approval_taint_count
+    }
+
+    fn spec_drift_detected(trust_down: bool, taint_up: bool) -> bool {
+        trust_down || taint_up
+    }
+
+    fn spec_fail_closed_drift(store_error: bool, trust_down: bool, taint_up: bool) -> bool {
+        store_error || trust_down || taint_up
+    }
+
+    const ALL_TIERS: [TrustTier; 7] = [
+        TrustTier::Quarantined,
+        TrustTier::Unknown,
+        TrustTier::Untrusted,
+        TrustTier::Low,
+        TrustTier::Medium,
+        TrustTier::High,
+        TrustTier::Verified,
+    ];
+
+    fn approval_with(trust: Option<TrustTier>, taint_count: usize) -> PendingApproval {
+        PendingApproval {
+            id: "approval-1".to_string(),
+            action: Action::new("tool", "fn", serde_json::json!({})),
+            reason: "needs review".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + Duration::minutes(15),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: None,
+            session_id: None,
+            action_fingerprint: None,
+            containment_context: Some(ApprovalContainmentContext {
+                semantic_taint: vec![SemanticTaint::Sensitive; taint_count],
+                lineage_channels: vec![],
+                effective_trust_tier: trust,
+                sink_class: None,
+                containment_mode: None,
+                ..Default::default()
+            }),
+        }
+    }
+
+    /// The drift decision must fire exactly when the kernel says it does:
+    /// trust dropped since creation, or taint accumulated.
+    #[test]
+    fn test_drift_detection_matches_verus_spec() {
+        let taints = [0usize, 1, 2, 5];
+        let mut checked = 0usize;
+
+        for approval_trust in ALL_TIERS {
+            for current_trust in ALL_TIERS {
+                for &approval_taint in &taints {
+                    for &current_taint in &taints {
+                        let approval = approval_with(Some(approval_trust), approval_taint);
+                        let shipped = check_approval_lineage_drift(
+                            &approval,
+                            Some(current_trust),
+                            current_taint,
+                        )
+                        .is_some();
+
+                        let trust_down =
+                            spec_trust_downgraded(approval_trust.rank(), current_trust.rank());
+                        let taint_up = spec_taint_accumulated(approval_taint, current_taint);
+
+                        assert_eq!(
+                            shipped,
+                            spec_drift_detected(trust_down, taint_up),
+                            "PARITY-HAND-1: drift detection disagrees for approval \
+                             ({approval_trust:?}, taint {approval_taint}) against current \
+                             ({current_trust:?}, taint {current_taint})"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 7 * 7 * 4 * 4, "enumeration collapsed");
+    }
+
+    /// `spec_fail_closed_drift`: a store error refuses the approval even when
+    /// no drift reason was found. This is the fail-open bypass R265-RELAY-3
+    /// closed — a store read failure previously left drift undetected.
+    #[test]
+    fn test_fail_closed_disjunction_matches_verus_spec_total_domain() {
+        for store_error in [false, true] {
+            for trust_down in [false, true] {
+                for taint_up in [false, true] {
+                    let drift_reason_found = spec_drift_detected(trust_down, taint_up);
+                    assert_eq!(
+                        approval_refused_for_drift(store_error, drift_reason_found),
+                        spec_fail_closed_drift(store_error, trust_down, taint_up),
+                        "PARITY-HAND-1: fail-closed drift disagrees at ({store_error}, \
+                         {trust_down}, {taint_up})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// An approval with no containment context cannot drift — the kernel's
+    /// predicates are only defined where a baseline exists.
+    #[test]
+    fn test_no_containment_context_means_no_drift() {
+        let mut approval = approval_with(Some(TrustTier::High), 0);
+        approval.containment_context = None;
+        assert!(
+            check_approval_lineage_drift(&approval, Some(TrustTier::Quarantined), 99).is_none(),
+            "PARITY-HAND-1: drift was reported without a containment baseline to compare against"
+        );
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // Trust rising or holding is not drift; dropping is.
+        assert!(!spec_trust_downgraded(4, 4));
+        assert!(!spec_trust_downgraded(4, 6));
+        assert!(spec_trust_downgraded(4, 2));
+        // Taint holding is not drift; accumulating is.
+        assert!(!spec_taint_accumulated(2, 2));
+        assert!(spec_taint_accumulated(2, 3));
+        // A store error alone refuses.
+        assert!(spec_fail_closed_drift(true, false, false));
+        assert!(!spec_fail_closed_drift(false, false, false));
     }
 }
 

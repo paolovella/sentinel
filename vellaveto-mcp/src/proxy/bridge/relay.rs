@@ -2938,7 +2938,13 @@ impl ProxyBridge {
                     // trust has dropped or new taint accumulated since creation.
                     // SECURITY (R264-RELAY-1): Drift MUST produce a denial, not just
                     // a warning. Previously the code logged but fell through to consume.
-                    let mut drift_detected = false;
+                    // The two disjuncts the kernel `verified_approval_drift`
+                    // models separately: a drift reason was found, and the store
+                    // could not be read. They are combined below through
+                    // `approval_refused_for_drift`, which is the named
+                    // counterpart of `spec_fail_closed_drift`.
+                    let mut drift_reason_found = false;
+                    let mut store_error = false;
                     if let Some(ref store) = self.approval_store {
                         match store.get(approval_id.as_str()).await {
                             Ok(pending) => {
@@ -2956,7 +2962,7 @@ impl ProxyBridge {
                                         &approval_id[..approval_id.len().min(32)],
                                         drift_reason
                                     );
-                                    drift_detected = true;
+                                    drift_reason_found = true;
                                 }
                             }
                             Err(e) => {
@@ -2968,12 +2974,15 @@ impl ProxyBridge {
                                     "SECURITY: Approval store error during drift check — denying (fail-closed): {}",
                                     e
                                 );
-                                drift_detected = true;
+                                store_error = true;
                             }
                         }
                     }
 
-                    if drift_detected {
+                    if vellaveto_approval::approval_refused_for_drift(
+                        store_error,
+                        drift_reason_found,
+                    ) {
                         // SECURITY (R264-RELAY-1): Deny the request — do NOT consume
                         // the drifted approval. Trust degradation since approval creation
                         // means the security context has changed.

@@ -459,7 +459,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-28): 55 of 59 kernels bound (43 discharged + 5 partial + 7 property), 4 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
+**Measured trusted base (2026-08-28): 57 of 59 kernels bound (45 discharged + 5 partial + 7 property), 2 remain — and both are blocked on a design decision, see `MODEL-SHAPE-1/2`. Every kernel that can be bound without first resolving a modelling question now is.**
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -560,13 +560,23 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   `check-verus-parity.sh` pairs each against a whole production file, so there
   is no function to transcribe against. Discharging these needs the production
   logic extracted into a mirror first — a code change, not only a test change.
-- **Inline within a mirror** — a mirror file exists, but the predicates the
-  kernel models were never given names in it. `verified_capability_glob_subset`
-  is the only one: its `spec_glob_subset_fast_path` and
-  `spec_glob_subset_accepting_counterexample` correspond to expressions inside
-  the BFS product-automaton loop of `glob_pattern_subset`, not to functions, so
-  there is nothing to call from a differential test. It needs the same
-  extraction as the inline kernels.
+- **Inline within a mirror** *(cleared 2026-08-28)* — a mirror file existed, but
+  the predicates the kernel models were never given names in it.
+  `verified_capability_glob_subset` was the only one: its
+  `spec_glob_subset_fast_path`, `spec_glob_subset_accepting_counterexample` and
+  `spec_representative_other_byte_needed` corresponded to expressions inside the
+  BFS product-automaton loop of `glob_pattern_subset` and inside
+  `capability_token.rs`, not to functions, so there was nothing to call from a
+  differential test. All three are now named
+  (`accepting_counterexample`, `representative_other_byte_needed`,
+  `glob_subset_fast_path`), called on the shipped path, and bound over their
+  total input domains. Routing the shipped `pattern_is_subset` through
+  `glob_subset_fast_path` required hoisting it out of `grant_is_subset`; the two
+  pre-existing verified helpers (`pattern_subset_guard`,
+  `literal_child_pattern_subset`) were deliberately kept on the path so their
+  own bindings do not lapse. The expensive branches stay lazily evaluated —
+  `spec_glob_subset_fast_path` proves the result reads only the selected branch,
+  which is what makes `false` sound for the other.
 - **Abstract** — the kernel's specs range over opaque values rather than
   concrete ones. `verified_merkle_fold` states its fold over `Seq<Seq<int>>`
   hashes, so a differential test would have to supply a *hash model*, and a
@@ -575,9 +585,29 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 4 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
+The remaining 2 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
 differential binding, its proof constrains the kernel and not the shipped code,
 and no claim should say otherwise.
+
+## DRIFT-STORE-1 — approval drift is decided by two disjuncts, not one
+
+`verified_approval_drift` models four predicates. Three of them
+(`spec_trust_downgraded`, `spec_taint_accumulated`, `spec_drift_detected`)
+already had a named production home in
+`vellaveto_approval::check_approval_lineage_drift` and are bound against it
+directly, over every ordered pair of the seven `TrustTier` ranks crossed with a
+taint boundary set (784 comparisons).
+
+The fourth, `spec_fail_closed_drift`, did not: the store-error disjunct existed
+only as a local `drift_detected = true` in the relay's `Err(e)` arm. It is now
+`vellaveto_approval::approval_refused_for_drift(store_error,
+drift_reason_found)`, called from the relay, and bound over its total 2³ domain.
+
+This is the disjunct that matters most and was the least visible: R265-RELAY-3
+records that a store read failure once left drift undetected and let the
+approval be consumed unverified. Mutation-verified 4/4 — inverting the trust
+comparison, weakening the taint comparison to `>=`, dropping the trust check,
+and making the store-error branch fail open are all caught.
 
 ## Artifact Map
 

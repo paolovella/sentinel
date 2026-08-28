@@ -1146,3 +1146,251 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against. See `kani_path_differential`.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_cache_extraction {
+    include!(concat!(env!("OUT_DIR"), "/kani_cache_extraction.rs"));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_cache {
+    //! Differential binding for `PARITY-HAND-2` — cache safety.
+    //!
+    //! `formal/kani/src/cache.rs` models `is_cacheable_context` with a struct
+    //! of booleans standing in for `Option<&EvaluationContext>`, and says the
+    //! logic is "verbatim from production". It was not: production gained a
+    //! `has_risk_score` short-circuit in R237-ENG-6 — so a verdict computed at
+    //! risk 0.1 is not served at risk 0.9 — and the model never followed. K33
+    //! was proved about the pre-fix function. The model now carries the field
+    //! and the proof re-verifies; this binding is what would have caught the
+    //! drift, and what will catch the next one.
+    //!
+    //! It lives inside `cache.rs` because `DecisionCache::is_cacheable_context`
+    //! is private to this module; a binding that required widening its
+    //! visibility would be changing shipped API surface to test it.
+
+    use super::kani_cache_extraction as extracted;
+    use super::DecisionCache;
+    use vellaveto_types::identity::EvaluationContext;
+
+    /// A structurally valid token. `is_cacheable_context` only asks whether one
+    /// is present, so the fields are placeholders.
+    fn sample_capability_token() -> vellaveto_types::capability::CapabilityToken {
+        serde_json::from_value(serde_json::json!({
+            "token_id": "00000000-0000-4000-8000-000000000000",
+            "issuer": "issuer",
+            "holder": "holder",
+            "grants": [],
+            "issued_at": "2026-08-28T00:00:00Z",
+            "expires_at": "2126-08-28T00:00:00Z",
+            "signature": "",
+            "remaining_depth": 0,
+            "issuer_public_key": ""
+        }))
+        .expect("sample capability token deserializes")
+    }
+
+    /// Build a context in which exactly the requested session-dependent fields
+    /// are populated, so the two sides are given the same state.
+    fn context_with(
+        timestamp: bool,
+        call_counts: bool,
+        previous_actions: bool,
+        call_chain: bool,
+        capability_token: bool,
+        session_state: bool,
+        verification_tier: bool,
+    ) -> EvaluationContext {
+        let mut ctx = EvaluationContext::default();
+        if timestamp {
+            ctx.timestamp = Some("2026-08-28T00:00:00Z".to_string());
+        }
+        if call_counts {
+            ctx.call_counts.insert("tool".to_string(), 1);
+        }
+        if previous_actions {
+            ctx.previous_actions.push("prev".to_string());
+        }
+        if call_chain {
+            ctx.call_chain
+                .push(vellaveto_types::identity::CallChainEntry {
+                    agent_id: "agent".to_string(),
+                    tool: "tool".to_string(),
+                    function: "fn".to_string(),
+                    timestamp: "2026-08-28T00:00:00Z".to_string(),
+                    hmac: None,
+                    verified: None,
+                });
+        }
+        if capability_token {
+            // Only presence matters to the cacheability decision; the token's
+            // contents are never read by it.
+            ctx.capability_token = Some(sample_capability_token());
+        }
+        if session_state {
+            ctx.session_state = Some(Default::default());
+        }
+        if verification_tier {
+            ctx.verification_tier = Some(Default::default());
+        }
+        ctx
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/cache.rs was not found, so this binding compared nothing"
+        );
+    }
+
+    /// TOTAL over all 2^8 combinations of the seven session-dependent fields
+    /// and the risk-score flag, with the context present; plus the same eight
+    /// risk-score/absent-context pairs.
+    ///
+    /// This is the enumeration that would have caught R237-ENG-6 drifting out
+    /// of the model: with `has_risk_score` true and every other field clear,
+    /// production says uncacheable and the pre-fix model said cacheable.
+    #[test]
+    fn test_cacheability_matches_production_total_domain() {
+        let mut checked = 0usize;
+        for bits in 0u16..(1 << 8) {
+            let f = |i: u8| bits & (1 << i) != 0;
+            let (ts, cc, pa, ch, ct, ss, vt, risk) =
+                (f(0), f(1), f(2), f(3), f(4), f(5), f(6), f(7));
+
+            let ctx = context_with(ts, cc, pa, ch, ct, ss, vt);
+            let production = DecisionCache::is_cacheable_context(Some(&ctx), risk);
+            let model = extracted::is_cacheable_context(&extracted::CacheabilityFields {
+                has_timestamp: ts,
+                has_call_counts: cc,
+                has_previous_actions: pa,
+                has_call_chain: ch,
+                has_capability_token: ct,
+                has_session_state: ss,
+                has_verification_tier: vt,
+                context_present: true,
+                has_risk_score: risk,
+            });
+            assert_eq!(
+                production, model,
+                "PARITY-HAND-2: production and the Kani cache model disagree for \
+                 (timestamp {ts}, call_counts {cc}, previous_actions {pa}, \
+                 call_chain {ch}, capability_token {ct}, session_state {ss}, \
+                 verification_tier {vt}, risk_score {risk}) — a cacheability \
+                 decision proved safe is not the one being made"
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 256, "enumeration collapsed");
+
+        // Context absent, both risk-score states.
+        for risk in [false, true] {
+            let production = DecisionCache::is_cacheable_context(None, risk);
+            let model = extracted::is_cacheable_context(&extracted::CacheabilityFields {
+                has_timestamp: false,
+                has_call_counts: false,
+                has_previous_actions: false,
+                has_call_chain: false,
+                has_capability_token: false,
+                has_session_state: false,
+                has_verification_tier: false,
+                context_present: false,
+                has_risk_score: risk,
+            });
+            assert_eq!(
+                production, model,
+                "PARITY-HAND-2: disagreement with no context and risk_score={risk}"
+            );
+        }
+    }
+
+    /// The regression this drift would have reintroduced, stated directly.
+    #[test]
+    fn test_risk_score_alone_makes_a_request_uncacheable_in_both() {
+        let ctx = context_with(false, false, false, false, false, false, false);
+        assert!(
+            !DecisionCache::is_cacheable_context(Some(&ctx), true),
+            "R237-ENG-6: a request carrying a risk score must not be cacheable"
+        );
+        assert!(
+            !extracted::is_cacheable_context(&extracted::CacheabilityFields {
+                has_timestamp: false,
+                has_call_counts: false,
+                has_previous_actions: false,
+                has_call_chain: false,
+                has_capability_token: false,
+                has_session_state: false,
+                has_verification_tier: false,
+                context_present: true,
+                has_risk_score: true,
+            }),
+            "the Kani model must agree, or K33 is proved about the pre-fix function"
+        );
+    }
+
+    /// K34 says "build_key is case-insensitive", and the model demonstrates it
+    /// on `to_lowercase`. Production hashes through `normalize_full` — NFKC plus
+    /// lowercase plus homoglyph mapping — which is strictly stronger, so the
+    /// model's normalization is not production's.
+    ///
+    /// That gap is deliberate and named (`NORMALIZE-MODEL-1`): Kani cannot
+    /// compile the `icu_normalizer` chain, which is the reason this crate is
+    /// separate in the first place. What can be bound is the property K34
+    /// actually claims — that the normalization production uses is
+    /// case-insensitive — so it is bound here rather than left implied.
+    #[test]
+    fn test_production_key_normalization_is_case_insensitive_as_k34_claims() {
+        const CASES: &[(&str, &str)] = &[
+            ("ReadFile", "readfile"),
+            ("READFILE", "readfile"),
+            ("rEaDfIlE", "readfile"),
+            ("Tool_Name", "tool_name"),
+            ("A", "a"),
+            ("Z", "z"),
+        ];
+        for (upper, lower) in CASES {
+            assert_eq!(
+                crate::normalize::normalize_full(upper),
+                crate::normalize::normalize_full(lower),
+                "K34 does not hold for the normalization production actually uses: \
+                 {upper:?} and {lower:?} produce different cache keys"
+            );
+            // And the model agrees on this shared subset.
+            assert_eq!(
+                extracted::normalize_for_key(upper),
+                extracted::normalize_for_key(lower),
+                "the Kani model disagrees with itself on {upper:?}"
+            );
+        }
+        // The model is weaker than production, which is the declared gap. Pin
+        // it so the difference is visible rather than assumed away: a fullwidth
+        // character folds under production's normalization and not under the
+        // model's.
+        let fullwidth = "\u{ff26}ile"; // FULLWIDTH LATIN CAPITAL LETTER F
+        assert_eq!(
+            crate::normalize::normalize_full(fullwidth),
+            crate::normalize::normalize_full("File"),
+            "production normalization should fold fullwidth forms"
+        );
+        assert_ne!(
+            extracted::normalize_for_key(fullwidth),
+            extracted::normalize_for_key("File"),
+            "NORMALIZE-MODEL-1: if the model started folding fullwidth forms it \
+             would no longer be the weaker model this gap is recorded against"
+        );
+    }
+
+    /// The enumeration must reach both answers, or agreement is vacuous.
+    #[test]
+    fn test_enumeration_reaches_both_answers() {
+        let clear = context_with(false, false, false, false, false, false, false);
+        let dirty = context_with(true, false, false, false, false, false, false);
+        assert!(DecisionCache::is_cacheable_context(Some(&clear), false));
+        assert!(!DecisionCache::is_cacheable_context(Some(&dirty), false));
+    }
+}

@@ -28,6 +28,7 @@ fn main() {
     for (module, out_name) in [
         ("path", "kani_path_extraction.rs"),
         ("ip", "kani_ip_extraction.rs"),
+        ("cache", "kani_cache_extraction.rs"),
     ] {
         let extraction = Path::new(&manifest_dir).join(format!("../formal/kani/src/{module}.rs"));
         println!("cargo:rerun-if-changed={}", extraction.display());

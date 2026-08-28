@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **2 of 35 discharged** (2026-08-28) — `path.rs` and `ip.rs` are now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6 each; see `KANI-PATH-BOUND-1`. The other 33 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **3 of 35 discharged** (2026-08-28) — `path.rs`, `ip.rs` and `cache.rs` are now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6, 6/6 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 32 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,11 +747,77 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 33 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 32 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery. Two
 shapes have been seen so far: verbatim (`path.rs`, compare directly) and
 representation-shifted (`ip.rs`, bridge the declared difference explicitly).
+
+## KANI-CACHE-DRIFT-1 — a proof about the function as it was before a security fix
+
+Found 2026-08-28 by building the third Kani binding. Fixed the same day.
+
+`formal/kani/src/cache.rs` modelled `is_cacheable_context` with a struct of
+booleans and described the logic as "verbatim from production". It was not.
+Production gained a `has_risk_score` short-circuit in **R237-ENG-6**:
+
+> risk_score from continuous authorization can change ABAC verdicts between
+> calls. A cached Allow for risk_score=0.1 must not be served when the next
+> request has risk_score=0.9.
+
+The model never followed. It had no such field, so **K33 was proved about the
+function as it stood before that fix** — a model in which a request carrying a
+risk score is cacheable whenever its context is clean.
+
+Not a vulnerability: production has the fix and always had it after R237. What
+was wrong is the claim. A reader checking whether cache poisoning via stale risk
+scores was ruled out would have found a Kani proof that appears to cover it and
+does not.
+
+**Resolution.** `CacheabilityFields` gains `has_risk_score`, checked before the
+context exactly as production checks it; the K33 harness quantifies over it and
+asserts that a risk-carrying request is never cacheable. Re-verified with Kani
+locally: 62 checks, 0 failed. The differential binding in
+`vellaveto-engine/src/cache.rs` then enumerates **all 2⁸ combinations** of the
+seven session-dependent fields and the risk flag, plus both risk states with no
+context.
+
+Mutation-verified 4/4, and the first mutation is the drift itself: deleting the
+`has_risk_score` branch — restoring exactly the pre-fix model — is caught.
+
+**Why this one matters more than its severity suggests.** It is the same failure
+as `TAINT-MODEL-DRIFT`: production was fixed, the model was not, and every guard
+stayed green because no guard compared them. That is now three findings of this
+shape (`TAINT-MODEL-DRIFT`, `MODEL-SHAPE-1/2`, this), which is enough to call it
+the dominant failure mode of the formal program rather than a series of
+accidents. A model only tracks production if something forces it to.
+
+The binding lives inside `cache.rs` rather than a sibling module because
+`DecisionCache::is_cacheable_context` is private; a binding that required
+widening its visibility would be changing shipped API surface in order to test
+it.
+
+## NORMALIZE-MODEL-1 — K34's normalization is weaker than production's
+
+Named 2026-08-28. **Deliberate, not a defect.**
+
+K34 states "build_key is case-insensitive" and demonstrates it on the model's
+`normalize_for_key`, which is `s.to_lowercase()`. Production's `build_key`
+hashes through `normalize_full` — NFKC, lowercase, and homoglyph mapping — which
+is strictly stronger. So the proof is about a different, weaker normalization
+than the one running.
+
+This gap is not closable in Kani and should not be: `formal/kani/Cargo.toml`
+exists precisely because Kani 0.67 cannot compile the `icu_normalizer`/`zerovec`
+chain, and modelling NFKC in a SAT encoding is intractable.
+
+What *is* bindable is the property K34 claims — that the normalization
+production actually uses is case-insensitive — and that is now asserted directly
+against `normalize_full`, together with a pin that the model remains the weaker
+of the two (a fullwidth `Ｆ` folds under production's normalization and not
+under the model's). If the model ever started folding fullwidth forms, the
+difference this assumption is recorded against would have changed and the pin
+fails.
 
 ## Artifact Map
 

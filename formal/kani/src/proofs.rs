@@ -1165,7 +1165,16 @@ fn proof_is_cacheable_context_no_session_state() {
         has_session_state: kani::any(),
         has_verification_tier: kani::any(),
         context_present: kani::any(),
+        has_risk_score: kani::any(),
     };
+
+    // SECURITY (R237-ENG-6): a request carrying a risk score is never cacheable.
+    if fields.has_risk_score {
+        assert!(
+            !is_cacheable_context(&fields),
+            "K33 violated: cacheable while carrying a risk score"
+        );
+    }
 
     if is_cacheable_context(&fields) && fields.context_present {
         assert!(

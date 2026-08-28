@@ -97,6 +97,39 @@ if ! flock -n 9; then
     flock 9
 fi
 
+# The lock stops two runs racing. It does not stop a run being *interrupted*.
+# A run killed between mutating a file and restoring it leaves the shared target
+# directory holding artifacts built from mutated source, and the next run's
+# control case then "drifts" against a pristine tree — a fabricated hole, which
+# for a guard self-test is as dangerous as a fabricated pass. That happened on
+# 2026-08-28 after a run was stopped mid-case: the differential control reported
+# a hole while the same guard passed on a clean target directory.
+#
+# So: drop a marker while running and clear it on a clean exit. If the marker is
+# still there at startup the previous run did not finish, the directory cannot
+# be trusted, and this script refuses to measure rather than reporting numbers
+# it has not earned.
+RUNNING_MARKER="$DIFFERENTIAL_TARGET_DIR/.guard-selftest.running"
+if [ -e "$RUNNING_MARKER" ]; then
+    cat >&2 <<MSG
+ERROR: a previous guard-selftest did not finish.
+
+  $DIFFERENTIAL_TARGET_DIR may hold build artifacts compiled from mutated
+  source. Results from it cannot be trusted in either direction.
+
+  Clear the target directory, or point this run somewhere else:
+
+    DIFFERENTIAL_TARGET_DIR=/tmp/vellaveto-guard-selftest-target-\$\$ \\
+      bash formal/tools/guard-selftest.sh
+
+  Refusing to run. A self-test that reports numbers it has not earned is
+  worse than no self-test.
+MSG
+    exit 2
+fi
+: > "$RUNNING_MARKER"
+trap 'rm -f "$RUNNING_MARKER"' EXIT
+
 echo "=== Formal Guard Self-Test ==="
 echo "Each case breaks one thing a guard claims to protect and expects it to fire."
 echo ""

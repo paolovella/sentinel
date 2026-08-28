@@ -12,6 +12,17 @@
 //! translation of the production logic — the only difference is the type
 //! representation (`[u8; 4]` vs `Ipv4Addr`, `[u16; 8]` vs `Ipv6Addr`).
 //!
+//! That translation is checked behaviourally by
+//! `vellaveto-engine/src/kani_ip_differential.rs`, which builds the `std::net`
+//! value from the same octets and requires the classifications to agree, over
+//! all 65,536 `a.b.1.1` addresses plus the boundary outside each RFC range.
+//! Before 2026-08-28 nothing checked it — see PARITY-HAND-2 in
+//! formal/ASSUMPTION_REGISTRY.md.
+//!
+//! Note when editing: the IPv4 classifier appears twice here, in
+//! `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (K29 is the
+//! property that they agree). A change to one must be made to both.
+//!
 //! # Verified Properties (K26-K32)
 //!
 //! | ID  | Property |

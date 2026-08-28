@@ -11,7 +11,11 @@
 //! - `EngineError::PathNormalization` → `PathError`
 //! - `tracing::warn!()` → no-op (Kani cannot model tracing)
 //!
-//! The algorithm is identical. This correspondence is verified by CI.
+//! The algorithm is identical. That correspondence is checked behaviourally
+//! by `vellaveto-engine/src/kani_path_differential.rs`, which compiles this
+//! file and compares it against production over an enumerated corpus. Before
+//! 2026-08-28 the claim was made here but nothing checked it — see
+//! PARITY-HAND-2 in formal/ASSUMPTION_REGISTRY.md.
 
 use crate::PathError;
 use std::borrow::Cow;

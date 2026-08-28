@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **3 of 35 discharged** (2026-08-28) — `path.rs`, `ip.rs` and `cache.rs` are now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6, 6/6 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 32 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **4 of 35 discharged** (2026-08-28) — `path.rs`, `ip.rs`, `cache.rs` and `domain.rs` are now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6, 6/6, 4/4 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 31 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,11 +747,27 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 32 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 31 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
-the remaining work is per-module corpus design rather than new machinery. Two
-shapes have been seen so far: verbatim (`path.rs`, compare directly) and
-representation-shifted (`ip.rs`, bridge the declared difference explicitly).
+the remaining work is per-module corpus design rather than new machinery.
+
+Four shapes have been seen: **verbatim** (`path.rs` — compile and compare
+directly); **representation-shifted** (`ip.rs` — `[u8; 4]` vs `Ipv4Addr`, bridge
+the declared difference); **modelled** (`cache.rs` — booleans standing in for a
+struct, construct real values and map them); and **abstracted dependency**
+(`domain.rs` — the third-party `idna` call is a symbolic parameter, so the
+binding supplies the real result and compares the wrapper around it).
+
+`domain.rs` is worth singling out. Abstracting `idna::domain_to_ascii` is the
+right boundary and is declared, but nothing had checked that the wrapper
+K61-K63 explore is the wrapper that runs — and that wrapper has a history.
+R25-ENG-5: a wildcard prefix was not stripped before IDNA, so `*.münchen.de`
+failed normalization, the pattern never matched, and internationalized domains
+bypassed wildcard blocking. R39-ENG-3: malformed ASCII slipped past a blocklist
+because some IDNA implementations accept whitespace and colons without error.
+Both fail open. The binding is mutation-verified against exactly those two
+regressions, plus trailing-dot stripping, the wildcard character in the
+ASCII-lowercase fast path, and the SRV underscore allowance from R27-ENG-2.
 
 ## KANI-CACHE-DRIFT-1 — a proof about the function as it was before a security fix
 

@@ -250,6 +250,23 @@ run_case "restriction threshold drifts from the kernel" "$VERUS_GUARD" drift \
 run_case "sequence gate fires without an anomaly" "$DIFF_GUARD" drift \
     perl -0pi -e 's/    anomaly_detected && anomaly_confidence >= RESTRICTION_THRESHOLD\n\}/    anomaly_confidence >= RESTRICTION_THRESHOLD\n}/' vellaveto-engine/src/verified_sequence_gate.rs
 
+# ── 1c. Kani extraction ↔ production behaviour (KANI-PATH-BOUND-1) ────────
+# The Kani side had no behavioural binding at all until 2026-08-28. These test
+# the first one. The reason-comparison case is here because the binding's first
+# version missed it: deleting one null-byte check left both copies returning
+# Err, so outcome-only comparison saw nothing.
+echo ""
+echo "--- kani extraction ↔ production behaviour ---"
+
+run_case "kani path copy: iteration bound drifts" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 20;/pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 30;/' formal/kani/src/path.rs
+
+run_case "kani path copy: raw null-byte check removed" "$DIFF_GUARD" drift \
+    perl -0pi -e "s/if raw\\.contains\\('\\\\0'\\) \\{/if false {/" formal/kani/src/path.rs
+
+run_case "kani path copy: backslash normalization dropped" "$DIFF_GUARD" drift \
+    perl -0pi -e "s/let decoded = if decoded\\.contains\\('\\\\\\\\'\\) \\{/let decoded = if false {/" formal/kani/src/path.rs
+
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────
 # formal/kani/Cargo.toml states the extracted code "is tested to be identical to
 # the production code via the CI diff check". These test whether that holds.

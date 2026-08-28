@@ -44,6 +44,7 @@ mod entropy_gate;
 mod error;
 pub mod impact;
 mod ip;
+mod kani_path_differential;
 pub mod least_agency;
 mod legacy;
 pub mod lint;
@@ -51,6 +52,19 @@ mod matcher;
 pub mod nhi_overpermission;
 mod normalize;
 mod path;
+
+/// Test-only stand-in for `formal/kani/src/lib.rs`'s `PathError`.
+///
+/// `formal/kani/src/path.rs` is compiled verbatim into this crate's test build
+/// by `kani_path_differential`, and it refers to `crate::PathError`. Supplying
+/// it here is what lets the extraction be compared against production instead
+/// of merely described as identical to it. See `PARITY-HAND-2` in
+/// `formal/ASSUMPTION_REGISTRY.md`.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathError {
+    pub reason: String,
+}
 mod policy_compile;
 mod rule_check;
 pub mod sequence;

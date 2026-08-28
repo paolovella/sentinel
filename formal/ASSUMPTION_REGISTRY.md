@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; **no such diff check exists**, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **undischarged** — in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **1 of 35 discharged** (2026-08-28) — `path.rs` is now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6; see `KANI-PATH-BOUND-1`. The other 34 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -678,6 +678,57 @@ written so that prose cannot satisfy it, and so that a longer identifier
 containing the pattern cannot either.** Eight cases covering these checks are
 now in `formal/tools/guard-selftest.sh`, so the property is re-tested on every
 run rather than established once by hand.
+
+## KANI-PATH-BOUND-1 — the first Kani extraction actually compared to production
+
+Added 2026-08-28. `PARITY-HAND-1` is now fully discharged (59 of 59 Verus
+kernels); this begins the same work on the Kani side, which had none.
+
+**What was claimed.** `formal/kani/src/path.rs` opens by stating it is a
+"verbatim extraction from `vellaveto-engine/src/path.rs`", that "the algorithm
+is identical", and that "this correspondence is verified by CI".
+
+**What CI actually did.** The Kani job's *Verify extracted code correspondence*
+step runs `cargo test --lib` **inside `formal/kani`**, where the assertions are
+hardcoded vectors checked against Kani's own copy — the copy cannot disagree
+with itself. *Verify extraction sync* runs `check-kani-parity.sh`, which greps
+for symbol names. Neither compares the two implementations, and neither could:
+`formal/kani` is excluded from the workspace and does not depend on the
+production crates.
+
+**What now happens.** `vellaveto-engine/src/kani_path_differential.rs` compiles
+the extraction directly — `build.rs` materializes it into `OUT_DIR`, changing
+only `//!` to `//` because Rust rejects inner attributes arriving from a macro
+expansion — and compares it against production over a 54-input corpus, across
+the decode-iteration bound from 0 to 8, and along the default limit. It runs in
+the ordinary workspace test suite, so it gates every CI job rather than only the
+Kani one.
+
+**Two things the binding had to get right, both found by mutation testing:**
+
+- **Compare the reason, not just the outcome.** The first version compared the
+  `Ok` value and whether the input errored. Deleting the null-byte check on the
+  raw input survived it, because the check inside the decode loop still
+  rejected and both copies still returned `Err`. The extraction declares the
+  error *type* as its only difference, so the reason string is comparable — and
+  comparing it catches a check moving between branches in one copy only.
+- **A missing extraction must not read as agreement.** `build.rs` degrades to a
+  stub when the file is absent, so the comparison would pass against nothing.
+  `EXTRACTION_PRESENT` is asserted.
+
+Lints are suppressed on the extracted module rather than satisfied. Clippy
+wants `manual_range_contains` and `implicit_saturating_sub` fixed in the
+extraction; doing so would edit the copy the proofs run against so it no longer
+matches what was extracted, which is the drift this binding exists to detect.
+
+Mutation-verified 6/6: iteration bound 20→30, either null-byte check removed,
+backslash normalization dropped, the limit comparison weakened to `>`, and the
+parent-dir-at-root absorb removed are all caught.
+
+**Remaining: 34 extractions.** This is the pattern for the rest, and the cost is
+now known — the mechanism (build.rs materialization + a corpus + reason
+comparison) is reusable, so the remaining work is per-module corpus design
+rather than new machinery.
 
 ## Artifact Map
 

@@ -166,60 +166,103 @@ The binding therefore checks the restated primitives against the shipped ones
 first, and only then checks the n-step results against iterating the shipped
 functions. AUDIT-LEGACY-1 is exactly what that first half is for.
 
-## MODEL-SHAPE-1/2 — kernels modelling a design production does not implement
+## MODEL-SHAPE-1/2 — kernels modelling a design production did not implement
 
-Found 2026-08-24 while attempting to bind them. Both pass
-`check-verus-parity.sh`, which pairs them by *symbol name* against production
-files whose structures are unrelated to what the kernel models.
+Found 2026-08-24 while attempting to bind them; **closed 2026-08-28 by building
+the design**, which is the option chosen over reshaping the kernels to match
+production. Both had passed `check-verus-parity.sh`, which pairs them by
+*symbol name* against production files whose structures were unrelated to what
+the kernel modelled.
 
 Unlike TAINT-MODEL-DRIFT (a wrong value in a right-shaped model) these two
-model a **different design**. Neither is a vulnerability — both are stricter or
-simply absent — but no claim about the running system should be sourced to
-them until the shapes are reconciled.
+modelled a **different design**. Building it surfaced `SCOPE-NOOP-1` below,
+which no test in the workspace had caught.
 
 ### MODEL-SHAPE-1 — `verified_intent_scope`
 
-The kernel models scope as `ScopeState { allowed_mask: u8, .. }`, an 8-bit
-bitmask, with `spec_in_scope(allowed_mask, sink_bit) = sink_bit < 8 && ...`.
-Production models it as
-`IntentScopeConfig { allowed_sink_classes: Vec<SinkClass>, .. }`.
+The kernel modelled scope as `ScopeState { allowed_mask, .. }`, a bitmask, with
+restriction as bitwise AND. Production modelled it as
+`IntentScopeConfig { allowed_sink_classes: Vec<SinkClass>, .. }` under the
+convention *empty means everything is allowed*.
 
-Two mismatches:
+Both mismatches are now closed:
 
-- **Representation.** A bitmask and a `Vec<SinkClass>` are not the same
-  structure, so `spec_restrict_scope = current & restriction` (bitwise AND) has
-  no counterpart in `restrict_to_trust_floor`, which the parity guard
-  nonetheless pairs it with.
-- **Width.** The mask holds 8 bits and `SinkClass` has **nine** variants, so the
-  kernel cannot represent rank 8 — `PolicyMutation`, the highest-privilege sink.
-  `spec_in_scope` returns false for it unconditionally.
-
-The width half is the same root cause as `TAINT-MODEL-DRIFT`: kernels written
-against a six-or-eight-class world while production ships nine. It is
-fail-closed (the kernel refuses what production may allow), so nothing is
-under-enforced.
+- **Representation.** `vellaveto-types/src/verified_intent_scope.rs` defines
+  `ScopeMask`, and `restrict` is the bitwise AND the kernel proves. The config
+  surface keeps `allowed_sink_classes`; the empty-means-everything convention is
+  converted to an explicit value at exactly one place,
+  `ScopeMask::from_config_sink_classes`. Downstream, "allow nothing"
+  (`ScopeMask::NONE`) and "allow everything" (`ScopeMask::ALL`) are different
+  values, which is what makes intersection genuinely narrowing.
+- **Width.** The mask is `u16` and `SCOPE_CLASS_COUNT` is 9. The kernel's `u8`
+  could not represent rank 8 — `PolicyMutation`, the highest-privilege sink — so
+  `spec_in_scope` returned false for it unconditionally. The kernel was widened
+  to match, the same correction applied to the taint kernels under
+  `TAINT-MODEL-DRIFT`. Re-verified: 16 verified, 0 errors.
 
 ### MODEL-SHAPE-2 — `verified_sequence_analysis`
 
-The kernel models `anomaly_confidence: u8` gated by
-`RESTRICTION_THRESHOLD: u8 = 70`, and a warm-up gate `WARMUP_CALLS: u32 = 3`.
+The kernel modelled a restriction gate built from `RESTRICTION_THRESHOLD` and
+`WARMUP_CALLS`, and proved properties of it.
 
-Production's `SequenceAnomaly.confidence` is **`u32`**, `max_confidence()`
-returns `u32`, and its emitted confidences are 60/80/85/90. Neither
-`RESTRICTION_THRESHOLD` nor `WARMUP_CALLS` exists anywhere in the workspace, and
-no restriction gate is built from them.
+The original entry said neither constant existed anywhere in the workspace.
+That was too strong, and is corrected here: `warmup_calls` existed as a
+`SequenceConfig` field defaulting to 3, and the threshold existed as a bare
+literal `70` at one relay call site. What was true is that neither was **named**
+and no gate was built from them — the call site's result was discarded with
+`let _ = restricted`.
 
-So the kernel proves properties of a gate production has not implemented. It is
-not wrong so much as unattached.
+The gate now exists as `vellaveto-engine/src/verified_sequence_gate.rs`
+(`should_restrict`, `warmup_complete`, `update_confidence`,
+`update_anomaly_detected`, `new_tool_budget_available`, `is_taint_restricted`,
+`increment_new_tools`), drives `SequenceConfig::default()`, and decides at the
+relay call site. Confidence is `u32` on both sides now: production's
+`SequenceAnomaly.confidence` is `u32`, and the kernel's `u8` was an arbitrary
+narrowing rather than a claim about the value. Re-verified: 22 verified,
+0 errors.
 
-### Why these are not bound
+Both are bound and mutation-verified — 6/6 and 8/8.
 
-A differential test needs two things to compare. Where the shapes differ this
-much, writing one would mean inventing an adapter — and an adapter is a third
-piece of hand-written code that could itself be wrong, which is the opposite of
-narrowing the trusted base. These two need a decision first: reshape the kernel
-to production, or build the production design the kernel describes. Recorded
-here rather than papered over.
+## SCOPE-NOOP-1 — taint-driven scope narrowing did nothing
+
+Found 2026-08-28 while building the design for `MODEL-SHAPE-1`. Fixed in the
+same change.
+
+`IntentScopeConfig::restrict_to_trust_floor` narrowed the session's scope by
+**filtering `allowed_sink_classes`**. An empty `allowed_sink_classes` means
+"unrestricted", and filtering an empty list yields an empty list — so
+restricting the default configuration narrowed nothing at all:
+
+```
+let scope = IntentScopeConfig::default();          // allowed_sink_classes: []
+let restricted = scope.restrict_to_trust_floor(TrustTier::Quarantined);
+restricted.check_in_scope("t", SinkClass::PolicyMutation)  // => InScope
+```
+
+`PolicyMutation`, the highest-privilege sink there is, stayed in scope after a
+restriction to `Quarantined`, the lowest trust floor there is. The kernel proves
+SCOPE-1 and SCOPE-2 — restriction is a subset, scope only narrows — and both
+were false in production for the default configuration.
+
+Two further holes were open around it, both closed in the same change:
+
+- **The result was discarded.** Both relay call sites computed `restricted` and
+  threw it away (`let _ = restricted; // full enforcement in 6.2C`). Narrowing
+  never persisted, so even a correct restriction would not have survived to the
+  next call. `RelayState` now carries `session_scope`, and successive narrowings
+  compose from the scope in force rather than from the immutable per-relay
+  config.
+- **Nothing consulted the scope.** `check_in_scope` had no caller anywhere in
+  the relay. It is now called on the tool-call path before forwarding, honouring
+  `out_of_scope_action`. `Deny` and `RequireApproval` both refuse: the stdio
+  relay has no interactive approval channel on that path, so `RequireApproval`
+  is honoured in the fail-closed direction rather than degraded to an allow.
+  That is stricter than an operator configuring `RequireApproval` may expect,
+  and is called out here rather than left to be discovered.
+
+Nothing in the workspace's 11,800+ tests caught this. The kernel had been
+proving the property since Phase 6.2E; what was missing was any path from the
+proof to the code, which is what this campaign has been closing.
 
 ## A difference that is not drift — `spec_spans_junction`
 
@@ -459,7 +502,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-28): 57 of 59 kernels bound (45 discharged + 5 partial + 7 property), 2 remain — and both are blocked on a design decision, see `MODEL-SHAPE-1/2`. Every kernel that can be bound without first resolving a modelling question now is.**
+**Measured trusted base (2026-08-28): 59 of 59 kernels bound (47 discharged + 5 partial + 7 property).** The last two, `MODEL-SHAPE-1/2`, were closed by building the design their kernels described rather than by reshaping the kernels to fit production; doing so surfaced `SCOPE-NOOP-1`. Bound is not the same as strong — the discharge kind for each kernel is in the table above, and `PARITY-HAND-2` still stands over the mirror-to-kernel correspondence itself.
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -585,9 +628,9 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 2 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
-differential binding, its proof constrains the kernel and not the shipped code,
-and no claim should say otherwise.
+No kernel now lacks a differential binding. What each binding establishes still
+varies — see the discharge kinds — and a binding constrains the shipped function
+it names, not the whole subsystem around it.
 
 ## DRIFT-STORE-1 — approval drift is decided by two disjuncts, not one
 
@@ -608,6 +651,33 @@ records that a store read failure once left drift undetected and let the
 approval be consumed unverified. Mutation-verified 4/4 — inverting the trust
 comparison, weakening the taint comparison to `>=`, dropping the trust check,
 and making the store-error branch fail open are all caught.
+
+## GUARD-COMMENT-1 — two new guard checks that a comment could satisfy
+
+Found 2026-08-28, immediately after writing them, by mutation-testing the guard
+checks added for `MODEL-SHAPE-1/2` rather than trusting that a passing check
+means anything.
+
+`check-verus-parity.sh` matches production patterns with line-based `grep`.
+Two of the seven new checks passed against a tree where the thing they claimed
+to check had been removed:
+
+- **A comment satisfied the check.** The pattern was
+  `verified_sequence_gate::should_restrict`. The relay's own explanatory comment
+  contains that text, so replacing the actual call left the guard green.
+- **A prefix satisfied the check.** The pattern was `fn narrow_session_scope`,
+  which is a substring of `fn narrow_session_scope_disabled`. Renaming the
+  function away did not trip it.
+
+Both patterns now require a call or definition — the symbol followed by `(` —
+and are anchored `^[^/]*` so a line comment cannot satisfy them. Re-tested: both
+mutations are caught, along with commenting the call out entirely.
+
+The general rule this adds to the ones above: **a grep-based guard must be
+written so that prose cannot satisfy it, and so that a longer identifier
+containing the pattern cannot either.** Eight cases covering these checks are
+now in `formal/tools/guard-selftest.sh`, so the property is re-tested on every
+run rather than established once by hand.
 
 ## Artifact Map
 

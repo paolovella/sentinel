@@ -50,6 +50,7 @@ pub mod transport;
 pub mod unicode;
 pub mod uri_util;
 pub mod verification;
+pub mod verified_intent_scope;
 pub mod verified_transport_context;
 pub mod zk_audit;
 

@@ -63,6 +63,7 @@ pub mod verified_core;
 mod verified_deputy;
 mod verified_entropy_fixed_point;
 mod verified_entropy_gate;
+pub mod verified_sequence_gate;
 pub mod wasm_plugin;
 
 #[cfg(kani)]

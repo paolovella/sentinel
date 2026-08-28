@@ -14,7 +14,26 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use vellaveto_types::provenance::SinkClass;
+use vellaveto_types::verified_intent_scope::ScopeMask;
 use vellaveto_types::TrustTier;
+
+/// Every sink class, in rank order.
+///
+/// Enumerated explicitly so that adding a variant to `SinkClass` without
+/// extending this list is caught by `test_all_sink_classes_covers_every_rank`
+/// rather than silently narrowing every trust-floor mask.
+const ALL_SINK_CLASSES: [SinkClass; 9] = [
+    SinkClass::ReadOnly,
+    SinkClass::LowRiskWrite,
+    SinkClass::FilesystemWrite,
+    SinkClass::NetworkEgress,
+    SinkClass::MemoryWrite,
+    SinkClass::ApprovalUi,
+    SinkClass::CodeExecution,
+    SinkClass::CredentialAccess,
+    SinkClass::PolicyMutation,
+];
 
 // ═══════════════════════════════════════════════════
 // Phase 6.1: Source Trust Classification
@@ -267,6 +286,17 @@ pub struct IntentScopeConfig {
     /// Whether scope can be widened mid-session.
     #[serde(default)]
     pub allow_scope_expansion: bool,
+    /// Authoritative scope once the session has narrowed.
+    ///
+    /// `None` means no narrowing has happened yet, and the scope is whatever
+    /// `allowed_sink_classes` expresses. `Some` is authoritative and overrides
+    /// it — including `ScopeMask::NONE`, which `allowed_sink_classes` cannot
+    /// express because an empty list there means "unrestricted".
+    ///
+    /// That gap is why this field exists: see `SCOPE-NOOP-1` in
+    /// `formal/ASSUMPTION_REGISTRY.md`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_scope_mask: Option<ScopeMask>,
 }
 
 /// What to do when a call is out of scope.
@@ -291,6 +321,7 @@ impl Default for IntentScopeConfig {
             // SECURITY (R261-CFG-2): Default to false (fail-closed).
             // Previously true, allowing privilege escalation via scope expansion.
             allow_scope_expansion: false,
+            effective_scope_mask: None,
         }
     }
 }
@@ -340,29 +371,76 @@ impl IntentScopeConfig {
                 reason: "tool not in allowed_tools list".to_string(),
             };
         }
-        // Check allowed sink classes (if non-empty, must match)
-        if !self.allowed_sink_classes.is_empty() && !self.allowed_sink_classes.contains(&sink_class)
-        {
+        // Check the sink class against the effective scope mask.
+        if !self.scope_mask().contains(sink_class) {
             return ScopeCheckResult::OutOfScope {
-                reason: format!("sink class {:?} not in allowed_sink_classes", sink_class),
+                reason: format!("sink class {sink_class:?} is not within the session scope"),
             };
         }
         ScopeCheckResult::InScope
     }
 
+    /// The scope in force right now.
+    ///
+    /// A narrowing that has already happened wins; otherwise the scope is
+    /// whatever `allowed_sink_classes` expresses, with an empty list meaning
+    /// "unrestricted" as it always has.
+    #[must_use]
+    pub fn scope_mask(&self) -> ScopeMask {
+        self.effective_scope_mask
+            .unwrap_or_else(|| ScopeMask::from_config_sink_classes(&self.allowed_sink_classes))
+    }
+
+    /// Widen the scope to admit `sink_class`, if this session permits widening.
+    ///
+    /// `allow_scope_expansion` is the lock: when it is false the scope is
+    /// returned unchanged. Narrowing is recorded in `effective_scope_mask`, so
+    /// a session that has already narrowed cannot widen back past it either.
+    #[must_use]
+    pub fn expand_to(&self, sink_class: SinkClass) -> Self {
+        let locked = !self.allow_scope_expansion;
+        let widened = self.scope_mask().expand_rank(sink_class.rank(), locked);
+        Self {
+            effective_scope_mask: Some(widened),
+            ..self.clone()
+        }
+    }
+
     /// Restrict scope to what the trust floor allows.
     /// Used when source-class taint fires to narrow the session's scope.
-    pub fn restrict_to_trust_floor(&self, trust_floor: TrustTier) -> Self {
+    /// The set of sink classes a given trust floor is permitted to reach.
+    #[must_use]
+    pub fn trust_floor_mask(trust_floor: TrustTier) -> ScopeMask {
         use vellaveto_types::provenance::minimum_trust_tier_for_sink;
-        let restricted_sinks: Vec<vellaveto_types::provenance::SinkClass> = self
-            .allowed_sink_classes
+        let permitted: Vec<SinkClass> = ALL_SINK_CLASSES
             .iter()
             .copied()
             .filter(|sink| minimum_trust_tier_for_sink(*sink).rank() <= trust_floor.rank())
             .collect();
+        // Explicit set, not the config surface: an empty result here means
+        // "nothing is permitted", which is exactly what it says.
+        ScopeMask::from_sink_classes(&permitted)
+    }
+
+    /// Restrict scope to what the trust floor allows.
+    /// Used when source-class taint fires to narrow the session's scope.
+    ///
+    /// SECURITY (SCOPE-NOOP-1): this used to filter `allowed_sink_classes`,
+    /// which made it a no-op whenever that list was empty — the default. An
+    /// empty list means "unrestricted", so filtering it produced another empty
+    /// list and every sink class, up to and including `PolicyMutation`, stayed
+    /// in scope after a restriction to `Quarantined`. Narrowing now runs
+    /// through `ScopeMask::restrict`, an intersection, so the result is always
+    /// a subset of what was in force. That is the property
+    /// `formal/verus/verified_intent_scope.rs` proves.
+    #[must_use]
+    pub fn restrict_to_trust_floor(&self, trust_floor: TrustTier) -> Self {
+        let narrowed = self
+            .scope_mask()
+            .restrict(Self::trust_floor_mask(trust_floor));
 
         Self {
-            allowed_sink_classes: restricted_sinks,
+            effective_scope_mask: Some(narrowed),
             max_distinct_tools: self.max_distinct_tools.map(|n| n.min(3)),
             allow_scope_expansion: false,
             ..self.clone()
@@ -553,17 +631,158 @@ mod tests {
         // ReadOnly requires Unknown (rank 1), LowRiskWrite requires Low (rank 3)
         // FilesystemWrite requires Medium (rank 4) > Low (rank 3) → excluded
         // CodeExecution requires Verified (rank 6) > Low → excluded
-        assert!(!restricted
-            .allowed_sink_classes
-            .contains(&SinkClass::CodeExecution));
-        assert!(!restricted
-            .allowed_sink_classes
-            .contains(&SinkClass::FilesystemWrite));
-        assert!(restricted
-            .allowed_sink_classes
-            .contains(&SinkClass::ReadOnly));
+        // The same three claims, asserted against what now decides. Narrowing
+        // is recorded in `effective_scope_mask`; `allowed_sink_classes` stays
+        // the config surface the session was created from.
+        assert!(!restricted.scope_mask().contains(SinkClass::CodeExecution));
+        assert!(!restricted.scope_mask().contains(SinkClass::FilesystemWrite));
+        assert!(restricted.scope_mask().contains(SinkClass::ReadOnly));
         assert_eq!(restricted.max_distinct_tools, Some(3));
         assert!(!restricted.allow_scope_expansion);
+
+        // And the decision the scope check actually returns.
+        assert!(matches!(
+            restricted.check_in_scope("t", SinkClass::CodeExecution),
+            ScopeCheckResult::OutOfScope { .. }
+        ));
+        assert_eq!(
+            restricted.check_in_scope("t", SinkClass::ReadOnly),
+            ScopeCheckResult::InScope
+        );
+    }
+
+    /// SCOPE-NOOP-1. An empty `allowed_sink_classes` means "unrestricted", so
+    /// the old implementation — which filtered that list — narrowed nothing.
+    /// `PolicyMutation` survived a restriction to `Quarantined`, the lowest
+    /// trust floor there is.
+    #[test]
+    fn test_intent_scope_restriction_narrows_the_default_unrestricted_scope() {
+        let scope = IntentScopeConfig::default();
+        assert!(
+            scope.allowed_sink_classes.is_empty(),
+            "precondition: the default expresses no restriction"
+        );
+        assert!(
+            scope.scope_mask().contains(SinkClass::PolicyMutation),
+            "precondition: an unrestricted scope admits every sink class"
+        );
+
+        let restricted = scope.restrict_to_trust_floor(TrustTier::Quarantined);
+
+        assert!(
+            !restricted.scope_mask().contains(SinkClass::PolicyMutation),
+            "SCOPE-NOOP-1: PolicyMutation is still in scope after restricting to \
+             Quarantined — taint-driven narrowing did nothing"
+        );
+        assert!(
+            !restricted
+                .scope_mask()
+                .contains(SinkClass::CredentialAccess),
+            "SCOPE-NOOP-1: CredentialAccess survived a restriction to Quarantined"
+        );
+        assert!(matches!(
+            restricted.check_in_scope("t", SinkClass::PolicyMutation),
+            ScopeCheckResult::OutOfScope { .. }
+        ));
+    }
+
+    /// Restriction narrows and never widens, for every trust floor — the
+    /// property `formal/verus/verified_intent_scope.rs` proves as SCOPE-1/2.
+    #[test]
+    fn test_intent_scope_restriction_is_always_a_subset() {
+        const FLOORS: [TrustTier; 7] = [
+            TrustTier::Quarantined,
+            TrustTier::Unknown,
+            TrustTier::Untrusted,
+            TrustTier::Low,
+            TrustTier::Medium,
+            TrustTier::High,
+            TrustTier::Verified,
+        ];
+        let scope = IntentScopeConfig::default();
+        for first in FLOORS {
+            let once = scope.restrict_to_trust_floor(first);
+            assert!(
+                once.scope_mask().is_subset_of(scope.scope_mask()),
+                "restricting to {first:?} widened the scope"
+            );
+            for second in FLOORS {
+                let twice = once.restrict_to_trust_floor(second);
+                assert!(
+                    twice.scope_mask().is_subset_of(once.scope_mask()),
+                    "restricting to {first:?} then {second:?} widened the scope"
+                );
+            }
+        }
+    }
+
+    /// A locked scope cannot widen — SCOPE-3.
+    #[test]
+    fn test_intent_scope_expansion_blocked_when_locked() {
+        let locked = IntentScopeConfig {
+            allowed_sink_classes: vec![SinkClass::ReadOnly],
+            allow_scope_expansion: false,
+            ..Default::default()
+        };
+        let attempted = locked.expand_to(SinkClass::PolicyMutation);
+        assert!(
+            !attempted.scope_mask().contains(SinkClass::PolicyMutation),
+            "SCOPE-3: a locked scope widened"
+        );
+
+        let unlocked = IntentScopeConfig {
+            allow_scope_expansion: true,
+            ..locked.clone()
+        };
+        assert!(
+            unlocked
+                .expand_to(SinkClass::PolicyMutation)
+                .scope_mask()
+                .contains(SinkClass::PolicyMutation),
+            "an unlocked scope should be able to widen"
+        );
+    }
+
+    /// Restriction locks the scope, and the lock survives further operations.
+    #[test]
+    fn test_intent_scope_restriction_locks_expansion() {
+        let scope = IntentScopeConfig {
+            allow_scope_expansion: true,
+            ..Default::default()
+        };
+        let restricted = scope.restrict_to_trust_floor(TrustTier::Low);
+        assert!(
+            !restricted.allow_scope_expansion,
+            "SCOPE-5: restriction must lock"
+        );
+        assert!(
+            !restricted
+                .expand_to(SinkClass::PolicyMutation)
+                .scope_mask()
+                .contains(SinkClass::PolicyMutation),
+            "SCOPE-5: scope widened after a restriction locked it"
+        );
+    }
+
+    #[test]
+    fn test_all_sink_classes_covers_every_rank() {
+        for (index, class) in ALL_SINK_CLASSES.iter().enumerate() {
+            assert_eq!(
+                class.rank() as usize,
+                index,
+                "ALL_SINK_CLASSES is out of rank order at {index}"
+            );
+        }
+        assert_eq!(
+            ALL_SINK_CLASSES.len(),
+            vellaveto_types::verified_intent_scope::SCOPE_CLASS_COUNT as usize,
+            "ALL_SINK_CLASSES and SCOPE_CLASS_COUNT disagree"
+        );
+        assert_eq!(
+            ScopeMask::from_sink_classes(&ALL_SINK_CLASSES),
+            ScopeMask::ALL,
+            "the full sink-class set should be the full mask"
+        );
     }
 
     #[test]
@@ -573,5 +792,91 @@ mod tests {
             scope.check_in_scope("anything", SinkClass::PolicyMutation),
             ScopeCheckResult::InScope
         );
+    }
+}
+
+#[cfg(test)]
+mod scope_enforcement_regression {
+    //! The narrowing fix tightens real behaviour, so these pin the cases that
+    //! must keep working: an unconfigured scope must not start denying traffic,
+    //! and a scope must not narrow further than the trust floor warrants.
+
+    use super::*;
+    use vellaveto_types::provenance::SinkClass;
+
+    /// A relay with no intent scope configured must allow every sink class.
+    /// If this fails, the fix has turned a no-op into a default-deny.
+    #[test]
+    fn test_unconfigured_scope_admits_every_sink_class() {
+        let scope = IntentScopeConfig::default();
+        for class in ALL_SINK_CLASSES {
+            assert_eq!(
+                scope.check_in_scope("any_tool", class),
+                ScopeCheckResult::InScope,
+                "an unconfigured scope denied {class:?}"
+            );
+        }
+    }
+
+    /// A high trust floor must not narrow anything away.
+    #[test]
+    fn test_verified_trust_floor_narrows_nothing() {
+        let scope = IntentScopeConfig::default();
+        let restricted = scope.restrict_to_trust_floor(TrustTier::Verified);
+        for class in ALL_SINK_CLASSES {
+            assert_eq!(
+                restricted.check_in_scope("any_tool", class),
+                ScopeCheckResult::InScope,
+                "restricting to Verified denied {class:?}"
+            );
+        }
+    }
+
+    /// Narrowing is driven by the trust floor, not by wiping the scope: a
+    /// mid-tier floor must keep the low-privilege sinks and drop the high ones.
+    #[test]
+    fn test_narrowing_is_graded_not_all_or_nothing() {
+        let restricted = IntentScopeConfig::default().restrict_to_trust_floor(TrustTier::Medium);
+        assert_eq!(
+            restricted.check_in_scope("t", SinkClass::ReadOnly),
+            ScopeCheckResult::InScope,
+            "a mid-tier floor should still permit read-only work"
+        );
+        assert!(matches!(
+            restricted.check_in_scope("t", SinkClass::PolicyMutation),
+            ScopeCheckResult::OutOfScope { .. }
+        ));
+    }
+
+    /// The tool allow/deny lists keep working alongside the mask.
+    #[test]
+    fn test_tool_lists_still_apply_under_the_mask() {
+        let scope = IntentScopeConfig {
+            denied_tools: vec!["execute_*".to_string()],
+            ..Default::default()
+        };
+        assert!(matches!(
+            scope.check_in_scope("execute_shell", SinkClass::ReadOnly),
+            ScopeCheckResult::OutOfScope { .. }
+        ));
+        assert_eq!(
+            scope.check_in_scope("read_file", SinkClass::ReadOnly),
+            ScopeCheckResult::InScope
+        );
+    }
+
+    /// A round trip through serde preserves a narrowed scope. If the mask were
+    /// dropped on serialization, a persisted session would silently re-widen.
+    #[test]
+    fn test_narrowed_scope_survives_a_serde_round_trip() {
+        let restricted =
+            IntentScopeConfig::default().restrict_to_trust_floor(TrustTier::Quarantined);
+        let json = serde_json::to_string(&restricted).expect("serialize");
+        let back: IntentScopeConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.scope_mask(), restricted.scope_mask());
+        assert!(matches!(
+            back.check_in_scope("t", SinkClass::PolicyMutation),
+            ScopeCheckResult::OutOfScope { .. }
+        ));
     }
 }

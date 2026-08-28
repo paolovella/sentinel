@@ -185,6 +185,38 @@ run_case "claim trusted without delegation" "$DIFF_GUARD" drift \
 run_case "session-bound approval replayable" "$DIFF_GUARD" drift \
     perl -0pi -e 's/!approval_has_session_binding \|\| \(request_has_session && request_matches_bound_session\)/!approval_has_session_binding || request_has_session/' vellaveto-approval/src/verified_approval_scope.rs
 
+# ── 1b. Intent scope and sequence gate (MODEL-SHAPE-1/2) ──────────────────
+# These kernels used to model a design production did not implement. The design
+# was built on 2026-08-28; these cases test that the guards notice if it is
+# taken back out. Two of them were written wrong first: one matched a comment
+# rather than a call, and one matched a renamed function by prefix.
+echo ""
+echo "--- intent scope + sequence gate ---"
+
+run_case "scope mask narrowed back below nine classes" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/pub const SCOPE_CLASS_COUNT: u8 = 9;/pub const SCOPE_CLASS_COUNT: u8 = 8;/' vellaveto-types/src/verified_intent_scope.rs
+
+run_case "scope restriction widens instead of narrowing" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/Self\(self\.0 & restriction\.0\)/Self(self.0 | restriction.0)/' vellaveto-types/src/verified_intent_scope.rs
+
+run_case "trust-floor narrowing bypasses the mask" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/\.restrict\(Self::trust_floor_mask\(trust_floor\)\)/.restrict(ScopeMask::ALL)/' vellaveto-config/src/channel_separation.rs
+
+run_case "relay stops calling the verified sequence gate" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/vellaveto_engine::verified_sequence_gate::should_restrict\(/std::convert::identity::<bool>(/' vellaveto-mcp/src/proxy/bridge/relay.rs
+
+run_case "relay stops persisting the narrowed scope" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/fn narrow_session_scope\(/fn narrow_session_scope_disabled(/' vellaveto-mcp/src/proxy/bridge/relay.rs
+
+run_case "relay stops consulting the scope on the call path" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/scope\.check_in_scope\(&tool_name, sink\)/ScopeCheckResult::InScope/' vellaveto-mcp/src/proxy/bridge/relay.rs
+
+run_case "restriction threshold drifts from the kernel" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/pub const RESTRICTION_THRESHOLD: u32 = 70;/pub const RESTRICTION_THRESHOLD: u32 = 71;/' vellaveto-engine/src/verified_sequence_gate.rs
+
+run_case "sequence gate fires without an anomaly" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/    anomaly_detected && anomaly_confidence >= RESTRICTION_THRESHOLD\n\}/    anomaly_confidence >= RESTRICTION_THRESHOLD\n}/' vellaveto-engine/src/verified_sequence_gate.rs
+
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────
 # formal/kani/Cargo.toml states the extracted code "is tested to be identical to
 # the production code via the CI diff check". These test whether that holds.

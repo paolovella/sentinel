@@ -792,6 +792,13 @@ pub(super) struct RelayState {
     a2a_integrity: crate::a2a_integrity::A2aIntegrityTracker,
     /// Track prompts/list request IDs for prompt template injection scanning.
     prompts_list_request_ids: HashSet<String>,
+    /// Phase 6.2C: the session's intent scope, narrowed in place.
+    ///
+    /// `None` until the first narrowing, at which point it holds the scope in
+    /// force. Successive restrictions compose from this value rather than from
+    /// the immutable per-relay config, so narrowing accumulates across a
+    /// session instead of being recomputed from the starting scope each time.
+    session_scope: Option<vellaveto_config::channel_separation::IntentScopeConfig>,
 }
 
 impl RelayState {
@@ -884,6 +891,7 @@ impl RelayState {
             goal_drift: crate::goal_drift::GoalDriftTracker::new(),
             a2a_integrity: crate::a2a_integrity::A2aIntegrityTracker::new(300), // 5 min max age
             prompts_list_request_ids: HashSet::with_capacity(4),
+            session_scope: None,
         }
     }
 
@@ -1439,6 +1447,67 @@ impl ProxyBridge {
         }
 
         Ok(Some(approval_id.to_string()))
+    }
+
+    /// The sink class to judge a tool call against for scope purposes.
+    ///
+    /// Prefers the operator's classification config, then the annotation-aware
+    /// inference in `helpers.rs` — which already recognises credential access,
+    /// policy mutation, approval UI and memory writes — and only then falls
+    /// back to read-only. Without that middle step an unclassified deployment
+    /// would hand every tool the lowest-privilege class, and a narrow scope
+    /// would admit everything.
+    fn scope_sink_class(
+        &self,
+        tool_name: &str,
+        action: &vellaveto_types::Action,
+        annotations: Option<&ToolAnnotations>,
+    ) -> vellaveto_types::provenance::SinkClass {
+        use vellaveto_types::provenance::SinkClass;
+        if let Some(ref cfg) = self.sink_classification_config {
+            if let Some(resolved) = cfg.resolve_sink_class(tool_name) {
+                return resolved;
+            }
+        }
+        Self::infer_sink_class(action, annotations).unwrap_or(SinkClass::ReadOnly)
+    }
+
+    /// Narrow the session's intent scope to what `trust_floor` permits.
+    ///
+    /// Composes from the scope already in force, so successive narrowings
+    /// accumulate; the first call starts from the relay's configured scope.
+    /// Returns the scope now in force, or `None` when no intent scope is
+    /// configured for this relay.
+    ///
+    /// SECURITY (SCOPE-NOOP-1): both call sites used to discard the restricted
+    /// scope, and the restriction itself was a no-op on the default config.
+    fn narrow_session_scope(
+        &self,
+        state: &mut RelayState,
+        trust_floor: vellaveto_types::TrustTier,
+    ) -> Option<vellaveto_config::channel_separation::IntentScopeConfig> {
+        let current = state
+            .session_scope
+            .clone()
+            .or_else(|| self.intent_scope_config.clone())?;
+        let narrowed = current.restrict_to_trust_floor(trust_floor);
+        debug_assert!(
+            narrowed.scope_mask().is_subset_of(current.scope_mask()),
+            "SCOPE-1: narrowing widened the scope"
+        );
+        state.session_scope = Some(narrowed.clone());
+        Some(narrowed)
+    }
+
+    /// The intent scope in force for this session.
+    fn effective_session_scope<'a>(
+        &'a self,
+        state: &'a RelayState,
+    ) -> Option<&'a vellaveto_config::channel_separation::IntentScopeConfig> {
+        state
+            .session_scope
+            .as_ref()
+            .or(self.intent_scope_config.as_ref())
     }
 
     async fn consume_presented_approval(
@@ -2776,6 +2845,62 @@ impl ProxyBridge {
             }
         }
 
+        // Phase 6.2C: intent scope enforcement.
+        //
+        // The scope in force is consulted before the call is forwarded, so a
+        // narrowing caused by an earlier call applies to this one. Until now
+        // `check_in_scope` had no caller anywhere in the relay: the scope was
+        // configured, narrowed (or rather, not — see SCOPE-NOOP-1) and then
+        // discarded without ever deciding anything.
+        {
+            use vellaveto_config::channel_separation::{OutOfScopeAction, ScopeCheckResult};
+
+            let sink = self.scope_sink_class(
+                &tool_name,
+                &action,
+                state.known_tool_annotations.get(&tool_name),
+            );
+            let scope_verdict = self.effective_session_scope(state).map(|scope| {
+                (
+                    scope.check_in_scope(&tool_name, sink),
+                    scope.out_of_scope_action,
+                )
+            });
+
+            if let Some((ScopeCheckResult::OutOfScope { reason }, action_on_breach)) = scope_verdict
+            {
+                match action_on_breach {
+                    OutOfScopeAction::AuditOnly => {
+                        tracing::warn!(
+                            "SECURITY: out-of-scope tool call '{}' permitted by \
+                             out_of_scope_action = AuditOnly: {}",
+                            vellaveto_types::sanitize_for_log(&tool_name, 64),
+                            vellaveto_types::sanitize_for_log(&reason, 128),
+                        );
+                    }
+                    // Deny and RequireApproval both refuse here. The stdio relay
+                    // has no interactive approval channel on this path, so
+                    // RequireApproval is honoured in the fail-closed direction
+                    // rather than degraded to an allow.
+                    OutOfScopeAction::Deny | OutOfScopeAction::RequireApproval => {
+                        tracing::warn!(
+                            "SECURITY: out-of-scope tool call '{}' denied: {}",
+                            vellaveto_types::sanitize_for_log(&tool_name, 64),
+                            vellaveto_types::sanitize_for_log(&reason, 128),
+                        );
+                        let response = make_denial_response(
+                            &id,
+                            "Request blocked: outside the session intent scope",
+                        );
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         // Phase 6.3: Behavioral sequence analysis — record call and run detectors.
         {
             use vellaveto_types::provenance::SinkClass;
@@ -2802,11 +2927,23 @@ impl ProxyBridge {
                     anomaly.confidence,
                 );
             }
-            // Phase 6.3D: High-confidence anomaly blocks if configured
-            if state.sequence.max_confidence() >= 70 {
-                if let Some(ref scope_cfg) = self.intent_scope_config {
-                    let restricted = scope_cfg.restrict_to_trust_floor(TrustTier::Untrusted);
-                    let _ = restricted; // scope restriction logged; full enforcement in 6.2C
+            // Phase 6.3D: a high-confidence anomaly narrows the session scope.
+            //
+            // The gate is `verified_sequence_gate::should_restrict`, the named
+            // counterpart of `spec_should_restrict`. It used to be a bare `70`
+            // here whose result was discarded (`let _ = restricted`), so no
+            // anomaly, at any confidence, ever narrowed anything.
+            if vellaveto_engine::verified_sequence_gate::should_restrict(
+                !anomalies.is_empty(),
+                state.sequence.max_confidence(),
+            ) {
+                if let Some(restricted) = self.narrow_session_scope(state, TrustTier::Untrusted) {
+                    tracing::warn!(
+                        "SECURITY: session scope narrowed after sequence anomaly \
+                         (confidence {}) — scope mask now {:#06x}",
+                        state.sequence.max_confidence(),
+                        restricted.scope_mask().bits(),
+                    );
                 }
             }
         }
@@ -8902,19 +9039,14 @@ impl ProxyBridge {
                     source_trust,
                     TrustTier::Untrusted | TrustTier::Quarantined | TrustTier::Unknown
                 ) {
-                    if let Some(ref scope_cfg) = self.intent_scope_config {
-                        let floor = state.contagion.effective_trust_floor();
-                        let restricted = scope_cfg.restrict_to_trust_floor(floor);
+                    let floor = state.contagion.effective_trust_floor();
+                    if let Some(restricted) = self.narrow_session_scope(state, floor) {
                         tracing::info!(
-                            "Phase 6: Intent scope restricted after source-class taint from '{}'",
+                            "Phase 6: intent scope narrowed after source-class taint from \
+                             '{}' — scope mask now {:#06x}",
                             vellaveto_types::sanitize_for_log(tool_name, 64),
+                            restricted.scope_mask().bits(),
                         );
-                        // Note: scope restriction is computed but not persisted in relay state
-                        // because intent_scope_config is on ProxyBridge (immutable per-relay).
-                        // Full session-level scope tracking (Phase 6.2C) requires adding
-                        // a mutable intent scope to RelayState. For now, the restriction
-                        // logic is validated and logged.
-                        let _ = restricted; // used for validation; full wiring in 6.2C
                     }
                 }
             }

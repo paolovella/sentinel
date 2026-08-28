@@ -37,7 +37,7 @@ verus! {
 pub struct SequenceState {
     pub call_count: u32,
     pub anomaly_detected: bool,
-    pub anomaly_confidence: u8,   // 0-100
+    pub anomaly_confidence: u32,  // 0-100; u32 to match SequenceAnomaly.confidence
     pub taint_active: bool,
     pub new_tools_after_taint: u32,
     pub scope_restricted: bool,
@@ -45,8 +45,8 @@ pub struct SequenceState {
 
 pub const WARMUP_CALLS: u32 = 3;
 pub const MAX_NEW_TOOLS: u32 = 2;
-pub const RESTRICTION_THRESHOLD: u8 = 70;
-pub const MAX_CONFIDENCE: u8 = 100;
+pub const RESTRICTION_THRESHOLD: u32 = 70;
+pub const MAX_CONFIDENCE: u32 = 100;
 
 // ── Core spec functions ────────────────────────────────────────────
 
@@ -60,16 +60,16 @@ pub open spec fn spec_update_anomaly_detected(
 
 /// Spec: update confidence (max-tracking — only increases).
 pub open spec fn spec_update_confidence(
-    current: u8,
-    new_confidence: u8,
-) -> u8 {
+    current: u32,
+    new_confidence: u32,
+) -> u32 {
     if new_confidence > current { new_confidence } else { current }
 }
 
 /// Spec: should scope be restricted?
 pub open spec fn spec_should_restrict(
     anomaly_detected: bool,
-    anomaly_confidence: u8,
+    anomaly_confidence: u32,
 ) -> bool {
     anomaly_detected && anomaly_confidence >= RESTRICTION_THRESHOLD
 }
@@ -111,7 +111,7 @@ pub proof fn lemma_anomaly_monotonic_chain(
 
 // ── SEQ-2: Confidence only increases ──────────────────────────────
 
-pub fn update_confidence(current: u8, new_confidence: u8) -> (result: u8)
+pub fn update_confidence(current: u32, new_confidence: u32) -> (result: u32)
     ensures
         result == spec_update_confidence(current, new_confidence),
         result >= current,    // Never decreases
@@ -120,13 +120,13 @@ pub fn update_confidence(current: u8, new_confidence: u8) -> (result: u8)
     if new_confidence > current { new_confidence } else { current }
 }
 
-pub proof fn lemma_confidence_monotonic(current: u8, new_confidence: u8)
+pub proof fn lemma_confidence_monotonic(current: u32, new_confidence: u32)
     ensures
         spec_update_confidence(current, new_confidence) >= current,
 {
 }
 
-pub proof fn lemma_confidence_chain_monotonic(c0: u8, n1: u8, n2: u8)
+pub proof fn lemma_confidence_chain_monotonic(c0: u32, n1: u32, n2: u32)
     ensures ({
         let c1 = spec_update_confidence(c0, n1);
         let c2 = spec_update_confidence(c1, n2);
@@ -139,7 +139,7 @@ pub proof fn lemma_confidence_chain_monotonic(c0: u8, n1: u8, n2: u8)
 
 pub proof fn lemma_restriction_requires_anomaly(
     anomaly_detected: bool,
-    confidence: u8,
+    confidence: u32,
 )
     ensures
         spec_should_restrict(anomaly_detected, confidence) ==> anomaly_detected,
@@ -147,7 +147,7 @@ pub proof fn lemma_restriction_requires_anomaly(
 {
 }
 
-pub proof fn lemma_no_anomaly_no_restriction(confidence: u8)
+pub proof fn lemma_no_anomaly_no_restriction(confidence: u32)
     ensures
         !spec_should_restrict(false, confidence),
 {
@@ -214,7 +214,7 @@ pub proof fn lemma_high_confidence_triggers_restriction()
 }
 
 /// Composition: detection at confidence >= 70 always restricts.
-pub proof fn lemma_detection_above_threshold_restricts(confidence: u8)
+pub proof fn lemma_detection_above_threshold_restricts(confidence: u32)
     requires
         confidence >= RESTRICTION_THRESHOLD,
     ensures
@@ -229,7 +229,7 @@ pub proof fn lemma_detection_above_threshold_restricts(confidence: u8)
 pub fn sequence_step(
     state: &SequenceState,
     detected: bool,
-    confidence: u8,
+    confidence: u32,
     is_novel_after_taint: bool,
 ) -> (new_state: SequenceState)
     requires

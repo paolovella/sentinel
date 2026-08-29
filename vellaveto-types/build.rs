@@ -5,10 +5,10 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: MPL-2.0
 
-//! Materializes the Kani extractions so they can be compiled and compared
-//! against production. See `src/kani_path_differential.rs`,
-//! `src/kani_ip_differential.rs`, the `kani_parity_differential_cache` module
-//! in `src/cache.rs`, and `PARITY-HAND-2` in `formal/ASSUMPTION_REGISTRY.md`.
+//! Materializes the Kani extractions that mirror this crate, so they can be
+//! compiled and compared against production. See
+//! `src/kani_unicode_differential.rs` and `PARITY-HAND-2` in
+//! `formal/ASSUMPTION_REGISTRY.md`.
 //!
 //! An extraction cannot be pulled in with a bare `include!` because it opens
 //! with `//!` inner doc comments, and Rust rejects inner attributes that arrive
@@ -17,9 +17,7 @@
 //! needs to rewrite code to make an extraction compile, the extraction has
 //! stopped being the thing the Kani proofs run against, and that is a finding.
 //!
-//! No `unwrap`, `expect` or `panic!`: CI treats build scripts like runtime code,
-//! and a script that panics gives a worse diagnostic than one that says what it
-//! could not do.
+//! No `unwrap`, `expect` or `panic!`: CI treats build scripts like runtime code.
 
 use std::path::Path;
 
@@ -41,17 +39,14 @@ fn main() {
         fail("OUT_DIR is not set; cannot materialize the Kani extractions")
     };
 
-    for (module, out_name) in [
-        ("path", "kani_path_extraction.rs"),
-        ("ip", "kani_ip_extraction.rs"),
-        ("cache", "kani_cache_extraction.rs"),
-        ("domain", "kani_domain_extraction.rs"),
-        ("rule_check", "kani_rule_check_extraction.rs"),
-    ] {
-        let extraction = Path::new(&manifest_dir).join(format!("../formal/kani/src/{module}.rs"));
-        println!("cargo:rerun-if-changed={}", extraction.display());
-        materialize(&extraction, &Path::new(&out_dir).join(out_name));
-    }
+    // One extraction so far. When a second is added, make this a loop over
+    // (module, out_name) pairs as `vellaveto-engine/build.rs` does.
+    let extraction = Path::new(&manifest_dir).join("../formal/kani/src/unicode.rs");
+    println!("cargo:rerun-if-changed={}", extraction.display());
+    materialize(
+        &extraction,
+        &Path::new(&out_dir).join("kani_unicode_extraction.rs"),
+    );
 }
 
 /// Copy one extraction into `OUT_DIR`, turning `//!` into `//`.

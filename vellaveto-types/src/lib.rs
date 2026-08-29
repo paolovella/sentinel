@@ -33,6 +33,7 @@ pub mod gateway;
 pub mod governance;
 pub mod identity;
 pub mod json_rpc;
+mod kani_unicode_differential;
 pub mod metering;
 pub mod minja;
 pub mod nhi;

@@ -27,6 +27,13 @@
 //! - `check_path_rules_decision` ↔ `vellaveto-engine/src/rule_check.rs` check_path_rules
 //! - `check_network_rules_decision` ↔ `vellaveto-engine/src/rule_check.rs` check_network_rules
 //! - `check_ip_rules_decision` ↔ `vellaveto-engine/src/rule_check.rs` check_ip_rules
+//!
+//! The path predicate's correspondence is checked behaviourally by
+//! `vellaveto-engine/src/kani_rule_check_differential.rs`, which derives these
+//! booleans from real compiled policies rather than enumerating the free
+//! product (most combinations are not realisable). Before 2026-08-30 nothing
+//! checked it — see PARITY-HAND-2 in formal/ASSUMPTION_REGISTRY.md.
+//! The network and IP predicates are still unbound.
 
 /// Path rule decision predicate.
 ///

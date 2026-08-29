@@ -51,6 +51,9 @@ run_differential "vellaveto-approval consumption/scope kernels ↔ their Verus s
 run_differential "vellaveto-types transport-context kernel ↔ its Verus spec" \
     vellaveto-types verus_spec_differential
 
+run_differential "vellaveto-types ↔ the Kani unicode extraction" \
+    vellaveto-types kani_parity_differential
+
 run_differential "vellaveto-server approval-id kernel ↔ its Verus spec" \
     vellaveto-server verus_spec_differential
 
@@ -59,7 +62,7 @@ run_differential "vellaveto-server approval-id kernel ↔ its Verus spec" \
 # against the production code they claim to be verbatim copies of. Kani's own
 # in-crate parity tests cannot do this — they assert hardcoded vectors against
 # Kani's own copy, which cannot disagree with itself.
-run_differential "vellaveto-engine ↔ the Kani path, ip, cache and domain extractions" \
+run_differential "vellaveto-engine ↔ the Kani path, ip, cache, domain and rule_check extractions" \
     vellaveto-engine kani_parity_differential
 
 echo ""

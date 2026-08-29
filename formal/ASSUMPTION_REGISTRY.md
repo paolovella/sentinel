@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **4 of 35 discharged** (2026-08-28) — `path.rs`, `ip.rs`, `cache.rs` and `domain.rs` are now compiled into `vellaveto-engine`'s test build and compared against production, mutation-verified 6/6, 6/6, 4/4 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 31 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **6 of 35 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`) and `unicode.rs` (in `vellaveto-types`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 29 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 31 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 29 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -768,6 +768,72 @@ because some IDNA implementations accept whitespace and colons without error.
 Both fail open. The binding is mutation-verified against exactly those two
 regressions, plus trailing-dot stripping, the wildcard character in the
 ASCII-lowercase fast path, and the SRV underscore allowance from R27-ENG-2.
+
+### `unicode.rs` — a total discharge over the whole Unicode range
+
+Added 2026-08-30. K64 (idempotence) and K65 (mapped confusables collapse to
+ASCII) rest on a `normalize_confusable_char` described as "verbatim from
+`vellaveto-types/src/unicode.rs:50-188`". Production inlines that mapping inside
+`normalize_homoglyphs` rather than exposing a `char -> char` function, so the
+comparison is made at the string level — equivalent, because production maps
+characters independently — and over **every Unicode scalar value**
+(`0..=0x10FFFF` minus surrogates, 1,112,064 of them). Chunked for speed, with a
+per-character re-walk on any mismatching chunk so the failure names the exact
+scalar.
+
+That makes the mapping a **total** discharge rather than a sampled one: there is
+no character on which the two can differ without the test saying so.
+
+K64 and K65 are also restated against production rather than only against the
+model, and the four canonical homoglyph attacks (Cyrillic `а`, Cyrillic `е`,
+Greek omicron, fullwidth `ａ`) are asserted as behaviour rather than as a
+character table.
+
+Two guards against a vacuous pass: the scalar count is pinned (a shrunken
+enumeration fails rather than passing quietly), and the sweep must find more
+than 50 characters that actually change — two identity functions agree
+everywhere, so agreement alone proves nothing.
+
+What rides on it: `normalize_homoglyphs` feeds `normalize_full`, which decides
+policy matching and cache keys. Mutation-verified 4/4 — Cyrillic `а` no longer
+folding, the fullwidth range off by one at `ｚ`, fullwidth uppercase folding to
+ASCII uppercase instead of lowercase, and Cyrillic `е` folding to the wrong
+letter are all caught.
+
+This is the first binding to require a `build.rs` in `vellaveto-types`; the
+mechanism is otherwise identical to `vellaveto-engine`'s.
+
+### `rule_check.rs` — derived inputs, not a free product
+
+Added 2026-08-30. K41-K45 are the fail-closed properties of the path, network
+and IP rule checks, proved over pure boolean predicates with glob matching
+abstracted to `matches: bool` (globset is third-party — the right boundary).
+
+The binding for the path predicate does **not** enumerate the free product of
+its five booleans. Most of those 32 combinations are not realisable: a path
+cannot be blocked when there are no paths. Comparing production against inputs
+that cannot occur would prove nothing about the ones that can, and would fail
+for reasons that are artefacts of the enumeration.
+
+Instead it constructs real policies and actions — allowlist/blocklist present or
+absent, crossed with six path sets covering allowed-only, blocked-and-allowed,
+neither, and mixed — compiles them through `PolicyEngine::compile_policies`, and
+**derives** the model's five booleans from the same `CompiledPathRules`
+production is about to use. The two are given the same world rather than the
+same guess about it.
+
+A guard against a one-sided comparison: the scenarios must produce both denials
+and passes, or they cannot distinguish a predicate that always denies.
+
+K41 and K42 are also restated against production directly. K41 is R28-ENG-1 —
+an allowlist with no target paths must deny, because absent paths mean the
+extractor could not identify what the tool touches, so the allowlist cannot be
+checked at all.
+
+Mutation-verified 4/4: removing the K41 no-paths denial (reinstating the
+R28-ENG-1 fail-open), removing the K42 blocked-beats-allowed denial, removing
+allowlist enforcement entirely, and inverting the allowlist check are all
+caught.
 
 ## KANI-CACHE-DRIFT-1 — a proof about the function as it was before a security fix
 

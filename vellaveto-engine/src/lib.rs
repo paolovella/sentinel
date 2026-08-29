@@ -46,6 +46,7 @@ pub mod impact;
 mod ip;
 mod kani_ip_differential;
 mod kani_path_differential;
+mod kani_rule_check_differential;
 pub mod least_agency;
 mod legacy;
 pub mod lint;

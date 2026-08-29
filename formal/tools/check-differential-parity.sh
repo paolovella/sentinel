@@ -57,6 +57,9 @@ run_differential "vellaveto-types ↔ the Kani unicode extraction" \
 run_differential "vellaveto-server approval-id kernel ↔ its Verus spec" \
     vellaveto-server verus_spec_differential
 
+run_differential "vellaveto-server ↔ the Kani webhook-dedup extraction" \
+    vellaveto-server kani_parity_differential
+
 # PARITY-HAND-2 (KANI-PATH-BOUND-1). The Kani extractions are a separate
 # assumption from the Verus kernels: these compare `formal/kani/src/*.rs`
 # against the production code they claim to be verbatim copies of. Kani's own

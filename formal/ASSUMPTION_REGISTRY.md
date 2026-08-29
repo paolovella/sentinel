@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **6 of 35 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`) and `unicode.rs` (in `vellaveto-types`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 29 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **7 of 35 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`) and `webhook_dedup.rs` (in `vellaveto-server`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 28 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 29 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 28 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -834,6 +834,37 @@ Mutation-verified 4/4: removing the K41 no-paths denial (reinstating the
 R28-ENG-1 fail-open), removing the K42 blocked-beats-allowed denial, removing
 allowlist enforcement entirely, and inverting the allowlist check are all
 caught.
+
+### `webhook_dedup.rs` — replay protection, bound through the real tracker
+
+Added 2026-08-30. K138 (a second call with the same id returns false) and K139
+(empty, oversized and dangerous ids rejected) are proved over three boolean
+predicates. `WebhookDedup::check_or_insert` is public, so the binding drives the
+real tracker rather than a reconstruction: fresh tracker per case, first and
+second calls, and every id shape production distinguishes — empty, ordinary, at
+the 512-byte bound, one over, far over, embedded NUL, newline, bidi override.
+
+What rides on it: this is billing webhook replay protection. A duplicate reading
+as first-occurrence is a re-processed payment event. Production treats a
+malformed id as a duplicate precisely so it is never processed — fail-closed —
+and the model has to agree, or K139 describes a different rejection rule than
+the one running.
+
+The length bound is pinned on **both** sides rather than compared to itself.
+`MAX_EVENT_ID_LEN` in the model and `MAX_WEBHOOK_EVENT_ID_LEN` in production are
+separate constants; asserting only that they are equal would let a change move
+both and escape, which is the trap recorded under "bind the value, not the
+relation". The binding instead exercises 512 and 513 through the real function
+and through the model independently.
+
+Mutation-verified 5/5: the length bound drifting to 1024, the dangerous-char
+rejection removed, the empty-id rejection removed, a malformed id becoming a
+first occurrence (the fail-open direction), and duplicate detection weakened
+from `&&` to `||` are all caught.
+
+This is the third crate to need a `build.rs` for extraction materialization
+(`vellaveto-engine`, `vellaveto-types`, `vellaveto-server`); the mechanism is
+identical in each.
 
 ## KANI-CACHE-DRIFT-1 — a proof about the function as it was before a security fix
 

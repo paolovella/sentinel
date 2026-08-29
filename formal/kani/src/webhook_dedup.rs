@@ -14,6 +14,11 @@
 //! |------|----------|
 //! | K138 | check_or_insert returns false on second call with same ID |
 //! | K139 | Empty/oversized/dangerous event IDs rejected |
+//!
+//! That correspondence is checked behaviourally by
+//! `vellaveto-server/src/routes/kani_webhook_dedup_differential.rs`, which
+//! drives the real `WebhookDedup` tracker. Before 2026-08-30 nothing checked
+//! it — see PARITY-HAND-2 in formal/ASSUMPTION_REGISTRY.md.
 
 const MAX_EVENT_ID_LEN: usize = 512;
 

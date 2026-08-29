@@ -7,7 +7,7 @@
 
 //! Materializes the Kani extractions that mirror this crate, so they can be
 //! compiled and compared against production. See
-//! `src/kani_unicode_differential.rs` and `PARITY-HAND-2` in
+//! `src/routes/kani_webhook_dedup_differential.rs` and `PARITY-HAND-2` in
 //! `formal/ASSUMPTION_REGISTRY.md`.
 //!
 //! An extraction cannot be pulled in with a bare `include!` because it opens
@@ -46,11 +46,11 @@ fn main() {
 
     // One extraction so far. When a second is added, make this a loop over
     // (module, out_name) pairs as `vellaveto-engine/build.rs` does.
-    let extraction = Path::new(&manifest_dir).join("../formal/kani/src/unicode.rs");
+    let extraction = Path::new(&manifest_dir).join("../formal/kani/src/webhook_dedup.rs");
     println!("cargo:rerun-if-changed={}", extraction.display());
     materialize(
         &extraction,
-        &Path::new(&out_dir).join("kani_unicode_extraction.rs"),
+        &Path::new(&out_dir).join("kani_webhook_dedup_extraction.rs"),
     );
 }
 

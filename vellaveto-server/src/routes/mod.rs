@@ -58,6 +58,8 @@ pub mod exec_graph;
 pub mod federation;
 pub mod governance;
 pub mod inventory;
+#[cfg(test)]
+mod kani_webhook_dedup_differential;
 mod main;
 pub mod memory;
 pub mod nhi;

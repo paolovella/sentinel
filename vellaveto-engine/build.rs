@@ -33,6 +33,11 @@ fn fail(message: &str) -> ! {
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    // The extractions carry `#[cfg(kani)]` proof modules. Only the Kani crate
+    // declares that cfg, so declare it here too or `unexpected_cfgs` rejects
+    // the materialized copy. Declaring is correct; stripping the blocks would
+    // mean this script rewrites code to make an extraction compile.
+    println!("cargo:rustc-check-cfg=cfg(kani)");
 
     let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
         fail("CARGO_MANIFEST_DIR is not set; cannot locate the Kani extractions")

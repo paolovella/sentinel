@@ -48,6 +48,9 @@ run_differential "vellaveto-mcp-shield ↔ the Kani sanitizer extraction" \
 run_differential "vellaveto-audit chain/merkle kernels ↔ their Verus specs" \
     vellaveto-audit verus_spec_differential
 
+run_differential "vellaveto-audit ↔ the Kani merkle-sanity extraction" \
+    vellaveto-audit kani_parity_differential
+
 run_differential "vellaveto-engine policy/delegation kernels ↔ their Verus specs" \
     vellaveto-engine verus_spec_differential
 

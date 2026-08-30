@@ -1193,3 +1193,201 @@ mod tests {
         assert!(!msg.contains('%'));
     }
 }
+
+#[cfg(test)]
+mod kani_parity_differential_temporal_window {
+    //! Differential binding for `PARITY-HAND-2` — sliding-window event expiry.
+    //!
+    //! K71/K72 model the window the cascading circuit breaker keeps: which
+    //! events have expired, how many remain, and the error rate over them.
+    //!
+    //! The extraction is materialized as `crate::temporal_window` (see the
+    //! module comment in `lib.rs` — it is reproduced there because the
+    //! `collusion_detection` extraction's own tests reach for it as a sibling).
+    //!
+    //! Production's expiry loop is inline in a private method, so the
+    //! comparison is made two ways: the pure arithmetic directly, and the
+    //! window behaviour through the real `CascadingBreaker`.
+    //!
+    //! What rides on it: an expiry that drops too much makes the error rate
+    //! look better than it is, and a breaker that should have opened stays
+    //! closed.
+
+    use crate::temporal_window as extracted;
+    use crate::temporal_window::WindowEvent;
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/temporal_window.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The error rate, against production's formula including its fail-closed
+    /// branch.
+    ///
+    /// **The `!is_finite()` arm is unreachable, and that is recorded rather
+    /// than tested around.** `total > 0` means the divisor is at least `1.0`,
+    /// both operands convert to finite `f64` (`u64::MAX as f64` is ~1.8e19,
+    /// well inside range), and finite / finite-nonzero is finite. Changing
+    /// that arm from `1.0` to `0.0` is an *equivalent mutation*: no input
+    /// reaches it, so no test can catch it and none should be contrived to
+    /// try.
+    ///
+    /// This is a different failure from `ACCEPT-REJECT-ASYMMETRY-1`, where a
+    /// guard was redundant because of the *polarity* of the expression around
+    /// it. Here the guard is dead because the *arithmetic* cannot produce the
+    /// value it defends against. Both look protective; neither does work. The
+    /// distinction matters when reading a proof: a property established over a
+    /// branch nothing reaches is established vacuously.
+    #[test]
+    fn test_error_rate_matches_production_formula() {
+        for (total, errors) in [
+            (0u64, 0u64),
+            (1, 0),
+            (1, 1),
+            (2, 1),
+            (100, 0),
+            (100, 50),
+            (100, 100),
+            (u64::MAX, 0),
+            (u64::MAX, u64::MAX),
+        ] {
+            let production = if total == 0 {
+                0.0
+            } else {
+                let rate = errors as f64 / total as f64;
+                if rate.is_finite() {
+                    rate
+                } else {
+                    1.0
+                }
+            };
+            assert_eq!(
+                extracted::compute_error_rate(total, errors),
+                production,
+                "PARITY-HAND-2: error rate disagrees at ({total}, {errors})"
+            );
+        }
+        // An empty window is 0.0, not a division by zero.
+        assert_eq!(extracted::compute_error_rate(0, 5), 0.0);
+    }
+
+    /// Expiry and counting over a window, at every boundary offset.
+    ///
+    /// The cutoff is `now - window_secs` and the comparison is strict `<` for
+    /// expiry and `>=` for inclusion, so an event exactly on the cutoff is
+    /// **kept**. Walking `now` across the event timestamps checks that
+    /// boundary from both sides.
+    #[test]
+    fn test_expiry_and_counting_match_the_cutoff_rule() {
+        let events: Vec<WindowEvent> = [
+            (10u64, false),
+            (20, true),
+            (30, false),
+            (40, true),
+            (50, false),
+        ]
+        .into_iter()
+        .map(|(timestamp, is_error)| WindowEvent {
+            timestamp,
+            is_error,
+        })
+        .collect();
+
+        let window_secs = 20u64;
+        for now in 0u64..=80 {
+            let cutoff = now.saturating_sub(window_secs);
+            let expired = extracted::expired_prefix_len(&events, now, window_secs);
+            let expected_expired = events.iter().take_while(|e| e.timestamp < cutoff).count();
+            assert_eq!(
+                expired, expected_expired,
+                "expired prefix disagrees at now={now} (cutoff={cutoff})"
+            );
+
+            let (total, errors) = extracted::count_in_window_slice(&events, now, window_secs);
+            let expected_total = events.iter().filter(|e| e.timestamp >= cutoff).count() as u64;
+            let expected_errors = events
+                .iter()
+                .filter(|e| e.timestamp >= cutoff && e.is_error)
+                .count() as u64;
+            assert_eq!(total, expected_total, "window total disagrees at now={now}");
+            assert_eq!(
+                errors, expected_errors,
+                "window errors disagrees at now={now}"
+            );
+        }
+
+        // An event exactly on the cutoff is kept, not expired — the difference
+        // between `<` and `<=` is one event's worth of error rate.
+        let on_cutoff = [WindowEvent {
+            timestamp: 30,
+            is_error: true,
+        }];
+        assert_eq!(
+            extracted::expired_prefix_len(&on_cutoff, 50, 20),
+            0,
+            "an event exactly on the cutoff was expired"
+        );
+        assert_eq!(
+            extracted::count_in_window_slice(&on_cutoff, 50, 20),
+            (1, 1),
+            "an event exactly on the cutoff was excluded from the window"
+        );
+    }
+
+    /// `now < window_secs` must saturate to a zero cutoff rather than
+    /// underflow — otherwise early events would appear to be from the future
+    /// and every event would expire at once.
+    #[test]
+    fn test_cutoff_saturates_before_the_epoch() {
+        let events = [
+            WindowEvent {
+                timestamp: 0,
+                is_error: false,
+            },
+            WindowEvent {
+                timestamp: 5,
+                is_error: true,
+            },
+        ];
+        assert_eq!(
+            extracted::expired_prefix_len(&events, 1, 100),
+            0,
+            "cutoff underflowed: events before the window start were expired"
+        );
+        assert_eq!(extracted::count_in_window_slice(&events, 1, 100), (2, 1));
+    }
+
+    /// The window behaviour through the real tracker: recorded errors show up
+    /// in the rate, and the rate is the ratio the model computes.
+    #[test]
+    fn test_real_tracker_error_rate_agrees_with_the_model() {
+        let tracker = super::CascadingBreaker::new(super::CascadingConfig {
+            enabled: true,
+            window_secs: 3600,
+            ..Default::default()
+        })
+        .expect("tracker constructs");
+
+        for _ in 0..3 {
+            tracker
+                .record_pipeline_success("pipeline-a")
+                .expect("record success");
+        }
+        let _ = tracker.record_pipeline_error("pipeline-a");
+
+        let production_rate = tracker
+            .pipeline_error_rate("pipeline-a")
+            .expect("rate available");
+        assert_eq!(
+            production_rate,
+            extracted::compute_error_rate(4, 1),
+            "PARITY-HAND-2: the real tracker's error rate is not the ratio the \
+             model computes — a breaker threshold would trip at a different point"
+        );
+    }
+}

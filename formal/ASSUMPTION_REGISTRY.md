@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **18 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 15 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **19 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 14 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 15 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 14 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -1239,6 +1239,33 @@ leaf prefix dropped entirely, and the internal hash absorbing the right child
 twice so sibling order stops mattering.
 
 `vellaveto-audit` is the seventh crate to carry an extraction build script.
+
+### `temporal_window.rs` — and a second kind of guard that does no work
+
+Added 2026-08-31. K71/K72 model the sliding window the cascading circuit
+breaker keeps. Bound against the cutoff rule at **every boundary offset** (81
+values of `now` across five events), plus the real `CascadingBreaker`'s error
+rate. Mutation-verified 4/4 on the reachable behaviour: the `<` / `>=` cutoff
+comparisons in both directions, the saturating subtraction that stops early
+events appearing to be from the future, and an empty window reporting 100%.
+
+**A fifth mutation survived, correctly.** Production's `compute_error_rate` has
+a fail-closed `if !rate.is_finite() { return 1.0 }` arm that **cannot execute**:
+`total > 0` makes the divisor at least `1.0`, both operands convert to finite
+`f64` (`u64::MAX as f64` ≈ 1.8e19, well inside range), and finite divided by
+finite-nonzero is finite. Changing that arm to `0.0` is an equivalent mutation.
+
+That is a *different* dead guard from `ACCEPT-REJECT-ASYMMETRY-1`. There the
+guard was redundant because of the **polarity** of the expression around it;
+here it is dead because the **arithmetic** cannot produce the value it defends
+against. Both read as protective, neither does work, and both matter when
+reading a proof: **a property established over a branch nothing reaches is
+established vacuously.**
+
+Neither is a defect — defensive code against a case the type system already
+excludes is cheap insurance against a future refactor that changes the operand
+types. What would be a defect is citing either as evidence that the fail-closed
+behaviour is exercised.
 
 ## KANI-COLLUSION-GAPS-1 — a validator missing two of production's checks
 

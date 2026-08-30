@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **8 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) and `sanitizer.rs` (in `vellaveto-mcp-shield`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 25 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **9 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4 and 7/7; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 24 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 25 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 24 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -996,6 +996,63 @@ placeholder text, and that is asserted against the exact `format!` production
 uses. Mutation-verified 4/4 — reverting to decimal (the original drift),
 lowercase hex, reversed nibble order, and a freshness check that always accepts
 are all caught.
+
+## KANI-LEET-DRIFT-1 — a model that claimed a decode production does not perform
+
+Found 2026-08-30 while building the ninth Kani binding. Fixed the same day.
+Fifth finding of the model-drift shape, and the first in the **over-claiming**
+direction.
+
+`formal/kani/src/injection_pipeline.rs` models the decoders the injection
+scanner runs before pattern matching; K76 is pipeline completeness and K77 is
+that known attack strings are detected after decoding. Its leetspeak
+substitution map had diverged from production's `LEET_MAP` five ways:
+
+| Character | Production | Model (before) |
+|---|---|---|
+| `+` | `t` | *absent* |
+| `2` | `z` | *absent* |
+| `9` | `g` | *absent* |
+| `\|` | `l` | `i` |
+| `#` | *not decoded* | `h` |
+
+The first three are production's R226-MCP-2 expansion, which the model never
+picked up. The fourth is simply wrong.
+
+**The fifth is the one that matters.** Production does not decode `#` at all.
+The model did. Direction is everything here: a model that decodes *less* than
+production under-claims, and the proof is merely weaker than reality — safe. A
+model that decodes *more* **over-claims**: K77 would establish that a
+`#`-obfuscated attack string is detected after decoding, when production never
+performs that substitution and does not detect it. That is a proof asserting a
+defence that is not there.
+
+Every previous drift finding in this campaign was in the safe direction. This
+one was not.
+
+**Resolution.** The map now matches production character for character, and the
+binding sweeps **every printable ASCII character** through both, so no future
+divergence in either direction can hide. The specific five are also pinned
+individually, including an assertion that production does *not* decode `#` — so
+if production ever adds it, the binding fails and the model is updated
+deliberately rather than by coincidence.
+
+**Mutation testing found a hole in the binding, again.** ROT13 was compared
+using four hand-picked encoded words, and an `a..=m` → `a..=l` off-by-one
+survived: none of the four happened to contain `m`, which is exactly the
+boundary between the two rotation arms. The comparison now sweeps the whole
+alphabet in one word — chosen as a single word so production's stop-word density
+guard (which needs ≥ 8 words) does not suppress the decode. After the fix, that
+mutation and two further ROT13 boundary mutations are all caught.
+
+That is the fourth time in this campaign a binding looked finished and was not,
+and the reason every one of them is mutation-tested at the moment it is written.
+
+**A scope difference that is not drift:** production suppresses ROT13 for text
+reading as natural English (R228-INJ-1 / R238-MCP-3 stop-word density) and
+requires 3+ substitutable characters before leetspeak decoding (a false-positive
+guard on strings like `127.0.0.1`). The model represents neither. The binding
+therefore compares on inputs the guards do not suppress, and says so.
 
 ## NORMALIZE-MODEL-1 — K34's normalization is weaker than production's
 

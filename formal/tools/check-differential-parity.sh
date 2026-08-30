@@ -39,6 +39,9 @@ echo "=== Differential Parity (PARITY-HAND-1 and PARITY-HAND-2 discharge) ==="
 run_differential "vellaveto-mcp capability kernels ↔ their Verus specs" \
     vellaveto-mcp verus_spec_differential
 
+run_differential "vellaveto-mcp ↔ the Kani injection-pipeline extraction" \
+    vellaveto-mcp kani_parity_differential
+
 run_differential "vellaveto-mcp-shield ↔ the Kani sanitizer extraction" \
     vellaveto-mcp-shield kani_parity_differential
 

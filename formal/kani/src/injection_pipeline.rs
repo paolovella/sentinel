@@ -232,17 +232,25 @@ pub fn run_decode_pipeline(input: &str) -> (String, Vec<DecodeStage>, bool) {
 pub fn leetspeak_decode(input: &str) -> String {
     input
         .chars()
+        // Must stay identical to LEET_MAP in
+        // `vellaveto-mcp/src/inspection/injection.rs`. Until 2026-08-30 this
+        // map had drifted three ways: it was missing production's R226-MCP-2
+        // additions ('+', '2', '9'), it mapped '|' to 'i' where production maps
+        // it to 'l', and it decoded '#' to 'h' — a substitution production does
+        // NOT perform, so any proof relying on it claimed a detection that does
+        // not happen. See KANI-LEET-DRIFT-1 in formal/ASSUMPTION_REGISTRY.md.
         .map(|c| match c {
             '4' | '@' => 'a',
             '8' => 'b',
             '(' => 'c',
             '3' => 'e',
-            '6' => 'g',
-            '#' => 'h',
-            '1' | '!' | '|' => 'i',
+            '6' | '9' => 'g',
+            '1' | '!' => 'i',
+            '|' => 'l',
             '0' => 'o',
             '5' | '$' => 's',
-            '7' => 't',
+            '7' | '+' => 't',
+            '2' => 'z',
             _ => c,
         })
         .collect()

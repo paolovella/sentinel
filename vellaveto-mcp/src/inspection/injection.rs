@@ -4879,3 +4879,171 @@ mod tests {
         );
     }
 }
+
+// Differential binding for `PARITY-HAND-2` — injection decode pipeline.
+//
+// `formal/kani/src/injection_pipeline.rs` models the decoders the injection
+// scanner runs before pattern matching. K76 is pipeline completeness, K77 is
+// that known attack strings are detected after decoding.
+//
+// Both rest on the model's decoders behaving like production's. Until
+// 2026-08-30 the leetspeak map did not: it was missing production's R226-MCP-2
+// additions, mapped `|` to the wrong letter, and decoded `#` — a substitution
+// production does not perform, so a proof leaning on it would claim a
+// detection that does not happen. See `KANI-LEET-DRIFT-1`.
+//
+// This binding pins the substitution tables against each other directly.
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(
+    clippy::manual_range_contains,
+    clippy::manual_unwrap_or_default,
+    dead_code,
+    unused_imports
+)]
+mod kani_injection_extraction {
+    include!(concat!(env!("OUT_DIR"), "/kani_injection_extraction.rs"));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_injection {
+    use super::kani_injection_extraction as extracted;
+    use super::{decode_leetspeak, decode_rot13, InjectionScanner};
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/injection_pipeline.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The leetspeak substitution tables must agree character for character,
+    /// over every ASCII input.
+    ///
+    /// Direction matters here. A model that decodes *less* than production
+    /// under-claims — the proof is weaker than reality, which is safe. A model
+    /// that decodes *more* over-claims: it proves an obfuscated attack is
+    /// caught when production never performs that substitution and does not
+    /// catch it. The `#` entry was exactly that case.
+    #[test]
+    fn test_leetspeak_map_matches_production_over_ascii() {
+        // Production requires 3+ substitutable characters before it decodes at
+        // all (a false-positive guard on strings like "127.0.0.1"), so each
+        // probe character is repeated enough to clear that threshold.
+        for byte in 0x20u8..0x7F {
+            let c = byte as char;
+            let probe: String = std::iter::repeat_n(c, 4).collect();
+
+            let model = extracted::leetspeak_decode(&probe);
+            let production = decode_leetspeak(&probe).unwrap_or_else(|| probe.clone());
+
+            assert_eq!(
+                model, production,
+                "PARITY-HAND-2: the Kani model and production decode leetspeak \
+                 character {c:?} differently (model {model:?}, production \
+                 {production:?}) — K76/K77 describe a decoder that is not the one \
+                 running, and if the model decodes more than production the proof \
+                 claims a detection that does not happen"
+            );
+        }
+    }
+
+    /// The specific drift, stated so it cannot silently return.
+    #[test]
+    fn test_the_three_leet_divergences_are_closed() {
+        // R226-MCP-2 additions the model was missing.
+        for (leet, plain) in [('+', 't'), ('2', 'z'), ('9', 'g')] {
+            let probe: String = std::iter::repeat_n(leet, 4).collect();
+            let expected: String = std::iter::repeat_n(plain, 4).collect();
+            assert_eq!(
+                extracted::leetspeak_decode(&probe),
+                expected,
+                "KANI-LEET-DRIFT-1: the model no longer decodes {leet:?} -> {plain:?}"
+            );
+        }
+        // '|' maps to 'l', not 'i'.
+        assert_eq!(
+            extracted::leetspeak_decode("||||"),
+            "llll",
+            "KANI-LEET-DRIFT-1: '|' is mapped to the wrong letter again"
+        );
+        // '#' is NOT a leet substitution in production, so the model must not
+        // invent one.
+        assert_eq!(
+            extracted::leetspeak_decode("####"),
+            "####",
+            "KANI-LEET-DRIFT-1: the model decodes '#', which production does not — \
+             a proof relying on it would claim a detection that never happens"
+        );
+        assert_eq!(
+            decode_leetspeak("####"),
+            None,
+            "production unexpectedly decodes '#'; the model must be updated to match"
+        );
+    }
+
+    /// ROT13, on the domain where production actually decodes.
+    ///
+    /// Production suppresses ROT13 for text that reads as natural English
+    /// (R228-INJ-1 / R238-MCP-3 stop-word density) — a false-positive guard the
+    /// model does not represent. That is a scope difference, not drift, so the
+    /// comparison is made on inputs the guard does not suppress.
+    #[test]
+    fn test_rot13_matches_production_where_production_decodes() {
+        // The whole lowercase alphabet in one word. A hand-picked corpus of
+        // ROT13 words missed this: none of them happened to contain 'm', which
+        // is precisely the boundary between the two rotation arms, so an
+        // `a..=m` -> `a..=l` off-by-one survived mutation testing. Sweeping the
+        // alphabet removes the dependence on which letters a sample contains.
+        //
+        // Single word, so production's stop-word density guard (which needs
+        // >= 8 words) does not suppress the decode.
+        let alphabet = "abcdefghijklmnopqrstuvwxyz";
+        let model = extracted::rot13_decode(alphabet);
+        let production = decode_rot13(alphabet).expect("a 26-letter single word clears the guard");
+        assert_eq!(
+            model, production,
+            "PARITY-HAND-2: ROT13 decode disagrees over the alphabet"
+        );
+        assert_eq!(
+            model, "nopqrstuvwxyzabcdefghijklm",
+            "the model's ROT13 is not a rotation by 13"
+        );
+
+        for input in ["uryybjbeyq", "vtaberzr", "flfgrzcebzcg", "qryrgrnyyfvyrf"] {
+            let model = extracted::rot13_decode(input);
+            let production =
+                decode_rot13(input).expect("these inputs clear production's stop-word guard");
+            assert_eq!(
+                model, production,
+                "PARITY-HAND-2: ROT13 decode disagrees for {input:?}"
+            );
+        }
+    }
+
+    /// K77 stated against the real scanner: the attack strings the proof names
+    /// must actually be detected by production.
+    #[test]
+    fn test_k77_attack_strings_are_detected_by_the_real_scanner() {
+        let scanner =
+            InjectionScanner::new(&["ignore previous instructions", "system prompt", "<script"])
+                .expect("the pattern set compiles");
+        for attack in [
+            "ignore previous instructions",
+            "1gnore prev1ous 1nstruct1ons",
+            "5y573m pr0mp7",
+            "&lt;script&gt;alert(1)&lt;/script&gt;",
+        ] {
+            assert!(
+                !scanner.inspect(attack).is_empty(),
+                "K77: the real scanner did not detect {attack:?}, so the proof's \
+                 detection claim does not reach production"
+            );
+        }
+    }
+}

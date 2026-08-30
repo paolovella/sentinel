@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **20 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` + `entropy_wrapper.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5, 4/4 and 3/3; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 13 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **21 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` + `entropy_wrapper.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` + `trust_containment.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5, 4/4, 3/3 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 12 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 13 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 12 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -1306,6 +1306,33 @@ is actually reached, so the assertion is not vacuous.
 Mutation-verified 3/3 on the reachable behaviour: the non-finite guard removed
 (K87), the rounding directions swapped, and the decision scale drifting
 1000 → 100.
+
+### `trust_containment.rs` — the drifted function's other copy, and it was clean
+
+Added 2026-08-31. This is the mapping that produced **`TAINT-MODEL-DRIFT`**, the
+first finding of the whole campaign: two *Verus* kernels modelled
+`minimum_trust_tier_for_sink` with six-or-eight-class worlds that disagreed with
+production's nine and with each other, agreeing only at rank 0.
+
+The **Kani** copy of that same function had not drifted. Nine variants, nine
+arms, identical to production.
+
+That is worth binding precisely *because* the function drifted elsewhere. Three
+independent copies existed; two were wrong and one was right, and nothing
+distinguished them from the outside. **The copy that happens to be correct today
+is the one nobody is watching** — it has no guard, so it has no reason to stay
+correct.
+
+Bound totally: all nine sink classes, all 49 tier pairs, and all
+7 × 9 × 2 = 126 flow decisions. Also pinned is that the variant *counts* match
+and that both rank sequences stay dense and ordered — a mapping comparison over
+nine arms says nothing if production has since gained a tenth, which is exactly
+the shape `TAINT-MODEL-DRIFT` took.
+
+Mutation-verified 4/4 on the first pass, and TC1 **replays `TAINT-MODEL-DRIFT`
+exactly**: the highest-privilege sinks demanding `High` instead of `Verified`,
+the same off-by-one-tier that let a kernel claim a guarantee production did not
+provide. It is now caught in under a second.
 
 ## KANI-COLLUSION-GAPS-1 — a validator missing two of production's checks
 

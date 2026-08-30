@@ -1616,3 +1616,216 @@ mod tests {
         assert!(token.validate().is_err());
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_trust_containment_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_trust_containment_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_trust_containment {
+    //! Differential binding for `PARITY-HAND-2` — trust/sink containment.
+    //!
+    //! This is the mapping that produced `TAINT-MODEL-DRIFT`: two **Verus**
+    //! kernels modelled `minimum_trust_tier_for_sink` with six-or-eight-class
+    //! worlds that disagreed with production's nine and with each other,
+    //! agreeing only at rank 0.
+    //!
+    //! The Kani copy did **not** drift — it matches production variant for
+    //! variant and arm for arm. That is worth binding precisely because the
+    //! same function drifted elsewhere: the copy that happens to be right today
+    //! is the one nobody is watching.
+
+    use super::kani_trust_containment_extraction as extracted;
+    use super::{minimum_trust_tier_for_sink, SinkClass, TrustTier};
+
+    const ALL_SINKS: [SinkClass; 9] = [
+        SinkClass::ReadOnly,
+        SinkClass::LowRiskWrite,
+        SinkClass::FilesystemWrite,
+        SinkClass::NetworkEgress,
+        SinkClass::MemoryWrite,
+        SinkClass::ApprovalUi,
+        SinkClass::CodeExecution,
+        SinkClass::CredentialAccess,
+        SinkClass::PolicyMutation,
+    ];
+
+    const ALL_TIERS: [TrustTier; 7] = [
+        TrustTier::Quarantined,
+        TrustTier::Unknown,
+        TrustTier::Untrusted,
+        TrustTier::Low,
+        TrustTier::Medium,
+        TrustTier::High,
+        TrustTier::Verified,
+    ];
+
+    fn model_sink(sink: SinkClass) -> extracted::SinkClass {
+        match sink {
+            SinkClass::ReadOnly => extracted::SinkClass::ReadOnly,
+            SinkClass::LowRiskWrite => extracted::SinkClass::LowRiskWrite,
+            SinkClass::FilesystemWrite => extracted::SinkClass::FilesystemWrite,
+            SinkClass::NetworkEgress => extracted::SinkClass::NetworkEgress,
+            SinkClass::MemoryWrite => extracted::SinkClass::MemoryWrite,
+            SinkClass::ApprovalUi => extracted::SinkClass::ApprovalUi,
+            SinkClass::CodeExecution => extracted::SinkClass::CodeExecution,
+            SinkClass::CredentialAccess => extracted::SinkClass::CredentialAccess,
+            SinkClass::PolicyMutation => extracted::SinkClass::PolicyMutation,
+        }
+    }
+
+    fn model_tier(tier: TrustTier) -> extracted::TrustTier {
+        match tier {
+            TrustTier::Quarantined => extracted::TrustTier::Quarantined,
+            TrustTier::Unknown => extracted::TrustTier::Unknown,
+            TrustTier::Untrusted => extracted::TrustTier::Untrusted,
+            TrustTier::Low => extracted::TrustTier::Low,
+            TrustTier::Medium => extracted::TrustTier::Medium,
+            TrustTier::High => extracted::TrustTier::High,
+            TrustTier::Verified => extracted::TrustTier::Verified,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/trust_containment.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The variant counts must match, or every mapping comparison below is
+    /// silently partial — which is precisely how `TAINT-MODEL-DRIFT` hid.
+    #[test]
+    fn test_variant_counts_match_production() {
+        assert_eq!(ALL_SINKS.len(), 9, "production gained or lost a SinkClass");
+        assert_eq!(ALL_TIERS.len(), 7, "production gained or lost a TrustTier");
+        // Ranks are dense and ordered, so a new variant cannot be appended
+        // without this failing.
+        for (index, tier) in ALL_TIERS.iter().enumerate() {
+            assert_eq!(
+                tier.rank() as usize,
+                index,
+                "TrustTier ranks are no longer dense and ordered"
+            );
+        }
+        for (index, sink) in ALL_SINKS.iter().enumerate() {
+            assert_eq!(
+                sink.rank() as usize,
+                index,
+                "SinkClass ranks are no longer dense and ordered"
+            );
+        }
+    }
+
+    /// TOTAL over all nine sink classes: the mapping that drifted in Verus.
+    #[test]
+    fn test_minimum_trust_tier_matches_production_total_domain() {
+        for sink in ALL_SINKS {
+            let production = minimum_trust_tier_for_sink(sink);
+            let model = extracted::minimum_trust_tier_for_sink(model_sink(sink));
+            assert_eq!(
+                model_tier(production),
+                model,
+                "PARITY-HAND-2: the Kani copy maps {sink:?} to a different minimum \
+                 trust tier than production — this is the function that produced \
+                 TAINT-MODEL-DRIFT in two Verus kernels"
+            );
+        }
+        // The named consequence: the highest-privilege sinks require the
+        // highest trust, and read-only requires the lowest.
+        assert_eq!(
+            minimum_trust_tier_for_sink(SinkClass::PolicyMutation),
+            TrustTier::Verified
+        );
+        assert_eq!(
+            minimum_trust_tier_for_sink(SinkClass::ReadOnly),
+            TrustTier::Unknown
+        );
+    }
+
+    /// TOTAL over all 49 tier pairs: the trust ordering itself.
+    #[test]
+    fn test_trust_ordering_matches_production_total_domain() {
+        let mut checked = 0usize;
+        for a in ALL_TIERS {
+            for b in ALL_TIERS {
+                assert_eq!(
+                    extracted::TrustTier::at_least_as_trusted_as(model_tier(a), model_tier(b)),
+                    a.at_least_as_trusted_as(b),
+                    "PARITY-HAND-2: trust ordering disagrees for {a:?} vs {b:?}"
+                );
+                assert_eq!(
+                    model_tier(a).rank(),
+                    a.rank(),
+                    "PARITY-HAND-2: rank disagrees for {a:?}"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 49, "tier enumeration collapsed");
+        // Quarantined is the floor, Verified the ceiling.
+        for tier in ALL_TIERS {
+            assert!(tier.at_least_as_trusted_as(TrustTier::Quarantined));
+            assert!(TrustTier::Verified.at_least_as_trusted_as(tier));
+        }
+    }
+
+    /// TOTAL over all 7 × 9 × 2 flow decisions: whether a source at a given
+    /// trust tier may reach a given sink.
+    ///
+    /// This is the containment decision itself. A disagreement here means the
+    /// proofs describe a different flow policy than the one enforced.
+    #[test]
+    fn test_flow_admissibility_matches_production_total_domain() {
+        let mut checked = 0usize;
+        let mut allowed = 0usize;
+        for tier in ALL_TIERS {
+            for sink in ALL_SINKS {
+                for declassified in [false, true] {
+                    let production =
+                        tier.can_flow_to(minimum_trust_tier_for_sink(sink), declassified);
+                    let model = extracted::TrustTier::can_flow_to(
+                        model_tier(tier),
+                        extracted::minimum_trust_tier_for_sink(model_sink(sink)),
+                        declassified,
+                    );
+                    assert_eq!(
+                        model, production,
+                        "PARITY-HAND-2: flow admissibility disagrees for {tier:?} -> \
+                         {sink:?} (declassified={declassified})"
+                    );
+                    if production {
+                        allowed += 1;
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 7 * 9 * 2, "flow enumeration collapsed");
+        assert!(
+            allowed > 0 && allowed < checked,
+            "flow decisions are one-sided ({allowed} of {checked} allowed); the \
+             comparison cannot distinguish a policy that permits everything"
+        );
+
+        // The containment property, stated: an untrusted source cannot reach
+        // the highest-privilege sink without explicit declassification.
+        assert!(
+            !TrustTier::Untrusted.can_flow_to(
+                minimum_trust_tier_for_sink(SinkClass::PolicyMutation),
+                false
+            ),
+            "an untrusted source reached PolicyMutation without declassification"
+        );
+    }
+}

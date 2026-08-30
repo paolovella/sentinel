@@ -623,3 +623,218 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_dlp_core_extraction {
+    include!(concat!(env!("OUT_DIR"), "/kani_dlp_core_extraction.rs"));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_dlp {
+    //! Differential binding for `PARITY-HAND-2` — cross-call DLP buffers.
+    //!
+    //! `formal/kani/src/dlp_core.rs` says "the algorithm is identical to the
+    //! production code. Verified by Verus (ALL inputs) and Kani (bounded
+    //! inputs) independently." Two proof systems rest on that identity, and
+    //! nothing checked it.
+    //!
+    //! This is the cleanest correspondence in the crate — six functions, same
+    //! names, same signatures, all `pub` — so the comparison is direct and, for
+    //! the byte predicate, total.
+    //!
+    //! What rides on it: these functions decide how much of a previous tool
+    //! call's value is retained and rescanned, which is what catches a secret
+    //! split across two calls (Phase 71, R233-DLP-1). An overlap computed too
+    //! small silently stops detecting split secrets.
+
+    use super::kani_dlp_core_extraction as extracted;
+    use super::{
+        can_track_field, compute_overlap_region_size, extract_tail, is_utf8_char_boundary,
+        overlap_covers_secret, update_total_bytes,
+    };
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/dlp_core.rs was not found, so this binding compared nothing"
+        );
+    }
+
+    /// TOTAL over all 256 byte values.
+    #[test]
+    fn test_char_boundary_matches_production_total_domain() {
+        for byte in 0u8..=255 {
+            assert_eq!(
+                extracted::is_utf8_char_boundary(byte),
+                is_utf8_char_boundary(byte),
+                "PARITY-HAND-2: UTF-8 boundary test disagrees for byte {byte:#04x}"
+            );
+        }
+        // The property itself: continuation bytes are 10xxxxxx and nothing else.
+        for byte in 0x80u8..=0xBF {
+            assert!(
+                !is_utf8_char_boundary(byte),
+                "{byte:#04x} is a continuation byte and must not be a boundary"
+            );
+        }
+    }
+
+    /// `extract_tail` over multi-byte UTF-8 at every truncation point.
+    ///
+    /// The boundary adjustment is what stops a tail from starting mid-character
+    /// and corrupting the rescanned text, so every `max_size` from 0 to past the
+    /// full length is walked, on inputs whose character widths differ.
+    #[test]
+    fn test_extract_tail_matches_production_across_every_truncation() {
+        let inputs: [&[u8]; 6] = [
+            b"",
+            b"abcdef",
+            "aé€𝄞bc".as_bytes(), // 1, 2, 3 and 4-byte characters
+            "€€€€".as_bytes(),
+            "𝄞𝄞".as_bytes(),
+            b"\xff\xfe\xfd",
+        ];
+        let mut checked = 0usize;
+        for value in inputs {
+            for max_size in 0..=(value.len() + 3) {
+                assert_eq!(
+                    extracted::extract_tail(value, max_size),
+                    extract_tail(value, max_size),
+                    "PARITY-HAND-2: extract_tail disagrees for {value:?} at max_size {max_size}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= 40, "enumeration collapsed to {checked}");
+    }
+
+    /// Capacity admission, including the overflow path production guards with
+    /// `checked_add`.
+    #[test]
+    fn test_can_track_field_matches_production() {
+        const VALUES: [usize; 7] = [0, 1, 2, 255, 4096, usize::MAX / 2, usize::MAX];
+        let mut checked = 0usize;
+        for current_fields in [0usize, 1, 255, 256] {
+            for max_fields in [0usize, 1, 256] {
+                for current_bytes in VALUES {
+                    for new_buffer_bytes in VALUES {
+                        for max_total_bytes in [0usize, 4096, usize::MAX] {
+                            assert_eq!(
+                                extracted::can_track_field(
+                                    current_fields,
+                                    max_fields,
+                                    current_bytes,
+                                    new_buffer_bytes,
+                                    max_total_bytes
+                                ),
+                                can_track_field(
+                                    current_fields,
+                                    max_fields,
+                                    current_bytes,
+                                    new_buffer_bytes,
+                                    max_total_bytes
+                                ),
+                                "PARITY-HAND-2: can_track_field disagrees at \
+                                 ({current_fields}, {max_fields}, {current_bytes}, \
+                                 {new_buffer_bytes}, {max_total_bytes})"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 4 * 3 * 7 * 7 * 3, "enumeration collapsed");
+    }
+
+    /// The saturating arithmetic, at and around the points where it saturates.
+    #[test]
+    fn test_byte_accounting_matches_production_including_saturation() {
+        const VALUES: [usize; 8] = [
+            0,
+            1,
+            2,
+            100,
+            4096,
+            usize::MAX - 1,
+            usize::MAX / 2,
+            usize::MAX,
+        ];
+        for old_total in VALUES {
+            for old_buffer_len in VALUES {
+                for new_buffer_len in VALUES {
+                    assert_eq!(
+                        extracted::update_total_bytes(old_total, old_buffer_len, new_buffer_len),
+                        update_total_bytes(old_total, old_buffer_len, new_buffer_len),
+                        "PARITY-HAND-2: update_total_bytes disagrees at \
+                         ({old_total}, {old_buffer_len}, {new_buffer_len})"
+                    );
+                }
+            }
+        }
+        for prev_tail_len in VALUES {
+            for current_value_len in VALUES {
+                assert_eq!(
+                    extracted::compute_overlap_region_size(prev_tail_len, current_value_len),
+                    compute_overlap_region_size(prev_tail_len, current_value_len),
+                    "PARITY-HAND-2: overlap region size disagrees at \
+                     ({prev_tail_len}, {current_value_len})"
+                );
+            }
+        }
+    }
+
+    /// The completeness question the whole cross-call feature exists to answer:
+    /// is a secret split between two calls fully inside the combined buffer?
+    #[test]
+    fn test_overlap_coverage_matches_production() {
+        const LENS: [usize; 6] = [0, 1, 8, 64, 256, 1024];
+        let mut checked = 0usize;
+        for prev_value_len in LENS {
+            for current_value_len in LENS {
+                for overlap_size in LENS {
+                    for secret_len in [0usize, 1, 20, 40] {
+                        for split_point in [0usize, 1, 10, 20] {
+                            assert_eq!(
+                                extracted::overlap_covers_secret(
+                                    prev_value_len,
+                                    current_value_len,
+                                    overlap_size,
+                                    secret_len,
+                                    split_point
+                                ),
+                                overlap_covers_secret(
+                                    prev_value_len,
+                                    current_value_len,
+                                    overlap_size,
+                                    secret_len,
+                                    split_point
+                                ),
+                                "PARITY-HAND-2: overlap_covers_secret disagrees at \
+                                 ({prev_value_len}, {current_value_len}, {overlap_size}, \
+                                 {secret_len}, {split_point}) — a secret split across two \
+                                 calls would be judged covered by one and not the other"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 6 * 6 * 6 * 4 * 4, "enumeration collapsed");
+    }
+
+    /// The comparisons must reach both answers, or agreement proves nothing.
+    #[test]
+    fn test_enumerations_reach_both_answers() {
+        assert!(can_track_field(0, 10, 0, 100, 4096));
+        assert!(!can_track_field(10, 10, 0, 0, 4096));
+        assert!(is_utf8_char_boundary(b'a'));
+        assert!(!is_utf8_char_boundary(0x80));
+    }
+}

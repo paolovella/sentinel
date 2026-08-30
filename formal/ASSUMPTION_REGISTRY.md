@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **9 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4 and 7/7; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 24 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **10 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 23 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 24 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 23 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -996,6 +996,41 @@ placeholder text, and that is asserted against the exact `format!` production
 uses. Mutation-verified 4/4 — reverting to decimal (the original drift),
 lowercase hex, reversed nibble order, and a freshness check that always accepts
 are all caught.
+
+### `dlp_core.rs` — the cleanest correspondence, and two proof systems resting on it
+
+Added 2026-08-30. This extraction states that "the algorithm is identical to the
+production code. Verified by Verus (ALL inputs) and Kani (bounded inputs)
+independently." **Two** proof systems rest on that identity, and nothing checked
+it — which makes it the highest-leverage correspondence in the crate and, as it
+turned out, the only one that was actually faithful.
+
+Six functions, same names, same signatures, all `pub`, so the comparison is
+direct: `is_utf8_char_boundary` **total** over all 256 bytes;
+`extract_tail` at every truncation point of inputs mixing 1-, 2-, 3- and 4-byte
+characters plus invalid UTF-8; `can_track_field` over 1,764 combinations
+including the `checked_add` overflow path; the saturating arithmetic at and
+around its saturation points; and `overlap_covers_secret` over 3,456
+combinations.
+
+What rides on it: these decide how much of a previous call's value is retained
+and rescanned, which is what catches a secret split across two tool calls
+(Phase 71, R233-DLP-1). An overlap computed too small stops detecting split
+secrets and says nothing while doing so.
+
+Mutation-verified 4/4: the UTF-8 continuation mask widened from `0xC0` to
+`0x80`, the byte accounting reordered so saturation differs, the overlap size
+wrapping instead of saturating, and the field capacity check weakened from `>=`
+to `>` are all caught.
+
+**Worth noting that this one was clean.** Five extractions in a row had drifted,
+and it would be easy to conclude the whole crate is rotten. It is not: where the
+correspondence is one-to-one and the functions are `pub`, the copies had stayed
+faithful. The drift clustered in extractions that *model* rather than mirror —
+`cache` (booleans for a struct), `sanitizer` (a counter for a random draw),
+`injection` (a hand-maintained substitution table). That is the useful
+predictor for the remaining 23: **the further an extraction is from a
+one-to-one copy, the more likely it has drifted.**
 
 ## KANI-LEET-DRIFT-1 — a model that claimed a decode production does not perform
 

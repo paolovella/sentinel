@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **10 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 23 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **11 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4 and 9/9; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 22 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 23 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 22 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -1031,6 +1031,45 @@ faithful. The drift clustered in extractions that *model* rather than mirror —
 `injection` (a hand-maintained substitution table). That is the useful
 predictor for the remaining 23: **the further an extraction is from a
 one-to-one copy, the more likely it has drifted.**
+
+### `credential_vault.rs` — enumerate the transition table, not a happy path
+
+Added 2026-08-30. The most instructive binding of the campaign, and the lesson
+is about test *shape* rather than about the extraction.
+
+This is a hand-built state machine — a `Vec<CredState>` where production has an
+encrypted, persisted, mutex-guarded entry list — carrying K108-K112: single use,
+epoch monotonicity, capacity bound, fail-closed exhaustion, valid transitions.
+
+**The predictor recorded under `dlp_core.rs` was wrong here, and that is worth
+stating.** It says extractions that *model* drift while those that *mirror* do
+not, and this one models heavily. It had not drifted: the transition rules match
+production exactly. The predictor is a heuristic about where to look first, not
+a law.
+
+**Four mutations survived the first version of the binding**, all for the same
+reason: it was a happy path plus ad-hoc cases, and each surviving mutation was a
+match arm no case reached — consume from `Consumed`, from `Expired`, from
+`Absent`, and re-adding an existing credential.
+
+The `Consumed` one is the pointed one. **K108 is named "consumed credential
+cannot be re-consumed", and the test re-consumed an *Active* credential**, which
+takes a different arm entirely. The property the proof is named for was
+precisely the one not being tested, and everything passed.
+
+Replacing the ad-hoc cases with the **full 5 states × 3 operations table**
+closed all four at once, and the binding is now 9/9. A state machine has a
+small, totally enumerable transition table; testing less than all of it leaves
+arms dark, and which arms are dark is not visible from a passing run.
+
+The expected column is written out longhand rather than computed from the
+model, so a behaviour change has to be reconciled with a stated intention
+instead of silently redefining the expectation.
+
+**Scope the model does not cover**, recorded rather than compared: production's
+persistence — rollback on persist failure (R236-SHIELD-3 on consume,
+R237-SHIELD-3 on expire) and the `activated_at` stamp used to reclaim orphaned
+Active entries (R250-NHI-3). K108-K112 say nothing about those paths.
 
 ## KANI-LEET-DRIFT-1 — a model that claimed a decode production does not perform
 

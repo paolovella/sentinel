@@ -49,6 +49,7 @@ fn main() {
     for (module, out_name) in [
         ("injection_pipeline", "kani_injection_extraction.rs"),
         ("dlp_core", "kani_dlp_core_extraction.rs"),
+        ("task", "kani_task_extraction.rs"),
     ] {
         let extraction = Path::new(&manifest_dir).join(format!("../formal/kani/src/{module}.rs"));
         println!("cargo:rerun-if-changed={}", extraction.display());

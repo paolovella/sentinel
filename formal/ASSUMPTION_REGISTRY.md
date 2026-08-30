@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **11 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4 and 9/9; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 22 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **12 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9 and 6/6; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 21 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 22 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 21 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -1070,6 +1070,31 @@ instead of silently redefining the expectation.
 persistence — rollback on persist failure (R236-SHIELD-3 on consume,
 R237-SHIELD-3 on expire) and the `activated_at` stamp used to reclaim orphaned
 Active entries (R250-NHI-3). K108-K112 say nothing about those paths.
+
+### `task.rs` — the transition-table lesson, applied first time
+
+Added 2026-08-30. K56 (terminal states admit no transition), K57 (registration
+rejected at capacity), K58 (self-cancel rejects a different requester).
+
+Written directly as total enumerations rather than as a happy path, taking the
+lesson from `credential_vault`: `is_terminal` across all six states,
+`can_transition` across all **36** ordered pairs, `can_cancel` across its whole
+2 × 3 × 3 × 2 domain. **6/6 on the first mutation pass**, with no follow-up
+round needed — the first binding in this campaign where that was true.
+
+`can_cancel` is then driven through the real `TaskStateManager` so the
+authorization rule is checked against the running system and not only against a
+restatement of it.
+
+**A scope difference the model cannot represent, recorded rather than
+compared.** Production refuses to cancel a task already in a terminal state
+*before* it considers authorization at all; the model's `can_cancel` takes no
+state parameter, so it has no way to express that guard. The direction is safe —
+production is strictly stricter, so nothing K58 permits is under-enforced — but
+it means K58 is about **authorization only**, and terminal immutability
+(FIND-R60-004) is outside its scope. The binding asserts both halves: that
+production refuses, and that the model still authorizes, so the difference is
+visible rather than mistaken for agreement.
 
 ## KANI-LEET-DRIFT-1 — a model that claimed a decode production does not perform
 

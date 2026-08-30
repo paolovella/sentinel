@@ -50,6 +50,7 @@ fn main() {
         ("injection_pipeline", "kani_injection_extraction.rs"),
         ("dlp_core", "kani_dlp_core_extraction.rs"),
         ("task", "kani_task_extraction.rs"),
+        ("transitive_revoke", "kani_transitive_revoke_extraction.rs"),
     ] {
         let extraction = Path::new(&manifest_dir).join(format!("../formal/kani/src/{module}.rs"));
         println!("cargo:rerun-if-changed={}", extraction.display());

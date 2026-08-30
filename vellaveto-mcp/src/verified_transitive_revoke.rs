@@ -168,3 +168,130 @@ mod verus_spec_differential {
         assert!(!spec_depth_within_bound(51));
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_transitive_revoke_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_transitive_revoke_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_transitive_revoke {
+    //! Differential binding for `PARITY-HAND-2` — transitive NHI revocation.
+    //!
+    //! This module is unusual: it is the first place where **all three** meet.
+    //! The Verus kernel `verified_transitive_revoke.rs` proves its specs against
+    //! this mirror (bound above in `verus_spec_differential`), and
+    //! `formal/kani/src/transitive_revoke.rs` proves K136/K137 against its own
+    //! copy of the same predicates. Nothing connected the Kani copy to anything
+    //! until now.
+    //!
+    //! So this binding closes the triangle: Kani copy ↔ production mirror, over
+    //! the total domain of each predicate. With the Verus binding already in
+    //! place, agreement here means all three descriptions are of one function.
+    //!
+    //! What rides on it: revoking an NHI must sever every delegation reachable
+    //! from it. `link_should_deactivate` decides which links are cut, and
+    //! cutting on *either* side is deliberate — revoking an agent severs both
+    //! what it granted and what was granted to it.
+
+    use super::kani_transitive_revoke_extraction as extracted;
+    use super::MAX_TRANSITIVE_REVOKE_DEPTH;
+    use super::{depth_within_bound, link_should_deactivate, no_collateral};
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/transitive_revoke.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// K137, TOTAL over 2³: a link is cut when it touches the revoked agent on
+    /// either side and is still active.
+    #[test]
+    fn test_link_deactivation_matches_production_total_domain() {
+        for from_is_revoked in [false, true] {
+            for to_is_revoked in [false, true] {
+                for active in [false, true] {
+                    assert_eq!(
+                        extracted::should_deactivate(from_is_revoked, to_is_revoked, active),
+                        link_should_deactivate(from_is_revoked, to_is_revoked, active),
+                        "PARITY-HAND-2: the Kani copy and production disagree on \
+                         cutting a link at (from={from_is_revoked}, \
+                         to={to_is_revoked}, active={active}) — K137 is about a \
+                         different revocation rule than the one running"
+                    );
+                }
+            }
+        }
+        // The property stated: touching on either side is enough.
+        assert!(link_should_deactivate(true, false, true));
+        assert!(link_should_deactivate(false, true, true));
+        assert!(!link_should_deactivate(false, false, true));
+        // An already-inactive link is not "cut" again.
+        assert!(!link_should_deactivate(true, true, false));
+    }
+
+    /// K136: the depth bound, at and around it, and pinned on both sides
+    /// independently rather than compared to itself.
+    #[test]
+    fn test_depth_bound_matches_production_at_the_boundary() {
+        assert_eq!(
+            MAX_TRANSITIVE_REVOKE_DEPTH, 50,
+            "production's transitive revoke depth bound moved"
+        );
+
+        for depth in 0..=(MAX_TRANSITIVE_REVOKE_DEPTH + 5) {
+            assert_eq!(
+                extracted::depth_bounded(depth),
+                depth_within_bound(depth),
+                "PARITY-HAND-2: depth bound disagrees at {depth}"
+            );
+        }
+        // The boundary itself, from both sides.
+        assert!(extracted::depth_bounded(50) && depth_within_bound(50));
+        assert!(!extracted::depth_bounded(51) && !depth_within_bound(51));
+    }
+
+    /// The visited-set predicate and the no-collateral predicate are
+    /// complements of different things, and are checked as such.
+    ///
+    /// The Kani copy models BFS progress (`visited_insert_new`); production
+    /// models reachability (`no_collateral`). They are not the same predicate,
+    /// so they are not compared to each other — asserting an accidental
+    /// agreement between two unrelated booleans would be exactly the kind of
+    /// vacuous check this campaign exists to remove.
+    #[test]
+    fn test_visited_and_collateral_predicates_hold_separately() {
+        // BFS makes progress only on genuinely new nodes, or K136's
+        // termination argument fails.
+        assert!(extracted::visited_insert_new(false));
+        assert!(!extracted::visited_insert_new(true));
+
+        // A link touching neither endpoint is untouched, over the total 2²
+        // domain.
+        for from_is_current in [false, true] {
+            for to_is_current in [false, true] {
+                assert_eq!(
+                    no_collateral(from_is_current, to_is_current),
+                    !from_is_current && !to_is_current,
+                    "no_collateral disagrees at ({from_is_current}, {to_is_current})"
+                );
+                // And it is exactly the complement of "would be cut if active".
+                assert_ne!(
+                    no_collateral(from_is_current, to_is_current),
+                    link_should_deactivate(from_is_current, to_is_current, true),
+                    "an untouched link was also cut, or a touched link was not"
+                );
+            }
+        }
+    }
+}

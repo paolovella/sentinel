@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **7 of 35 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`) and `webhook_dedup.rs` (in `vellaveto-server`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 28 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **8 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) and `sanitizer.rs` (in `vellaveto-mcp-shield`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5 and 4/4; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 25 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 28 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 25 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -866,6 +866,39 @@ This is the third crate to need a `build.rs` for extraction materialization
 (`vellaveto-engine`, `vellaveto-types`, `vellaveto-server`); the mechanism is
 identical in each.
 
+### The denominator was wrong — 33 extractions, not 35
+
+Corrected 2026-08-30 while looking for the next module to bind. `formal/kani/src`
+holds 35 `.rs` files, and the count of "extractions" had simply been the file
+count. Two of those files carry no extracted production logic and therefore no
+drift risk:
+
+- **`merkle_codec.rs`** — contains no functions at all, only Kani harnesses that
+  call `hex::encode` and `hex::decode` directly. Production
+  (`vellaveto-audit/src/trusted_merkle_hash.rs`) wraps the *same* `hex` crate,
+  so there is no second copy that could drift. K141/K142 constrain the shared
+  dependency, which is a different (and weaker) kind of claim than the others —
+  but not an undischarged correspondence.
+- **`proofs.rs`** — 116 function definitions, 109 of them `#[kani::proof]`
+  harnesses. It is the harness file, not an extraction.
+
+So `PARITY-HAND-2` ranges over **33** extractions, of which 7 are discharged.
+
+Worth recording *how* this was found, because the classification took four
+attempts and each early answer was confidently wrong. A `^pub fn` grep missed
+methods inside `impl` blocks (`credential_vault.rs` has a whole `Vault` state
+machine and was counted as empty). Adding indentation tolerance still missed
+`pub const fn`. A skip flag for `#[cfg(test)]` blocks was set once and never
+reset, so every function after the first test module vanished. Only a
+brace-depth-aware scan gave a stable answer, and even that needed a manual read
+of the two outliers to confirm what they are.
+
+The lesson generalises past this count: **a number derived by grep is a
+hypothesis, not a measurement.** An inflated denominator here would have made
+the remaining work look larger and each discharge look smaller — harmless in
+that direction. The same carelessness pointed the other way is how a coverage
+claim gets overstated.
+
 ## KANI-CACHE-DRIFT-1 — a proof about the function as it was before a security fix
 
 Found 2026-08-28 by building the third Kani binding. Fixed the same day.
@@ -909,6 +942,60 @@ The binding lives inside `cache.rs` rather than a sibling module because
 `DecisionCache::is_cacheable_context` is private; a binding that required
 widening its visibility would be changing shipped API surface in order to test
 it.
+
+## KANI-SANITIZER-DRIFT-1 — a proof endorsing the design a security fix removed
+
+Found 2026-08-30 while building the eighth Kani binding. Fixed the same day.
+This is the fourth finding of the model-drift shape and the most pointed one.
+
+`formal/kani/src/sanitizer.rs` built PII placeholders as
+`[PII_{CAT}_{SEQ:06}]` from a **monotonic sequence counter**, under a doc
+comment reading "Mirrors the production format". K70 was titled *"Token
+uniqueness from monotonic sequence counter"* and proved exactly that.
+
+Production does not do this, and stopped doing it deliberately:
+
+> **SECURITY (R242-SHLD-1)**: Use an unpredictable token instead of a
+> sequential counter so placeholders cannot be guessed and probed as a
+> desanitization oracle.
+
+It draws a random `u64` and formats it `{:016X}` — sixteen uppercase hex digits
+— redrawing until the candidate is absent from the mapping table.
+
+So the proof did not merely describe a stale function, as `KANI-CACHE-DRIFT-1`
+did. **It asserted the virtue of an arrangement that was removed because it was
+a vulnerability.** A reader auditing whether placeholder guessing was ruled out
+would find "token uniqueness proved" and never learn that uniqueness-from-a-
+counter *was* the weakness.
+
+**A second defect in the same proof.** The K70 harness contained
+
+```rust
+if cat1 != cat2 {
+    assert_ne!(cat1, cat2, "distinct categories must produce distinct tokens");
+}
+```
+
+which asserts the condition it just branched on. A tautology, constraining no
+token at all. Half of K70 was vacuous — the same family as `VACUOUS-SPEC-1` and
+`GUARD-COMMENT-1`, and invisible for the same reason: it passed.
+
+**Resolution.** The model now builds production's format via
+`render_sixteen_hex_digits`, and `token_is_fresh` models the redraw loop, which
+is where uniqueness actually comes from. K70 was rewritten to prove the property
+that matters — the *encoding* is injective, so two distinct token values can
+never render to the same placeholder — and a second harness pins that a
+candidate already in the mapping table is never accepted. Both verify under Kani
+locally, as does K69 after its expected literals were corrected and its unwind
+bound raised from 32 to 64 (the placeholder grew from 18 to 28 characters).
+
+**What the binding can and cannot compare.** Production's token *value* is
+random, so there is no generation to compare. What is comparable is the
+encoding: given the same category and value, both must produce the same
+placeholder text, and that is asserted against the exact `format!` production
+uses. Mutation-verified 4/4 — reverting to decimal (the original drift),
+lowercase hex, reversed nibble order, and a freshness check that always accepts
+are all caught.
 
 ## NORMALIZE-MODEL-1 — K34's normalization is weaker than production's
 

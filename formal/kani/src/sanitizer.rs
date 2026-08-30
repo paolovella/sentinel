@@ -50,21 +50,62 @@ pub fn render_six_digits(value: u64) -> [u8; 6] {
     ]
 }
 
-/// Generate a PII placeholder token from category and sequence number.
+/// Generate a PII placeholder token from a category and a token value.
 ///
-/// Mirrors the production format: `[PII_{CAT}_{SEQ:06}]`
-pub fn make_token(category: u8, seq: u64) -> String {
+/// Production format: `[PII_{CAT}_{VALUE:016X}]` — sixteen uppercase hex
+/// digits of a **random** `u64`, not a sequence counter.
+///
+/// SECURITY (R242-SHLD-1): production used to number placeholders sequentially
+/// and stopped, because a guessable placeholder can be probed as a
+/// desanitization oracle. Until 2026-08-30 this model still built
+/// `[PII_{CAT}_{SEQ:06}]` from a monotonic counter and K70 proved *that*
+/// design's uniqueness — a property of the arrangement the fix removed. See
+/// KANI-SANITIZER-DRIFT-1 in formal/ASSUMPTION_REGISTRY.md.
+///
+/// Uniqueness in production does not come from the value being sequential; it
+/// comes from the collision-check loop that redraws until the candidate is
+/// absent from the mapping table. `token_is_fresh` models that check.
+pub fn make_token(category: u8, token_value: u64) -> String {
     let mut token = String::with_capacity(32);
     token.push_str("[PII_");
     token.push_str(category_label(category));
     token.push('_');
-    if seq <= 999_999 {
-        push_six_digits(&mut token, seq);
-    } else {
-        push_decimal(&mut token, seq);
-    }
+    push_sixteen_hex_digits(&mut token, token_value);
     token.push(']');
     token
+}
+
+/// Render a `u64` as exactly sixteen uppercase hex digits, as `{:016X}` does.
+pub fn render_sixteen_hex_digits(value: u64) -> [u8; 16] {
+    let mut out = [b'0'; 16];
+    let mut i = 0usize;
+    while i < 16 {
+        // Most significant nibble first.
+        let shift = 60 - (i * 4);
+        let nibble = ((value >> shift) & 0xF) as u8;
+        out[i] = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'A' + (nibble - 10)
+        };
+        i += 1;
+    }
+    out
+}
+
+fn push_sixteen_hex_digits(out: &mut String, value: u64) {
+    for byte in render_sixteen_hex_digits(value) {
+        out.push(byte as char);
+    }
+}
+
+/// Whether a freshly drawn candidate token may be used.
+///
+/// Production loops, redrawing a random `u64` until the candidate is not
+/// already a key in the mapping table. This is that check: uniqueness comes
+/// from it, not from the value being sequential.
+pub fn token_is_fresh(candidate_already_present: bool) -> bool {
+    !candidate_already_present
 }
 
 fn push_six_digits(out: &mut String, value: u64) {
@@ -223,7 +264,7 @@ mod tests {
         }];
         let (sanitized, mappings, _) = sanitize_and_record(input, &matches, 0);
         assert!(!sanitized.contains("user@example.com"));
-        assert!(sanitized.contains("[PII_EMAIL_000000]"));
+        assert!(sanitized.contains("[PII_EMAIL_0000000000000000]"));
         let restored = desanitize(&sanitized, &mappings);
         assert_eq!(restored, input);
     }
@@ -268,8 +309,48 @@ mod tests {
 
     #[test]
     fn test_token_width_matches_format_semantics() {
-        assert_eq!(make_token(0, 7), "[PII_EMAIL_000007]");
-        assert_eq!(make_token(0, 1_234_567), "[PII_EMAIL_1234567]");
+        // Production formats with `{:016X}`: sixteen uppercase hex digits,
+        // fixed width for every value.
+        assert_eq!(make_token(0, 7), "[PII_EMAIL_0000000000000007]");
+        assert_eq!(make_token(0, 1_234_567), "[PII_EMAIL_000000000012D687]");
+        assert_eq!(make_token(0, u64::MAX), "[PII_EMAIL_FFFFFFFFFFFFFFFF]");
+        // The width never varies — that is what makes a token unambiguous to
+        // find and replace during desanitization.
+        for value in [0u64, 1, 0xFF, u64::MAX / 3, u64::MAX] {
+            assert_eq!(make_token(0, value).len(), "[PII_EMAIL_]".len() + 16);
+        }
+    }
+
+    #[test]
+    fn test_render_sixteen_hex_digits_matches_format_macro() {
+        for value in [
+            0u64,
+            1,
+            7,
+            15,
+            16,
+            255,
+            0xDEAD_BEEF,
+            1_234_567,
+            u64::MAX / 2,
+            u64::MAX,
+        ] {
+            let rendered = render_sixteen_hex_digits(value);
+            let expected = format!("{value:016X}");
+            assert_eq!(
+                std::str::from_utf8(&rendered).expect("hex digits are ASCII"),
+                expected,
+                "render_sixteen_hex_digits disagrees with {{:016X}} for {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_token_freshness_is_the_uniqueness_mechanism() {
+        // R242-SHLD-1: uniqueness comes from redrawing until the candidate is
+        // absent, not from the value being sequential.
+        assert!(token_is_fresh(false));
+        assert!(!token_is_fresh(true));
     }
 
     #[test]

@@ -397,16 +397,16 @@ Formal verification spans TLA+, Verus, Kani, Lean 4, Coq, and Alloy. Current cou
 <!-- VELLAVETO:EVIDENCE:START -->
 | Evidence item | Count |
 |---|---:|
-| Rust tests | 13016 |
+| Rust tests | 13023 |
 | SDK tests | 977 |
-| Total tests tracked by manifest | 13993 |
+| Total tests tracked by manifest | 14000 |
 | Verus verified items | 1046 |
-| Kani proof harnesses | 124 |
+| Kani proof harnesses | 125 |
 | TLA+ specs | 13 |
 | Lean theorems | 32 |
 | Coq theorems | 45 |
 | Alloy assertions | 10 |
-| Formal evidence items tracked by manifest | 1270 |
+| Formal evidence items tracked by manifest | 1271 |
 <!-- VELLAVETO:EVIDENCE:END -->
 
 The live property catalog is maintained in [formal/README.md](formal/README.md); the trust boundary and assumptions are documented in [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md).

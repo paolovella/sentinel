@@ -44,14 +44,14 @@ fn main() {
         fail("OUT_DIR is not set; cannot materialize the Kani extractions")
     };
 
-    // One extraction so far. When a second is added, make this a loop over
-    // (module, out_name) pairs as `vellaveto-engine/build.rs` does.
-    let extraction = Path::new(&manifest_dir).join("../formal/kani/src/unicode.rs");
-    println!("cargo:rerun-if-changed={}", extraction.display());
-    materialize(
-        &extraction,
-        &Path::new(&out_dir).join("kani_unicode_extraction.rs"),
-    );
+    for (module, out_name) in [
+        ("unicode", "kani_unicode_extraction.rs"),
+        ("evidence_signing", "kani_evidence_signing_extraction.rs"),
+    ] {
+        let extraction = Path::new(&manifest_dir).join(format!("../formal/kani/src/{module}.rs"));
+        println!("cargo:rerun-if-changed={}", extraction.display());
+        materialize(&extraction, &Path::new(&out_dir).join(out_name));
+    }
 }
 
 /// Copy one extraction into `OUT_DIR`, turning `//!` into `//`.

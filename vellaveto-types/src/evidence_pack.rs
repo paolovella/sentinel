@@ -793,3 +793,216 @@ mod verus_spec_differential {
         assert!(!spec_signature_hex_valid(129));
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_evidence_signing_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_evidence_signing_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_evidence_signing {
+    //! Differential binding for `PARITY-HAND-2` — evidence pack signing.
+    //!
+    //! K133 (signing content is deterministic), K134 (`validate()` rejects
+    //! NaN/Infinity coverage), K135 (`validate()` rejects wrong-length
+    //! signature hex).
+    //!
+    //! What rides on it: Ed25519 evidence pack signing is the non-repudiation
+    //! and tamper-detection mechanism added in R259-R267. A coverage percentage
+    //! that is `NaN` compares false against every threshold, so an unvalidated
+    //! `NaN` silently passes any bound it is checked against — which is why
+    //! K134 exists and why the finiteness check is not decoration.
+
+    use super::kani_evidence_signing_extraction as extracted;
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/evidence_signing.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// K134 against production's real range check, including the values that
+    /// defeat a naive comparison.
+    ///
+    /// `NaN` is the important one: `NaN < 0.0` and `NaN > 100.0` are both
+    /// false, so a bounds check written without `is_finite()` accepts it.
+    #[test]
+    fn test_coverage_validation_matches_production() {
+        const CASES: [f32; 12] = [
+            0.0,
+            0.5,
+            50.0,
+            100.0,
+            -0.0,
+            -0.1,
+            100.1,
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MIN,
+            f32::MAX,
+        ];
+        for pct in CASES {
+            // Production's real validate(), not a restatement of it. The
+            // difference matters here: see the accept/reject asymmetry below.
+            let section = super::EvidenceSection {
+                section_id: "s1".to_string(),
+                title: "Section 1".to_string(),
+                description: "Test".to_string(),
+                items: vec![],
+                section_coverage_percent: pct,
+            };
+            let production = section.validate().is_ok();
+            assert_eq!(
+                extracted::coverage_valid(pct),
+                production,
+                "PARITY-HAND-2: coverage validation disagrees for {pct:?}"
+            );
+        }
+        // K134 stated: the non-finite values are rejected by both.
+        assert!(!extracted::coverage_valid(f32::NAN));
+        assert!(!extracted::coverage_valid(f32::INFINITY));
+        assert!(!extracted::coverage_valid(f32::NEG_INFINITY));
+    }
+
+    /// The accept/reject asymmetry behind K134 — recorded because it means the
+    /// model demonstrates the property without exercising the mechanism
+    /// production depends on.
+    ///
+    /// The model writes the **accept** form, `is_finite() && p >= 0.0 && p <=
+    /// 100.0`. There `is_finite()` is redundant: `NaN >= 0.0` is already false,
+    /// so the conjunction rejects NaN with or without it. Deleting the guard
+    /// from the model is an equivalent mutation and no test can catch it.
+    ///
+    /// Production writes the **reject** form, `!is_finite() || p < 0.0 || p >
+    /// 100.0`. There the guard is load-bearing: `NaN < 0.0` and `NaN > 100.0`
+    /// are both false, so without it NaN passes validation.
+    ///
+    /// Same semantic check, opposite dependence on the same guard. K134 is
+    /// titled "validate() rejects NaN/Infinity" and is true of both — but only
+    /// production's form can fail that way, so the proof establishes the
+    /// property without covering the reason it is needed.
+    // The literal `>=`/`<=` shape IS the subject of this test — the whole point
+    // is which comparison form makes the is_finite guard load-bearing. Rewriting
+    // it as a range `contains` would erase the distinction being demonstrated.
+    #[allow(clippy::manual_range_contains)]
+    #[test]
+    fn test_the_is_finite_guard_is_load_bearing_only_in_the_reject_form() {
+        let nan = f32::NAN;
+        // Accept form: the guard adds nothing.
+        assert_eq!(
+            nan.is_finite() && nan >= 0.0 && nan <= 100.0,
+            nan >= 0.0 && nan <= 100.0,
+            "the accept form's is_finite guard has become load-bearing; the \
+             asymmetry recorded here no longer holds"
+        );
+        // Reject form: without the guard, NaN is accepted.
+        let rejected_with = !nan.is_finite() || nan < 0.0 || nan > 100.0;
+        let rejected_without = nan < 0.0 || nan > 100.0;
+        assert!(rejected_with, "the reject form must reject NaN");
+        assert!(
+            !rejected_without,
+            "without is_finite the reject form must accept NaN — this is why \
+             production needs the guard"
+        );
+        // And production, which uses the reject form, does reject it.
+        let section = super::EvidenceSection {
+            section_id: "s1".to_string(),
+            title: "Section 1".to_string(),
+            description: "Test".to_string(),
+            items: vec![],
+            section_coverage_percent: nan,
+        };
+        assert!(
+            section.validate().is_err(),
+            "K134: production accepted a NaN coverage percentage"
+        );
+    }
+
+    /// K135 against production's real `validate()`, at and around both bounds.
+    #[test]
+    fn test_signature_and_key_length_match_production_validate() {
+        for len in [0usize, 1, 63, 64, 65, 127, 128, 129, 256] {
+            let pack = super::EvidencePack {
+                framework: super::EvidenceFramework::Dora,
+                framework_name: "DORA".to_string(),
+                generated_at: "2026-08-30T00:00:00Z".to_string(),
+                organization_name: "Test Corp".to_string(),
+                system_id: "test-001".to_string(),
+                period_start: None,
+                period_end: None,
+                sections: vec![],
+                overall_coverage_percent: 80.0,
+                total_requirements: 10,
+                covered_requirements: 8,
+                partial_requirements: 1,
+                uncovered_requirements: 1,
+                critical_gaps: vec![],
+                recommendations: vec![],
+                signature: Some("a".repeat(len)),
+                verifying_key: None,
+            };
+            let production_accepts_signature = match pack.validate() {
+                Ok(()) => true,
+                Err(e) => !e.contains("signature must be exactly"),
+            };
+            assert_eq!(
+                extracted::signature_hex_valid(len),
+                production_accepts_signature,
+                "PARITY-HAND-2: K135 signature length {len} — model says {}, \
+                 production says {production_accepts_signature}",
+                extracted::signature_hex_valid(len)
+            );
+        }
+
+        // The key bound, model side, pinned literally on both sides.
+        assert!(extracted::verifying_key_hex_valid(64));
+        assert!(!extracted::verifying_key_hex_valid(63));
+        assert!(!extracted::verifying_key_hex_valid(65));
+        // Ed25519: 64-byte signature = 128 hex, 32-byte key = 64 hex.
+        assert!(extracted::signature_hex_valid(128));
+        assert!(!extracted::signature_hex_valid(127));
+    }
+
+    /// Requirement accounting must saturate rather than wrap — a wrapped sum
+    /// compares small and would report a consistent count for an inconsistent
+    /// pack.
+    #[test]
+    fn test_requirement_count_consistency_saturates() {
+        assert!(extracted::requirement_count_consistent(1, 1, 1, 3));
+        assert!(extracted::requirement_count_consistent(0, 0, 0, 0));
+        assert!(!extracted::requirement_count_consistent(2, 2, 2, 5));
+        // Saturation, not wraparound. The inputs matter: (MAX, MAX, MAX, 10)
+        // gives the same answer either way — MAX + MAX wraps to MAX - 1, still
+        // far above 10 — so it cannot tell the two apart. (MAX, 2, 0, 10)
+        // wraps to 1, which passes, and saturates to MAX, which does not.
+        assert!(!extracted::requirement_count_consistent(
+            usize::MAX,
+            2,
+            0,
+            10
+        ));
+        assert!(!extracted::requirement_count_consistent(
+            usize::MAX,
+            1,
+            1,
+            10
+        ));
+        assert!(!extracted::requirement_count_consistent(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            10
+        ));
+    }
+}

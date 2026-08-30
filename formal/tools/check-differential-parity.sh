@@ -54,6 +54,9 @@ run_differential "vellaveto-engine policy/delegation kernels ↔ their Verus spe
 run_differential "vellaveto-approval consumption/scope kernels ↔ their Verus specs" \
     vellaveto-approval verus_spec_differential
 
+run_differential "vellaveto-approval ↔ the Kani approval-drift extraction" \
+    vellaveto-approval kani_parity_differential
+
 run_differential "vellaveto-types transport-context kernel ↔ its Verus spec" \
     vellaveto-types verus_spec_differential
 

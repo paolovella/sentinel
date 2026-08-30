@@ -5117,3 +5117,167 @@ mod tests {
         assert_eq!(summary.requester, "unknown");
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_approval_drift_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_approval_drift_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_approval_drift {
+    //! Differential binding for `PARITY-HAND-2` — approval lineage drift.
+    //!
+    //! Another closed triangle. `verified_approval_drift.rs` (Verus) proves its
+    //! specs against `check_approval_lineage_drift` and
+    //! `approval_refused_for_drift`, bound under `PARITY-HAND-1`. K140 proves
+    //! its own copy of the same predicates. This connects the Kani copy.
+    //!
+    //! What rides on it: an approval is consumed only if the session's trust
+    //! and taint are no worse than when it was granted. R264-RELAY-1 made drift
+    //! produce a denial rather than a warning; R265-RELAY-3 made a store read
+    //! failure fail closed. Both are disjuncts here.
+
+    use super::kani_approval_drift_extraction as extracted;
+    use super::{approval_refused_for_drift, check_approval_lineage_drift};
+    use super::{ApprovalContainmentContext, ApprovalStatus, PendingApproval, SemanticTaint};
+    use chrono::{Duration, Utc};
+    use vellaveto_types::{Action, TrustTier};
+
+    const ALL_TIERS: [TrustTier; 7] = [
+        TrustTier::Quarantined,
+        TrustTier::Unknown,
+        TrustTier::Untrusted,
+        TrustTier::Low,
+        TrustTier::Medium,
+        TrustTier::High,
+        TrustTier::Verified,
+    ];
+
+    fn approval_with(trust: Option<TrustTier>, taint_count: usize) -> PendingApproval {
+        PendingApproval {
+            id: "approval-1".to_string(),
+            action: Action::new("tool", "fn", serde_json::json!({})),
+            reason: "needs review".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + Duration::minutes(15),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: None,
+            session_id: None,
+            action_fingerprint: None,
+            containment_context: Some(ApprovalContainmentContext {
+                semantic_taint: vec![SemanticTaint::Sensitive; taint_count],
+                lineage_channels: vec![],
+                effective_trust_tier: trust,
+                sink_class: None,
+                containment_mode: None,
+                ..Default::default()
+            }),
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/approval_drift.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// K140 over every ordered pair of the seven trust ranks, against the
+    /// production function rather than a restatement of it.
+    #[test]
+    fn test_trust_downgrade_matches_production_over_every_tier_pair() {
+        let mut checked = 0usize;
+        for approval_trust in ALL_TIERS {
+            for current_trust in ALL_TIERS {
+                let model = extracted::trust_downgraded(
+                    u32::from(approval_trust.rank()),
+                    u32::from(current_trust.rank()),
+                );
+                let production = check_approval_lineage_drift(
+                    &approval_with(Some(approval_trust), 0),
+                    Some(current_trust),
+                    0,
+                )
+                .is_some();
+                assert_eq!(
+                    model, production,
+                    "PARITY-HAND-2: K140's trust-downgrade predicate disagrees with \
+                     production for approval={approval_trust:?} current={current_trust:?} \
+                     — an approval granted at higher trust could be consumed after a \
+                     downgrade"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 49, "tier enumeration collapsed");
+    }
+
+    /// Taint accumulation, against production, across a boundary set.
+    #[test]
+    fn test_taint_accumulation_matches_production() {
+        for approval_taint in [0usize, 1, 2, 5] {
+            for current_taint in [0usize, 1, 2, 5] {
+                let model = extracted::taint_accumulated(approval_taint, current_taint);
+                let production = check_approval_lineage_drift(
+                    &approval_with(Some(TrustTier::High), approval_taint),
+                    Some(TrustTier::High),
+                    current_taint,
+                )
+                .is_some();
+                assert_eq!(
+                    model, production,
+                    "PARITY-HAND-2: taint accumulation disagrees at \
+                     (approval={approval_taint}, current={current_taint})"
+                );
+            }
+        }
+    }
+
+    /// TOTAL over 2³: the fail-closed disjunction, including the store-error
+    /// arm that R265-RELAY-3 added.
+    #[test]
+    fn test_fail_closed_disjunction_matches_production_total_domain() {
+        for trust_down in [false, true] {
+            for taint_up in [false, true] {
+                for store_error in [false, true] {
+                    let model = extracted::drift_detected(trust_down, taint_up, store_error);
+                    let production =
+                        approval_refused_for_drift(store_error, trust_down || taint_up);
+                    assert_eq!(
+                        model, production,
+                        "PARITY-HAND-2: the fail-closed drift disjunction disagrees at \
+                         (trust_down={trust_down}, taint_up={taint_up}, \
+                         store_error={store_error})"
+                    );
+                    // And drift always blocks — never forwards.
+                    assert_eq!(
+                        extracted::decision_is_block(model),
+                        model,
+                        "K140: drift was detected but the decision was not Block"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The comparisons must reach both answers.
+    #[test]
+    fn test_enumeration_reaches_both_answers() {
+        assert!(extracted::trust_downgraded(5, 2));
+        assert!(!extracted::trust_downgraded(2, 5));
+        assert!(extracted::drift_detected(false, false, true));
+        assert!(!extracted::drift_detected(false, false, false));
+    }
+}

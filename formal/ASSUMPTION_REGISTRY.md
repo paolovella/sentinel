@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **13 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 20 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **14 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` (in `vellaveto-engine`), `unicode.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 19 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 20 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 19 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -1186,6 +1186,57 @@ reading as natural English (R228-INJ-1 / R238-MCP-3 stop-word density) and
 requires 3+ substitutable characters before leetspeak decoding (a false-positive
 guard on strings like `127.0.0.1`). The model represents neither. The binding
 therefore compares on inputs the guards do not suppress, and says so.
+
+## KANI-GLOB-ORDER-1 — two glob matchers that disagree on branch order
+
+Found 2026-08-30 while binding `capability.rs`, the largest extraction. Fixed
+the same day. Seventh drift finding.
+
+`formal/kani/src/capability.rs::glob_match` describes itself as "the
+bounded-model witness for the runtime metachar matcher now routed through
+`verified_capability_glob::literal_child_matches_parent_glob`". The exhaustive
+comparison — every pattern/value pair over `* ? @ A Z [ a z` up to length 2,
+5,329 pairs — found them disagreeing.
+
+The witness: pattern `"*?"`, value `"*"`. Production matches; the model did not.
+
+**Cause: branch order.** The model's iterative matcher tested literal equality
+*before* the star branch, so a literal `*` in the **value** was consumed by
+`eq_ignore_ascii_case` against the pattern's `*`, leaving `?` with nothing to
+match. Production's recursive matcher tests the star arm first and treats a
+pattern `*` as a wildcard unconditionally. Two reasonable matchers; one
+semantics.
+
+**Direction.** The model was *stricter* than production — it refused matches
+production accepts. For a coverage predicate that is the direction that
+undermines a no-escalation argument: K37 is proved over a matcher that admits
+**fewer** delegations than the one running, so pairs production considers
+covered were never examined by the proof.
+
+**Reachability, stated honestly.** In `pattern_is_subset`, a child carrying
+metacharacters is routed to the exact subset checker rather than to this
+matcher, so the divergence is not reachable there. It is reachable through
+`pattern_matches(pattern, value)` for runtime action coverage — but only for a
+tool or function name containing a literal `*` or `?`. Unusual, not impossible,
+and the point stands regardless: K36-K41 were about a different function than
+the one running.
+
+**Resolution.** The star branch now precedes the equality branch. All 5,329
+pairs agree, and all six capability harnesses re-verify under Kani locally —
+`proof_grant_is_subset_reflexive`, `_no_escalation`,
+`proof_pattern_is_subset_correctness`, `proof_glob_match_wildcard_universal`,
+`proof_normalize_path_for_grant_no_traversal`, `proof_grant_covers_action_fail_closed`.
+
+**This binding closes six triangles at once.** `capability.rs` duplicates
+predicates that already have production mirrors bound to Verus under
+`PARITY-HAND-1` — `verified_capability_pattern`, `_glob`, `_literal`, `_domain`,
+`_path`, `_glob_subset`. For each, Verus proves the mirror and this shows the
+Kani copy is the same function.
+
+Mutation-verified 5/5, and two are worth naming: reverting the branch order (the
+finding itself), and the `A..=Z` → `A..<Z` case-fold off-by-one — **the exact
+mutation that started this campaign**, which once passed the symbol-name guard
+and all 1,950 crate tests. It is now caught.
 
 ## NORMALIZE-MODEL-1 — K34's normalization is weaker than production's
 

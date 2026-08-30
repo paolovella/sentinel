@@ -124,6 +124,22 @@ impl CollusionConfig {
             ));
         }
 
+        // KANI-COLLUSION-GAPS-1: these two were missing from the model while it
+        // claimed to mirror production's validate(). Collusion by definition
+        // needs at least two agents — `min_coordinated_agents < 2` would make
+        // a single agent "coordinated" with itself — and a zero
+        // `drift_min_actions` divides detection by an empty action set.
+        if self.min_coordinated_agents < 2 {
+            return Err(ConfigError::InvalidField(
+                "min_coordinated_agents must be >= 2".into(),
+            ));
+        }
+        if self.drift_min_actions == 0 {
+            return Err(ConfigError::InvalidField(
+                "drift_min_actions must be > 0".into(),
+            ));
+        }
+
         Ok(())
     }
 }

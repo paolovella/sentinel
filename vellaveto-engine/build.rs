@@ -50,6 +50,8 @@ fn main() {
         ("path", "kani_path_extraction.rs"),
         ("ip", "kani_ip_extraction.rs"),
         ("cache", "kani_cache_extraction.rs"),
+        ("collusion_detection", "kani_collusion_extraction.rs"),
+        ("temporal_window", "kani_temporal_window_extraction.rs"),
         ("domain", "kani_domain_extraction.rs"),
         ("rule_check", "kani_rule_check_extraction.rs"),
     ] {

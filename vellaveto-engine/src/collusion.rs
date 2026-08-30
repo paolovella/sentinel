@@ -2347,3 +2347,237 @@ mod tests {
         assert_eq!(safe, u32::MAX);
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(
+    clippy::field_reassign_with_default,
+    clippy::manual_range_contains,
+    dead_code,
+    unused_imports
+)]
+mod kani_collusion_extraction {
+    include!(concat!(env!("OUT_DIR"), "/kani_collusion_extraction.rs"));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_collusion {
+    //! Differential binding for `PARITY-HAND-2` — collusion config validation.
+    //!
+    //! K98-K102 rest on a `CollusionConfig::validate()` the extraction
+    //! describes as mirroring production's. It did not: two fields production
+    //! validates were absent — see `KANI-COLLUSION-GAPS-1`.
+    //!
+    //! Compared against production's real `validate()`, field by field, at each
+    //! boundary. Production writes the **reject** form with `!is_finite()`, so
+    //! comparing against a restatement would risk the polarity trap recorded as
+    //! `ACCEPT-REJECT-ASYMMETRY-1`.
+
+    use super::kani_collusion_extraction as extracted;
+    use super::CollusionConfig;
+
+    fn production_default() -> CollusionConfig {
+        CollusionConfig::default()
+    }
+
+    fn model_default() -> extracted::CollusionConfig {
+        extracted::CollusionConfig::default()
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/collusion_detection.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The defaults must agree field by field, or every subsequent comparison
+    /// starts from a different config than production ships.
+    #[test]
+    fn test_defaults_match_production() {
+        let p = production_default();
+        let m = model_default();
+        assert_eq!(m.coordination_window_secs, p.coordination_window_secs);
+        assert_eq!(m.entropy_threshold, p.entropy_threshold);
+        assert_eq!(m.sync_threshold, p.sync_threshold);
+        assert_eq!(m.min_entropy_observations, p.min_entropy_observations);
+        assert_eq!(m.min_coordinated_agents, p.min_coordinated_agents);
+        assert_eq!(m.recon_denial_threshold, p.recon_denial_threshold);
+        assert_eq!(m.recon_window_secs, p.recon_window_secs);
+        assert_eq!(m.drift_threshold, p.drift_threshold);
+        assert_eq!(m.drift_window_secs, p.drift_window_secs);
+        assert_eq!(m.drift_min_actions, p.drift_min_actions);
+        // And the shipped default must actually validate, in both.
+        assert!(
+            p.validate().is_ok(),
+            "production's default config is invalid"
+        );
+        assert!(
+            m.validate().is_ok(),
+            "the model's default config is invalid"
+        );
+    }
+
+    /// Every field, at and around each boundary, against production's real
+    /// `validate()`.
+    #[test]
+    fn test_validation_matches_production_field_by_field() {
+        // (label, mutate production, mutate model)
+        struct Case {
+            label: &'static str,
+            apply_p: fn(&mut CollusionConfig),
+            apply_m: fn(&mut extracted::CollusionConfig),
+        }
+
+        const CASES: &[Case] = &[
+            Case {
+                label: "coordination_window_secs = 0",
+                apply_p: |c| c.coordination_window_secs = 0,
+                apply_m: |c| c.coordination_window_secs = 0,
+            },
+            Case {
+                label: "coordination_window_secs = 86_400 (at bound)",
+                apply_p: |c| c.coordination_window_secs = 86_400,
+                apply_m: |c| c.coordination_window_secs = 86_400,
+            },
+            Case {
+                label: "coordination_window_secs = 86_401 (over)",
+                apply_p: |c| c.coordination_window_secs = 86_401,
+                apply_m: |c| c.coordination_window_secs = 86_401,
+            },
+            Case {
+                label: "entropy_threshold NaN",
+                apply_p: |c| c.entropy_threshold = f64::NAN,
+                apply_m: |c| c.entropy_threshold = f64::NAN,
+            },
+            Case {
+                label: "entropy_threshold +inf",
+                apply_p: |c| c.entropy_threshold = f64::INFINITY,
+                apply_m: |c| c.entropy_threshold = f64::INFINITY,
+            },
+            Case {
+                label: "entropy_threshold 8.0 (at bound)",
+                apply_p: |c| c.entropy_threshold = 8.0,
+                apply_m: |c| c.entropy_threshold = 8.0,
+            },
+            Case {
+                label: "entropy_threshold 8.1 (over)",
+                apply_p: |c| c.entropy_threshold = 8.1,
+                apply_m: |c| c.entropy_threshold = 8.1,
+            },
+            Case {
+                label: "sync_threshold NaN",
+                apply_p: |c| c.sync_threshold = f64::NAN,
+                apply_m: |c| c.sync_threshold = f64::NAN,
+            },
+            Case {
+                label: "sync_threshold 1.1 (over)",
+                apply_p: |c| c.sync_threshold = 1.1,
+                apply_m: |c| c.sync_threshold = 1.1,
+            },
+            Case {
+                label: "drift_threshold NaN",
+                apply_p: |c| c.drift_threshold = f64::NAN,
+                apply_m: |c| c.drift_threshold = f64::NAN,
+            },
+            Case {
+                label: "drift_threshold -0.1 (under)",
+                apply_p: |c| c.drift_threshold = -0.1,
+                apply_m: |c| c.drift_threshold = -0.1,
+            },
+            Case {
+                label: "min_entropy_observations = 0 (R231-COLL-1)",
+                apply_p: |c| c.min_entropy_observations = 0,
+                apply_m: |c| c.min_entropy_observations = 0,
+            },
+            Case {
+                label: "min_coordinated_agents = 1 (KANI-COLLUSION-GAPS-1)",
+                apply_p: |c| c.min_coordinated_agents = 1,
+                apply_m: |c| c.min_coordinated_agents = 1,
+            },
+            Case {
+                label: "min_coordinated_agents = 2 (at bound)",
+                apply_p: |c| c.min_coordinated_agents = 2,
+                apply_m: |c| c.min_coordinated_agents = 2,
+            },
+            Case {
+                label: "recon_denial_threshold = 0",
+                apply_p: |c| c.recon_denial_threshold = 0,
+                apply_m: |c| c.recon_denial_threshold = 0,
+            },
+            Case {
+                label: "recon_window_secs = 3_601 (over)",
+                apply_p: |c| c.recon_window_secs = 3_601,
+                apply_m: |c| c.recon_window_secs = 3_601,
+            },
+            Case {
+                label: "drift_window_secs = 0",
+                apply_p: |c| c.drift_window_secs = 0,
+                apply_m: |c| c.drift_window_secs = 0,
+            },
+            Case {
+                label: "drift_min_actions = 0 (KANI-COLLUSION-GAPS-1)",
+                apply_p: |c| c.drift_min_actions = 0,
+                apply_m: |c| c.drift_min_actions = 0,
+            },
+        ];
+
+        let mut accepted = 0usize;
+        let mut rejected = 0usize;
+        for case in CASES {
+            let mut p = production_default();
+            (case.apply_p)(&mut p);
+            let mut m = model_default();
+            (case.apply_m)(&mut m);
+
+            let production_ok = p.validate().is_ok();
+            let model_ok = m.validate().is_ok();
+            assert_eq!(
+                model_ok, production_ok,
+                "PARITY-HAND-2: validation disagrees for {} (production accepts={}, \
+                 model accepts={}) — K98-K102 rest on a validator that is not \
+                 production's",
+                case.label, production_ok, model_ok
+            );
+            if production_ok {
+                accepted += 1;
+            } else {
+                rejected += 1;
+            }
+        }
+        assert_eq!(CASES.len(), 18, "case list shrank; recount before trusting");
+        assert!(
+            accepted > 0 && rejected > 0,
+            "the case list is one-sided (accepted {accepted}, rejected {rejected}); \
+             it cannot distinguish a validator that rejects everything"
+        );
+    }
+
+    /// The capacity check that decides whether tracking fails closed.
+    ///
+    /// R229-ENG-1 made capacity exhaustion an alert rather than a silent drop:
+    /// an attacker who can fill the tracker with dummy agents must not then
+    /// operate unobserved.
+    #[test]
+    fn test_capacity_exhaustion_matches_production_bound() {
+        assert_eq!(
+            extracted::MAX_TRACKED_AGENTS,
+            10_000,
+            "the model's agent-tracking bound moved"
+        );
+        for (current, max) in [(0usize, 10usize), (9, 10), (10, 10), (11, 10), (0, 0)] {
+            assert_eq!(
+                extracted::is_capacity_exhausted(current, max),
+                current >= max,
+                "capacity exhaustion disagrees at ({current}, {max})"
+            );
+        }
+        // `>=`, not `>`: at capacity is exhausted, or the tracker admits one
+        // more than its bound before alerting.
+        assert!(extracted::is_capacity_exhausted(10, 10));
+    }
+}

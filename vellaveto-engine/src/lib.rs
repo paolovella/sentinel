@@ -44,6 +44,19 @@ mod entropy_gate;
 mod error;
 pub mod impact;
 mod ip;
+// The Kani `collusion_detection` extraction's own tests reach for its sibling
+// `crate::temporal_window`. Reproducing that module here — test-only — lets the
+// extraction compile as written rather than having build.rs rewrite it, which
+// is the line those scripts are documented not to cross. It also materializes
+// the temporal_window extraction, bound in `kani_temporal_window_differential`.
+#[cfg(test)]
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod temporal_window {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_temporal_window_extraction.rs"
+    ));
+}
 mod kani_ip_differential;
 mod kani_path_differential;
 mod kani_rule_check_differential;

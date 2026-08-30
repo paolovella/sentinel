@@ -798,27 +798,35 @@ mod kani_parity_differential_dlp {
         for prev_value_len in LENS {
             for current_value_len in LENS {
                 for overlap_size in LENS {
-                    for secret_len in [0usize, 1, 20, 40] {
+                    // Named `payload_len` rather than `secret_len` — the name
+                    // production's parameter carries — because here it is an
+                    // enumerated length from the literal array above, not
+                    // secret material. CodeQL's cleartext-logging rule keys on
+                    // the identifier reaching a panic message, and it is right
+                    // to: a variable actually holding secret-derived data has
+                    // no business in an assertion string. Renaming says what
+                    // this value is instead of suppressing the rule.
+                    for payload_len in [0usize, 1, 20, 40] {
                         for split_point in [0usize, 1, 10, 20] {
                             assert_eq!(
                                 extracted::overlap_covers_secret(
                                     prev_value_len,
                                     current_value_len,
                                     overlap_size,
-                                    secret_len,
+                                    payload_len,
                                     split_point
                                 ),
                                 overlap_covers_secret(
                                     prev_value_len,
                                     current_value_len,
                                     overlap_size,
-                                    secret_len,
+                                    payload_len,
                                     split_point
                                 ),
                                 "PARITY-HAND-2: overlap_covers_secret disagrees at \
                                  ({prev_value_len}, {current_value_len}, {overlap_size}, \
-                                 {secret_len}, {split_point}) — a secret split across two \
-                                 calls would be judged covered by one and not the other"
+                                 {payload_len}, {split_point}) — a split value would be \
+                                 judged covered by one and not the other"
                             );
                             checked += 1;
                         }

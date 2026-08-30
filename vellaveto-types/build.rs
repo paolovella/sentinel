@@ -48,6 +48,7 @@ fn main() {
         ("unicode", "kani_unicode_extraction.rs"),
         ("evidence_signing", "kani_evidence_signing_extraction.rs"),
         ("trust_containment", "kani_trust_containment_extraction.rs"),
+        ("output_contracts", "kani_output_contracts_extraction.rs"),
     ] {
         let extraction = Path::new(&manifest_dir).join(format!("../formal/kani/src/{module}.rs"));
         println!("cargo:rerun-if-changed={}", extraction.display());

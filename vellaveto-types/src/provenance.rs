@@ -1829,3 +1829,133 @@ mod kani_parity_differential_trust_containment {
         );
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_output_contracts_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_output_contracts_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_output_contracts {
+    //! Differential binding for `PARITY-HAND-2` — semantic output contracts.
+    //!
+    //! An output contract says which channel a tool's output is allowed to be
+    //! interpreted as. A violation is content arriving on a channel that grants
+    //! it more interpretive power than it was promised — data that turns out to
+    //! be free text, free text that turns out to be command-like.
+    //!
+    //! Bound **totally**: all 8 × 8 declared/observed channel pairs.
+
+    use super::kani_output_contracts_extraction as extracted;
+    use super::ContextChannel;
+
+    const ALL_CHANNELS: [ContextChannel; 8] = [
+        ContextChannel::Data,
+        ContextChannel::FreeText,
+        ContextChannel::Url,
+        ContextChannel::CommandLike,
+        ContextChannel::ToolOutput,
+        ContextChannel::ResourceContent,
+        ContextChannel::ApprovalPrompt,
+        ContextChannel::Memory,
+    ];
+
+    fn model_channel(channel: ContextChannel) -> extracted::ContextChannel {
+        match channel {
+            ContextChannel::Data => extracted::ContextChannel::Data,
+            ContextChannel::FreeText => extracted::ContextChannel::FreeText,
+            ContextChannel::Url => extracted::ContextChannel::Url,
+            ContextChannel::CommandLike => extracted::ContextChannel::CommandLike,
+            ContextChannel::ToolOutput => extracted::ContextChannel::ToolOutput,
+            ContextChannel::ResourceContent => extracted::ContextChannel::ResourceContent,
+            ContextChannel::ApprovalPrompt => extracted::ContextChannel::ApprovalPrompt,
+            ContextChannel::Memory => extracted::ContextChannel::Memory,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/output_contracts.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The channel sets must match before any pairwise comparison means
+    /// anything — an 8 × 8 sweep says nothing if production has a ninth
+    /// channel. This is the lesson from `TAINT-MODEL-DRIFT`, where the
+    /// mismatch was in the *variant count* rather than in any single arm.
+    #[test]
+    fn test_channel_sets_match_production() {
+        assert_eq!(ALL_CHANNELS.len(), 8, "production gained or lost a channel");
+        // Every production channel maps to a distinct model channel, so the
+        // mapping above is a bijection and not a collapse.
+        let mut seen = std::collections::HashSet::new();
+        for channel in ALL_CHANNELS {
+            assert!(
+                seen.insert(format!("{:?}", model_channel(channel))),
+                "two production channels map to the same model channel"
+            );
+        }
+        assert_eq!(seen.len(), 8);
+    }
+
+    /// TOTAL over all 64 declared/observed pairs.
+    #[test]
+    fn test_output_contract_violation_matches_production_total_domain() {
+        let mut checked = 0usize;
+        let mut violations = 0usize;
+        for declared in ALL_CHANNELS {
+            for observed in ALL_CHANNELS {
+                let production = declared.violates_output_contract(observed);
+                let model = extracted::violates_output_contract(
+                    model_channel(declared),
+                    model_channel(observed),
+                );
+                assert_eq!(
+                    model, production,
+                    "PARITY-HAND-2: output contract violation disagrees for \
+                     declared={declared:?} observed={observed:?} — content could be \
+                     interpreted on a channel the contract did not grant"
+                );
+                if production {
+                    violations += 1;
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 64, "channel enumeration collapsed");
+        assert!(
+            violations > 0 && violations < checked,
+            "the contract is one-sided ({violations} of {checked} violate); the \
+             comparison cannot distinguish a contract that permits everything"
+        );
+    }
+
+    /// The property the contract exists for: a channel never violates its own
+    /// contract, and escalation to a more powerful channel does.
+    #[test]
+    fn test_contract_properties_hold_on_production() {
+        for channel in ALL_CHANNELS {
+            assert!(
+                !channel.violates_output_contract(channel),
+                "{channel:?} violates its own contract, so no output could ever \
+                 satisfy it"
+            );
+        }
+        // Data promised, command-like observed: the escalation the contract is
+        // for.
+        assert!(
+            ContextChannel::Data.violates_output_contract(ContextChannel::CommandLike),
+            "data reinterpreted as command-like was not flagged"
+        );
+    }
+}

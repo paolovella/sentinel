@@ -11,7 +11,7 @@
 #   docker run -p 3000:3000 -e VELLAVETO_API_KEY=your-secret-key -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
 
 # Build stage: Compile Rust binaries with musl for static linking
-FROM rust:1.97-alpine@sha256:3c38f3f82c2f3d73da3b38e18d279393a04cb43ddded0e35088a8c3324d40900 AS builder
+FROM rust:1.98-alpine@sha256:a10e64dd139b7387337c7fbe8aca31b959b57b2fd4c8ae20a02cf1d6ea424dce AS builder
 
 # Resolve target triple from Docker's TARGETARCH (amd64 or arm64)
 ARG TARGETARCH

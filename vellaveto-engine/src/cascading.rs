@@ -1391,3 +1391,244 @@ mod kani_parity_differential_temporal_window {
         );
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(
+    clippy::field_reassign_with_default,
+    clippy::manual_range_contains,
+    dead_code,
+    unused_imports
+)]
+mod kani_cascading_fsm_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_cascading_fsm_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_cascading_fsm {
+    //! Differential binding for `PARITY-HAND-2` — the circuit breaker FSM.
+    //!
+    //! K73-K75 model the breaker at implementation level: `is_broken`,
+    //! `broken_at`, the transition guards and the timing conditions. The
+    //! extraction's header notes that `CascadingFailure.tla` models this
+    //! abstractly and that these harnesses check the Rust matches — so the
+    //! correspondence carries the TLA+ argument too, not only the Kani one.
+    //!
+    //! The transitions are compared against the **real `CascadingBreaker`**
+    //! where they are observable, and the pure guards are enumerated across
+    //! their boundaries.
+
+    use super::kani_cascading_fsm_extraction as extracted;
+    use super::{CascadingBreaker, CascadingConfig};
+
+    fn model_config(c: &CascadingConfig) -> extracted::BreakerConfig {
+        extracted::BreakerConfig {
+            error_rate_threshold: c.error_rate_threshold,
+            min_window_events: c.min_window_events,
+            break_duration_secs: c.break_duration_secs,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/cascading_fsm.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// K73: the break guard, across the boundaries of both its conditions.
+    ///
+    /// Both are `>=`, and both boundaries matter: at exactly `min_window_events`
+    /// the window is large enough, and at exactly the threshold the rate is high
+    /// enough. Weakening either to `>` delays the break by one event or one
+    /// failure, which is the difference between containing a cascade and
+    /// watching it propagate.
+    #[test]
+    fn test_break_guard_matches_the_production_rule_at_its_boundaries() {
+        let config = CascadingConfig::default();
+        let mc = model_config(&config);
+        let min = u64::from(config.min_window_events);
+        let threshold = config.error_rate_threshold;
+
+        let mut checked = 0usize;
+        let mut broke = 0usize;
+        for total in [0u64, 1, min.saturating_sub(1), min, min + 1, min * 4] {
+            for errors in 0..=total.min(24) {
+                let state = extracted::PipelineState {
+                    is_broken: false,
+                    broken_at: None,
+                    break_count: 0,
+                    error_count_in_window: errors,
+                    total_count_in_window: total,
+                };
+                let model = extracted::should_break(&state, &mc);
+
+                // Production's rule, as written in record_pipeline_error:
+                // total_events >= min_window_events && error_rate >= threshold.
+                let rate = if total == 0 {
+                    0.0
+                } else {
+                    errors as f64 / total as f64
+                };
+                let expected = total >= min && rate >= threshold;
+
+                assert_eq!(
+                    model, expected,
+                    "K73: break guard disagrees at total={total} errors={errors} \
+                     (rate={rate}, min={min}, threshold={threshold})"
+                );
+                if expected {
+                    broke += 1;
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 40, "enumeration collapsed to {checked}");
+        assert!(
+            broke > 0 && broke < checked,
+            "the guard is one-sided ({broke} of {checked} break); the sweep cannot \
+             distinguish a breaker that never fires"
+        );
+
+        // An already-broken pipeline does not re-break — break_count would
+        // otherwise inflate on every subsequent error.
+        let broken = extracted::PipelineState {
+            is_broken: true,
+            broken_at: Some(0),
+            break_count: 1,
+            error_count_in_window: 100,
+            total_count_in_window: 100,
+        };
+        assert!(
+            !extracted::should_break(&broken, &mc),
+            "K73: an already-broken pipeline broke again"
+        );
+    }
+
+    /// K74: the probe guard, at and around the break-duration boundary.
+    ///
+    /// The `None` arm is the defensive one: broken with no timestamp must not
+    /// allow a probe. Production reaches the same answer by falling through its
+    /// `if let Some(..)` to the broken return.
+    #[test]
+    fn test_probe_guard_matches_production_at_the_duration_boundary() {
+        let config = CascadingConfig::default();
+        let mc = model_config(&config);
+        let duration = config.break_duration_secs;
+
+        for broken_at in [0u64, 100, u64::MAX - 1, u64::MAX] {
+            for offset in [0u64, 1, duration.saturating_sub(1), duration, duration + 1] {
+                let now = broken_at.saturating_add(offset);
+                let state = extracted::PipelineState {
+                    is_broken: true,
+                    broken_at: Some(broken_at),
+                    break_count: 1,
+                    error_count_in_window: 0,
+                    total_count_in_window: 0,
+                };
+                assert_eq!(
+                    extracted::should_allow_probe(&state, now, &mc),
+                    now >= broken_at.saturating_add(duration),
+                    "K74: probe guard disagrees at broken_at={broken_at} now={now}"
+                );
+            }
+        }
+
+        // Broken with no timestamp: no probe.
+        let no_timestamp = extracted::PipelineState {
+            is_broken: true,
+            broken_at: None,
+            break_count: 1,
+            error_count_in_window: 0,
+            total_count_in_window: 0,
+        };
+        assert!(
+            !extracted::should_allow_probe(&no_timestamp, u64::MAX, &mc),
+            "K74: a broken pipeline with no break timestamp allowed a probe"
+        );
+
+        // Not broken: always allowed.
+        let healthy = extracted::PipelineState {
+            is_broken: false,
+            broken_at: None,
+            break_count: 0,
+            error_count_in_window: 0,
+            total_count_in_window: 0,
+        };
+        assert!(extracted::should_allow_probe(&healthy, 0, &mc));
+    }
+
+    /// The transitions that are observable through the real breaker: a healthy
+    /// pipeline is available, and one driven past the threshold is not.
+    #[test]
+    fn test_real_breaker_agrees_with_the_model_on_breaking() {
+        let config = CascadingConfig {
+            enabled: true,
+            min_window_events: 4,
+            error_rate_threshold: 0.5,
+            ..Default::default()
+        };
+        let mc = model_config(&config);
+        let breaker = CascadingBreaker::new(config).expect("breaker constructs");
+
+        assert!(
+            breaker.check_pipeline("p").is_ok(),
+            "a fresh pipeline must be available"
+        );
+
+        // Four errors, four events, rate 1.0 — over both thresholds.
+        for _ in 0..4 {
+            let _ = breaker.record_pipeline_error("p");
+        }
+
+        let model_says_break = extracted::should_break(
+            &extracted::PipelineState {
+                is_broken: false,
+                broken_at: None,
+                break_count: 0,
+                error_count_in_window: 4,
+                total_count_in_window: 4,
+            },
+            &mc,
+        );
+        assert!(
+            model_says_break,
+            "the model should break at rate 1.0 over 4 events"
+        );
+        assert!(
+            breaker.check_pipeline("p").is_err(),
+            "PARITY-HAND-2: the model breaks at this error rate and the real \
+             breaker did not — a cascade the proofs say is contained would \
+             propagate"
+        );
+    }
+
+    /// `transition_to_open` must record the timestamp and count saturating —
+    /// a wrapped break_count would reset a pipeline's history.
+    #[test]
+    fn test_transition_to_open_records_state_and_saturates() {
+        let mut state = extracted::PipelineState {
+            is_broken: false,
+            broken_at: None,
+            break_count: u32::MAX,
+            error_count_in_window: 0,
+            total_count_in_window: 0,
+        };
+        extracted::transition_to_open(&mut state, 1_234);
+        assert!(state.is_broken);
+        assert_eq!(state.broken_at, Some(1_234));
+        assert_eq!(
+            state.break_count,
+            u32::MAX,
+            "break_count wrapped instead of saturating, resetting the pipeline's \
+             break history"
+        );
+    }
+}

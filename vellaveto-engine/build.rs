@@ -55,6 +55,7 @@ fn main() {
         ("entropy_wrapper", "kani_entropy_wrapper_extraction.rs"),
         ("verified_core", "kani_verified_core_extraction.rs"),
         ("resolve", "kani_resolve_extraction.rs"),
+        ("cascading_fsm", "kani_cascading_fsm_extraction.rs"),
         ("domain", "kani_domain_extraction.rs"),
         ("rule_check", "kani_rule_check_extraction.rs"),
     ] {

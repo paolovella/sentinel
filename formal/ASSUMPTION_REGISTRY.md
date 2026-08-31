@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **25 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` + `entropy_wrapper.rs` + `verified_core.rs` + `resolve.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` + `trust_containment.rs` + `output_contracts.rs` + `counterfactual_containment.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5, 4/4, 3/3, 4/4, 3/3, 4/4, 5/5 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 8 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **26 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` + `entropy_wrapper.rs` + `verified_core.rs` + `resolve.rs` + `cascading_fsm.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` + `trust_containment.rs` + `output_contracts.rs` + `counterfactual_containment.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5, 4/4, 3/3, 4/4, 3/3, 4/4, 5/5, 5/5 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 7 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 8 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 7 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -1443,6 +1443,42 @@ max-calls conditions bypassable by omitting the context), path denial no longer
 preceding policy type, the IP denial dropped (the DNS-rebinding guard),
 all-skipped constraints failing open to Allow, and an unknown policy type
 failing open.
+
+### `cascading_fsm.rs` — bound, and the drift predictor restated with its numbers
+
+Added 2026-08-31. K73-K75 model the circuit breaker at implementation level.
+The extraction's header notes that `CascadingFailure.tla` models this abstractly
+and these harnesses check the Rust matches — so this correspondence carries the
+**TLA+** argument too, not only the Kani one.
+
+Mutation-verified 5/5 on the first pass: both `>=` boundaries weakened to `>`
+(each delays the break by one event or one failure), an already-broken pipeline
+re-breaking so `break_count` inflates, the probe deadline wrapping instead of
+saturating, and a broken pipeline with no timestamp allowing probes.
+
+**The predictor needs restating, because it is now wrong as originally worded.**
+
+Under `dlp_core.rs` this registry recorded: *extractions that mirror stay
+faithful, extractions that model drift*. With 26 bound, the actual counts are:
+
+| Shape | Bound | Drifted |
+|---|---|---|
+| mirrors a production function one-to-one | 8 | **0** |
+| models it with a simplified representation | 11 | 4 |
+
+So the second half overstates. `credential_vault`, `cascading_fsm` and
+`trust_containment` are all heavy models and all were clean — and
+`trust_containment` is the *same function* that drifted in two Verus kernels,
+which makes it the sharpest counterexample available.
+
+The half that has held without exception is the first: **no one-to-one mirror
+has drifted, in 8 of 8.** That is the claim worth keeping, and it is the useful
+one anyway — it says where drift *cannot* be, which is a stronger statement than
+a coin-flip about where it might be. Among models the rate is 4 in 11, better
+than nothing for ordering the work but not a rule.
+
+Restating it costs nothing now and would have cost credibility later, when
+someone leaned on "models drift" to skip a mirror.
 
 ## KANI-COLLUSION-GAPS-1 — a validator missing two of production's checks
 

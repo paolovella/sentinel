@@ -57,6 +57,9 @@ mod temporal_window {
         "/kani_temporal_window_extraction.rs"
     ));
 }
+// The Kani `resolve` extraction imports its sibling `crate::verified_core`.
+// The production module of that name already exists at this crate root, and the
+// extraction's needs are satisfied by it, so no test-only stand-in is required.
 mod kani_ip_differential;
 mod kani_path_differential;
 mod kani_rule_check_differential;

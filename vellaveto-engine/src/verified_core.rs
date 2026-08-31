@@ -1087,3 +1087,395 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_verified_core_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_verified_core_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_verified_core {
+    //! Differential binding for `PARITY-HAND-2` — the policy verdict function.
+    //!
+    //! This is the most consequential correspondence in the crate. Under
+    //! `PARITY-HAND-1` the Verus kernel was discharged **totally** against this
+    //! module — all 1,536 `ResolvedMatch` inhabitants — which made it the one
+    //! complete discharge of the verdict function. The Kani copy proved its own
+    //! version of the same decision and was connected to nothing.
+    //!
+    //! Until this campaign the extraction's header claimed the algorithm was
+    //! identical "verified by unit tests and CI diff checks". That was corrected
+    //! earlier to say plainly that nothing checked it. This is the check.
+    //!
+    //! Bound over the **same total domain** as the Verus discharge, so all three
+    //! — Verus kernel, production, Kani copy — are now demonstrably one
+    //! function on every input it can receive.
+
+    use super::kani_verified_core_extraction as extracted;
+    use super::{compute_single_verdict, compute_verdict, ResolvedMatch, VerdictKind};
+
+    const ALL_VERDICTS: [VerdictKind; 3] = [
+        VerdictKind::Allow,
+        VerdictKind::Deny,
+        VerdictKind::RequireApproval,
+    ];
+
+    fn model_verdict(v: VerdictKind) -> extracted::VerdictKind {
+        match v {
+            VerdictKind::Allow => extracted::VerdictKind::Allow,
+            VerdictKind::Deny => extracted::VerdictKind::Deny,
+            VerdictKind::RequireApproval => extracted::VerdictKind::RequireApproval,
+        }
+    }
+
+    /// Every `ResolvedMatch` inhabitant: ten booleans plus a three-valued
+    /// verdict. Priority is excluded because `compute_single_verdict` does not
+    /// read it — it orders policies, it does not decide them.
+    fn all_inhabitants() -> Vec<ResolvedMatch> {
+        let mut out = Vec::with_capacity(1_536);
+        for bits in 0u16..(1 << 9) {
+            let f = |i: u8| bits & (1 << i) != 0;
+            for condition_verdict in ALL_VERDICTS {
+                out.push(ResolvedMatch {
+                    matched: f(0),
+                    is_deny: f(1),
+                    is_conditional: f(2),
+                    priority: 0,
+                    rule_override_deny: f(3),
+                    context_deny: f(4),
+                    require_approval: f(5),
+                    condition_fired: f(6),
+                    condition_verdict,
+                    on_no_match_continue: f(7),
+                    all_constraints_skipped: f(8),
+                });
+            }
+        }
+        out
+    }
+
+    fn to_model(rm: &ResolvedMatch) -> extracted::ResolvedMatch {
+        extracted::ResolvedMatch {
+            matched: rm.matched,
+            is_deny: rm.is_deny,
+            is_conditional: rm.is_conditional,
+            priority: rm.priority,
+            rule_override_deny: rm.rule_override_deny,
+            context_deny: rm.context_deny,
+            require_approval: rm.require_approval,
+            condition_fired: rm.condition_fired,
+            condition_verdict: model_verdict(rm.condition_verdict),
+            on_no_match_continue: rm.on_no_match_continue,
+            all_constraints_skipped: rm.all_constraints_skipped,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/verified_core.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// TOTAL over all 1,536 inhabitants — the same domain the Verus discharge
+    /// covers under `PARITY-HAND-1`.
+    #[test]
+    fn test_single_verdict_matches_production_total_domain() {
+        let inhabitants = all_inhabitants();
+        assert_eq!(
+            inhabitants.len(),
+            1_536,
+            "the inhabitant enumeration changed"
+        );
+
+        let mut outcomes = std::collections::HashSet::new();
+        for rm in &inhabitants {
+            let production = compute_single_verdict(rm);
+            let model = extracted::compute_single_verdict(&to_model(rm));
+            assert_eq!(
+                format!("{production:?}"),
+                format!("{model:?}"),
+                "PARITY-HAND-2: the Kani copy and production disagree on the \
+                 verdict for {rm:?} — this is the policy decision itself, and the \
+                 Verus kernel is discharged against production's version of it"
+            );
+            outcomes.insert(format!("{production:?}"));
+        }
+        assert!(
+            outcomes.len() >= 3,
+            "the enumeration produced only {} distinct outcomes; it cannot \
+             distinguish a verdict function that always returns the same thing",
+            outcomes.len()
+        );
+    }
+
+    /// The fail-closed property the whole engine rests on: no match, or an
+    /// empty policy set, produces Deny — never Allow.
+    #[test]
+    fn test_fail_closed_holds_in_both() {
+        assert_eq!(
+            compute_verdict(&[]),
+            VerdictKind::Deny,
+            "an empty policy set did not produce Deny"
+        );
+        assert_eq!(
+            format!("{:?}", extracted::compute_verdict(&[])),
+            "Deny",
+            "the Kani copy does not fail closed on an empty policy set"
+        );
+
+        // And an unmatched policy cannot produce Allow, in either.
+        for rm in all_inhabitants().iter().filter(|rm| !rm.matched) {
+            assert_ne!(
+                compute_single_verdict(rm),
+                super::VerdictOutcome::Decided(VerdictKind::Allow),
+                "an unmatched policy produced Allow in production: {rm:?}"
+            );
+            assert_ne!(
+                format!("{:?}", extracted::compute_single_verdict(&to_model(rm))),
+                "Decided(Allow)",
+                "an unmatched policy produced Allow in the Kani copy"
+            );
+        }
+    }
+
+    /// Deny precedence: a rule override or context deny wins regardless of what
+    /// the rest of the record says.
+    #[test]
+    fn test_deny_precedence_holds_in_both() {
+        for rm in all_inhabitants()
+            .iter()
+            .filter(|rm| rm.matched && (rm.rule_override_deny || rm.context_deny))
+        {
+            assert_eq!(
+                compute_single_verdict(rm),
+                super::VerdictOutcome::Decided(VerdictKind::Deny),
+                "production did not deny despite a rule/context override: {rm:?}"
+            );
+            assert_eq!(
+                format!("{:?}", extracted::compute_single_verdict(&to_model(rm))),
+                "Decided(Deny)",
+                "the Kani copy did not deny despite a rule/context override"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(
+    clippy::manual_range_contains,
+    clippy::nonminimal_bool,
+    clippy::too_many_arguments,
+    dead_code,
+    unused_imports
+)]
+mod kani_resolve_extraction {
+    // The extraction imports the verdict types from its sibling
+    // `crate::verified_core`; that module is reproduced at the engine crate
+    // root under `#[cfg(test)]` so this file compiles exactly as written.
+    include!(concat!(env!("OUT_DIR"), "/kani_resolve_extraction.rs"));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_resolve {
+    //! Differential binding for `PARITY-HAND-2` — the inlined policy decision.
+    //!
+    //! This extraction exists because of a **declared structural divergence**:
+    //! production's `apply_compiled_policy_ctx` does not call
+    //! `compute_verdict`, it inlines an equivalent decision tree. K48 is the
+    //! claim that the two agree.
+    //!
+    //! That claim was previously checked only against the Kani crate's *own*
+    //! copy of `compute_single_verdict`. Here it is checked against
+    //! **production's**, over the total 2¹² × 4 = 16,384 input domain — and the
+    //! preceding binding (`kani_parity_differential_verified_core`) established
+    //! that production's version and the Kani copy are the same function on all
+    //! 1,536 `ResolvedMatch` inhabitants. The two together chain: the inline
+    //! tree agrees with the verdict function, and the verdict function is the
+    //! one three systems now share.
+    //!
+    //! Two implementations of one decision, kept in step by hand, is the
+    //! highest-risk shape in this crate — it is how `KANI-GLOB-ORDER-1`
+    //! happened.
+
+    use super::kani_resolve_extraction as extracted;
+
+    /// Every input combination: twelve booleans and a four-valued condition
+    /// result.
+    #[test]
+    fn test_inline_tree_agrees_with_production_verdict_total_domain() {
+        use extracted::InlineVerdict;
+
+        const CONDITION_RESULTS: [Option<InlineVerdict>; 4] = [
+            None,
+            Some(InlineVerdict::Allow),
+            Some(InlineVerdict::Deny),
+            Some(InlineVerdict::RequireApproval),
+        ];
+
+        let mut checked = 0usize;
+        let mut outcomes = std::collections::HashSet::new();
+
+        for bits in 0u16..(1 << 11) {
+            let f = |i: u8| bits & (1 << i) != 0;
+            let (
+                path_deny,
+                network_deny,
+                ip_deny,
+                context_deny,
+                has_context_conditions,
+                context_provided,
+                is_allow_type,
+                is_deny_type,
+                is_conditional,
+                all_constraints_skipped,
+                on_no_match_continue,
+            ) = (
+                f(0),
+                f(1),
+                f(2),
+                f(3),
+                f(4),
+                f(5),
+                f(6),
+                f(7),
+                f(8),
+                f(9),
+                f(10),
+            );
+
+            for require_approval in [false, true] {
+                for condition_result in CONDITION_RESULTS {
+                    let condition_label = format!("{condition_result:?}");
+                    // Derive before the call: `apply_policy_inline` consumes
+                    // `condition_result`, and `InlineVerdict` is not `Copy`.
+                    let (condition_fired, condition_verdict) = match &condition_result {
+                        None => (false, super::VerdictKind::Allow),
+                        Some(InlineVerdict::Allow) => (true, super::VerdictKind::Allow),
+                        Some(InlineVerdict::Deny) => (true, super::VerdictKind::Deny),
+                        Some(InlineVerdict::RequireApproval) => {
+                            (true, super::VerdictKind::RequireApproval)
+                        }
+                        Some(InlineVerdict::Continue) => (false, super::VerdictKind::Allow),
+                    };
+                    let inline = extracted::apply_policy_inline(
+                        path_deny,
+                        network_deny,
+                        ip_deny,
+                        context_deny,
+                        has_context_conditions,
+                        context_provided,
+                        is_allow_type,
+                        is_deny_type,
+                        is_conditional,
+                        condition_result,
+                        all_constraints_skipped,
+                        on_no_match_continue,
+                        require_approval,
+                    );
+
+                    // The same decision, routed through the ResolvedMatch the
+                    // extraction constructs and production's verdict function.
+                    let verified = extracted::apply_policy_verified(
+                        path_deny,
+                        network_deny,
+                        ip_deny,
+                        context_deny,
+                        has_context_conditions,
+                        context_provided,
+                        is_allow_type,
+                        is_deny_type,
+                        is_conditional,
+                        condition_fired,
+                        condition_verdict,
+                        all_constraints_skipped,
+                        on_no_match_continue,
+                        require_approval,
+                    );
+
+                    assert_eq!(
+                        format!("{inline:?}"),
+                        format!("{verified:?}"),
+                        "K48: the inlined decision tree and the ResolvedMatch path \
+                         disagree at (path={path_deny}, net={network_deny}, \
+                         ip={ip_deny}, ctx_deny={context_deny}, \
+                         has_ctx={has_context_conditions}, \
+                         ctx_provided={context_provided}, allow={is_allow_type}, \
+                         deny={is_deny_type}, cond={is_conditional}, \
+                         skipped={all_constraints_skipped}, \
+                         continue={on_no_match_continue}, \
+                         approval={require_approval}, result={condition_label}) \
+                         — production inlines this tree, so a disagreement is a \
+                         policy decision the verified core never sanctioned"
+                    );
+
+                    outcomes.insert(format!("{inline:?}"));
+                    checked += 1;
+                }
+            }
+        }
+
+        assert_eq!(checked, 2048 * 2 * 4, "the input enumeration collapsed");
+        assert!(
+            outcomes.len() >= 4,
+            "only {} distinct verdicts were produced; the sweep cannot \
+             distinguish a decision tree that always answers the same way",
+            outcomes.len()
+        );
+    }
+
+    /// The fail-closed ordering production depends on: rule overrides are
+    /// checked *before* policy type, so an Allow policy whose path rules deny
+    /// still denies.
+    #[test]
+    fn test_rule_overrides_precede_policy_type() {
+        use extracted::InlineVerdict;
+        for (label, path, network, ip) in [
+            ("path", true, false, false),
+            ("network", false, true, false),
+            ("ip", false, false, true),
+        ] {
+            let verdict = extracted::apply_policy_inline(
+                path, network, ip, false, false, false, /* is_allow_type */ true, false,
+                false, None, false, false, false,
+            );
+            assert_eq!(
+                format!("{verdict:?}"),
+                format!("{:?}", InlineVerdict::Deny),
+                "an Allow policy with a {label} rule denial did not deny — rule \
+                 overrides must precede policy type dispatch"
+            );
+        }
+    }
+
+    /// K46/K47 and the missing-context case: a policy declaring context
+    /// conditions with no context provided must deny, or the conditions are
+    /// bypassable by omitting the context.
+    #[test]
+    fn test_missing_context_fails_closed() {
+        use extracted::InlineVerdict;
+        let verdict = extracted::apply_policy_inline(
+            false, false, false, false, /* has_context_conditions */ true,
+            /* context_provided */ false, /* is_allow_type */ true, false, false, None,
+            false, false, false,
+        );
+        assert_eq!(
+            format!("{verdict:?}"),
+            format!("{:?}", InlineVerdict::Deny),
+            "a policy requiring context was evaluated without it and did not \
+             deny — time-window and max-calls restrictions would be bypassable \
+             by omitting the context"
+        );
+    }
+}

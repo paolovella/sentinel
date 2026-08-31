@@ -33,6 +33,35 @@ pub mod gateway;
 pub mod governance;
 pub mod identity;
 pub mod json_rpc;
+// The Kani `counterfactual_containment` extraction imports its siblings via
+// `crate::output_contracts` and `crate::trust_containment`. Reproducing that
+// module structure here — test-only — lets all three compile exactly as
+// written, rather than having build.rs rewrite their imports, which is the line
+// those scripts are documented not to cross.
+#[cfg(test)]
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod output_contracts {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_output_contracts_extraction.rs"
+    ));
+}
+#[cfg(test)]
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod trust_containment {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_trust_containment_extraction.rs"
+    ));
+}
+#[cfg(test)]
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod counterfactual_containment {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_counterfactual_extraction.rs"
+    ));
+}
 mod kani_unicode_differential;
 pub mod metering;
 pub mod minja;

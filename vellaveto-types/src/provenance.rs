@@ -1618,17 +1618,6 @@ mod tests {
 }
 
 #[cfg(test)]
-// Suppressed rather than satisfied: linting the extraction would edit the copy
-// the Kani proofs run against.
-#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
-mod kani_trust_containment_extraction {
-    include!(concat!(
-        env!("OUT_DIR"),
-        "/kani_trust_containment_extraction.rs"
-    ));
-}
-
-#[cfg(test)]
 mod kani_parity_differential_trust_containment {
     //! Differential binding for `PARITY-HAND-2` — trust/sink containment.
     //!
@@ -1642,8 +1631,8 @@ mod kani_parity_differential_trust_containment {
     //! same function drifted elsewhere: the copy that happens to be right today
     //! is the one nobody is watching.
 
-    use super::kani_trust_containment_extraction as extracted;
     use super::{minimum_trust_tier_for_sink, SinkClass, TrustTier};
+    use crate::trust_containment as extracted;
 
     const ALL_SINKS: [SinkClass; 9] = [
         SinkClass::ReadOnly,
@@ -1831,17 +1820,6 @@ mod kani_parity_differential_trust_containment {
 }
 
 #[cfg(test)]
-// Suppressed rather than satisfied: linting the extraction would edit the copy
-// the Kani proofs run against.
-#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
-mod kani_output_contracts_extraction {
-    include!(concat!(
-        env!("OUT_DIR"),
-        "/kani_output_contracts_extraction.rs"
-    ));
-}
-
-#[cfg(test)]
 mod kani_parity_differential_output_contracts {
     //! Differential binding for `PARITY-HAND-2` — semantic output contracts.
     //!
@@ -1852,8 +1830,8 @@ mod kani_parity_differential_output_contracts {
     //!
     //! Bound **totally**: all 8 × 8 declared/observed channel pairs.
 
-    use super::kani_output_contracts_extraction as extracted;
     use super::ContextChannel;
+    use crate::output_contracts as extracted;
 
     const ALL_CHANNELS: [ContextChannel; 8] = [
         ContextChannel::Data,
@@ -1956,6 +1934,196 @@ mod kani_parity_differential_output_contracts {
         assert!(
             ContextChannel::Data.violates_output_contract(ContextChannel::CommandLike),
             "data reinterpreted as command-like was not flagged"
+        );
+    }
+}
+
+#[cfg(test)]
+mod kani_parity_differential_counterfactual {
+    //! Differential binding for `PARITY-HAND-2` — counterfactual containment
+    //! scoring.
+    //!
+    //! These weights decide how much a tainted input on a given channel
+    //! contributes to the score that gates a privileged sink. Every one is
+    //! bound **totally** over its enum.
+
+    use super::{
+        is_security_relevant_taint, taint_semantic_risk_weight, ContextChannel, SinkClass,
+        TaintLabel,
+    };
+    use crate::counterfactual_containment as extracted;
+    use crate::output_contracts as model_oc;
+    use crate::trust_containment as model_tc;
+
+    fn model_channel(c: ContextChannel) -> model_oc::ContextChannel {
+        match c {
+            ContextChannel::Data => model_oc::ContextChannel::Data,
+            ContextChannel::FreeText => model_oc::ContextChannel::FreeText,
+            ContextChannel::Url => model_oc::ContextChannel::Url,
+            ContextChannel::CommandLike => model_oc::ContextChannel::CommandLike,
+            ContextChannel::ToolOutput => model_oc::ContextChannel::ToolOutput,
+            ContextChannel::ResourceContent => model_oc::ContextChannel::ResourceContent,
+            ContextChannel::ApprovalPrompt => model_oc::ContextChannel::ApprovalPrompt,
+            ContextChannel::Memory => model_oc::ContextChannel::Memory,
+        }
+    }
+
+    const ALL_SINKS: [SinkClass; 9] = [
+        SinkClass::ReadOnly,
+        SinkClass::LowRiskWrite,
+        SinkClass::FilesystemWrite,
+        SinkClass::NetworkEgress,
+        SinkClass::MemoryWrite,
+        SinkClass::ApprovalUi,
+        SinkClass::CodeExecution,
+        SinkClass::CredentialAccess,
+        SinkClass::PolicyMutation,
+    ];
+
+    const ALL_TAINTS: [TaintLabel; 8] = [
+        TaintLabel::Untrusted,
+        TaintLabel::Sanitized,
+        TaintLabel::Quarantined,
+        TaintLabel::Sensitive,
+        TaintLabel::CrossAgent,
+        TaintLabel::Replayed,
+        TaintLabel::MixedProvenance,
+        TaintLabel::IntegrityFailed,
+    ];
+
+    const ALL_CHANNELS: [ContextChannel; 8] = [
+        ContextChannel::Data,
+        ContextChannel::FreeText,
+        ContextChannel::Url,
+        ContextChannel::CommandLike,
+        ContextChannel::ToolOutput,
+        ContextChannel::ResourceContent,
+        ContextChannel::ApprovalPrompt,
+        ContextChannel::Memory,
+    ];
+
+    fn model_sink(s: SinkClass) -> model_tc::SinkClass {
+        match s {
+            SinkClass::ReadOnly => model_tc::SinkClass::ReadOnly,
+            SinkClass::LowRiskWrite => model_tc::SinkClass::LowRiskWrite,
+            SinkClass::FilesystemWrite => model_tc::SinkClass::FilesystemWrite,
+            SinkClass::NetworkEgress => model_tc::SinkClass::NetworkEgress,
+            SinkClass::MemoryWrite => model_tc::SinkClass::MemoryWrite,
+            SinkClass::ApprovalUi => model_tc::SinkClass::ApprovalUi,
+            SinkClass::CodeExecution => model_tc::SinkClass::CodeExecution,
+            SinkClass::CredentialAccess => model_tc::SinkClass::CredentialAccess,
+            SinkClass::PolicyMutation => model_tc::SinkClass::PolicyMutation,
+        }
+    }
+
+    fn model_taint(t: TaintLabel) -> extracted::SemanticTaint {
+        match t {
+            TaintLabel::Untrusted => extracted::SemanticTaint::Untrusted,
+            TaintLabel::Sanitized => extracted::SemanticTaint::Sanitized,
+            TaintLabel::Quarantined => extracted::SemanticTaint::Quarantined,
+            TaintLabel::Sensitive => extracted::SemanticTaint::Sensitive,
+            TaintLabel::CrossAgent => extracted::SemanticTaint::CrossAgent,
+            TaintLabel::Replayed => extracted::SemanticTaint::Replayed,
+            TaintLabel::MixedProvenance => extracted::SemanticTaint::MixedProvenance,
+            TaintLabel::IntegrityFailed => extracted::SemanticTaint::IntegrityFailed,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/counterfactual_containment.rs was not found, so this \
+             binding compared nothing"
+        );
+    }
+
+    /// TOTAL over all nine sinks.
+    ///
+    /// The two implementations are written differently: the model is
+    /// `!matches!(ReadOnly)`, production enumerates the eight privileged
+    /// variants explicitly. Identical today over nine variants — and they
+    /// **diverge the moment a tenth is added**, because the model would call it
+    /// privileged and production would not. The variant-count assertion below
+    /// is what turns that latent divergence into a failing test rather than a
+    /// silent one.
+    #[test]
+    fn test_sink_privilege_matches_production_total_domain() {
+        assert_eq!(
+            ALL_SINKS.len(),
+            9,
+            "SinkClass gained or lost a variant — the model's `!matches!(ReadOnly)` \
+             and production's explicit list only agree over exactly these nine"
+        );
+        for sink in ALL_SINKS {
+            assert_eq!(
+                extracted::sink_is_privileged(model_sink(sink)),
+                sink.is_privileged(),
+                "PARITY-HAND-2: sink privilege disagrees for {sink:?}"
+            );
+        }
+        assert!(!SinkClass::ReadOnly.is_privileged());
+        assert!(SinkClass::PolicyMutation.is_privileged());
+    }
+
+    /// TOTAL over all eight taints, both the relevance predicate and the risk
+    /// weight.
+    #[test]
+    fn test_taint_predicates_match_production_total_domain() {
+        assert_eq!(ALL_TAINTS.len(), 8, "TaintLabel gained or lost a variant");
+        for taint in ALL_TAINTS {
+            assert_eq!(
+                extracted::is_security_relevant_taint(model_taint(taint)),
+                is_security_relevant_taint(taint),
+                "PARITY-HAND-2: security relevance disagrees for {taint:?}"
+            );
+            assert_eq!(
+                extracted::taint_semantic_risk_weight(model_taint(taint)),
+                taint_semantic_risk_weight(taint),
+                "PARITY-HAND-2: risk weight disagrees for {taint:?}"
+            );
+        }
+        // The two ends of the scale, and the one taint that is deliberately
+        // *not* security-relevant.
+        assert_eq!(taint_semantic_risk_weight(TaintLabel::Sanitized), 0);
+        assert_eq!(taint_semantic_risk_weight(TaintLabel::Quarantined), 30);
+        assert!(!is_security_relevant_taint(TaintLabel::Sanitized));
+        assert!(
+            !is_security_relevant_taint(TaintLabel::Sensitive),
+            "Sensitive is a confidentiality label, not a provenance one; treating \
+             it as security-relevant here would conflate the two"
+        );
+    }
+
+    /// TOTAL over all eight channels: the attribution weight.
+    #[test]
+    fn test_attribution_weight_matches_production_total_domain() {
+        assert_eq!(
+            ALL_CHANNELS.len(),
+            8,
+            "ContextChannel gained or lost a variant"
+        );
+        let mut weights = Vec::new();
+        for channel in ALL_CHANNELS {
+            let production = channel.counterfactual_attribution_weight();
+            weights.push(production);
+            assert_eq!(
+                extracted::counterfactual_attribution_weight(model_channel(channel)),
+                production,
+                "PARITY-HAND-2: attribution weight disagrees for {channel:?}"
+            );
+        }
+        // The ordering that makes the score meaningful: inert data contributes
+        // nothing, and the channels that can act contribute most.
+        assert_eq!(ContextChannel::Data.counterfactual_attribution_weight(), 0);
+        assert_eq!(
+            ContextChannel::CommandLike.counterfactual_attribution_weight(),
+            35
+        );
+        assert!(
+            weights.contains(&0) && weights.iter().any(|w| *w > 0),
+            "attribution weights are uniform; the score cannot distinguish channels"
         );
     }
 }

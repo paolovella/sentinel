@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **22 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` + `entropy_wrapper.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` + `trust_containment.rs` + `output_contracts.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5, 4/4, 3/3, 4/4 and 3/3; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 11 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **25 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` + `entropy_wrapper.rs` + `verified_core.rs` + `resolve.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` + `trust_containment.rs` + `output_contracts.rs` + `counterfactual_containment.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5, 4/4, 3/3, 4/4, 3/3, 4/4, 5/5 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 8 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -747,7 +747,7 @@ in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
 is what K29's "parity" is about). A mutation anchored on the shared text hits
 both; anchor on the first occurrence to test the function the sweep exercises.
 
-**Remaining: 11 extractions.** The mechanism (build.rs materialization, a
+**Remaining: 8 extractions.** The mechanism (build.rs materialization, a
 corpus, and comparison of the reason and not only the outcome) is reusable, so
 the remaining work is per-module corpus design rather than new machinery.
 
@@ -1354,6 +1354,95 @@ mismatch is exactly the form `TAINT-MODEL-DRIFT` took.
 Mutation-verified 3/3 on the first pass, each one an interpretive escalation
 being quietly permitted: data reinterpreted as free text, free text as
 command-like, and resource content as command-like.
+
+### `counterfactual_containment.rs` — and a divergence that has not happened yet
+
+Added 2026-08-31. These weights decide how much a tainted input on a given
+channel contributes to the score gating a privileged sink. Every one bound
+**totally** over its enum: nine sinks, eight taints, eight channels.
+
+**One comparison is structurally interesting.** The model writes
+`sink_is_privileged` as `!matches!(ReadOnly)`; production enumerates the eight
+privileged variants explicitly. Over today's nine variants these agree
+everywhere — and they **diverge the moment a tenth is added**, because the model
+would call it privileged and production would not.
+
+So the binding cannot rely on the comparison alone. It asserts the variant count
+is exactly nine, which converts a latent future divergence into a failing test
+at the moment the variant is added, rather than a silent disagreement discovered
+later. Two implementations that agree today for different reasons are not the
+same implementation; they are two implementations that have not been asked the
+distinguishing question yet.
+
+Mutation-verified 4/4 on the first pass: low-risk writes dropping out of the
+privileged set, the quarantined taint weight collapsing 30 → 3, the command-like
+channel contributing nothing to attribution, and quarantined taint ceasing to be
+security-relevant.
+
+**Structural note.** This extraction imports its siblings as
+`crate::output_contracts` and `crate::trust_containment`, so all three are
+reproduced as test-only modules at the `vellaveto-types` crate root — the same
+approach taken in `vellaveto-engine` for `temporal_window`. The extractions
+compile exactly as written; `build.rs` still rewrites nothing but `//!` markers.
+
+### `verified_core.rs` — the verdict function, now one function in all three systems
+
+Added 2026-08-31. The most consequential correspondence in the crate.
+
+Under `PARITY-HAND-1` the Verus kernel was discharged **totally** against
+`vellaveto-engine/src/verified_core.rs` — all 1,536 `ResolvedMatch` inhabitants
+— making it the campaign's one complete discharge of the policy verdict
+function. The Kani copy proved its own version of the same decision and was
+connected to nothing.
+
+This binding covers the **same total domain**, so Verus kernel, production, and
+Kani copy are now demonstrably one function on every input it can receive rather
+than three plausible ones. `priority` is excluded from the enumeration because
+`compute_single_verdict` does not read it — it orders policies, it does not
+decide them.
+
+This extraction is also where the campaign's claim correction landed: its header
+once said the algorithm was identical "verified by unit tests and CI diff
+checks", which was false. It was corrected to say plainly that nothing checked
+it, and now something does.
+
+Mutation-verified 5/5 on the first pass, every one a fail-open of the engine's
+central decision: an unmatched policy yielding a verdict, `rule_override_deny`
+no longer forcing Deny (V4), `context_deny` no longer forcing Deny, all-skipped
+constraints continuing instead of denying, and `require_approval` collapsing to
+Allow.
+
+### `resolve.rs` — a declared structural divergence, now checked against production
+
+Added 2026-08-31. This extraction exists *because* of a divergence its own
+header declares: production's `apply_compiled_policy_ctx` does not call
+`compute_verdict`, it inlines an equivalent decision tree. K48 is the claim that
+the two agree.
+
+That claim had been checked only against the Kani crate's own copy of
+`compute_single_verdict`. It is now checked over the **total 2¹¹ × 2 × 4 =
+16,384 input domain**, and — because the extraction imports
+`crate::verified_core`, which resolves to **production's** module when compiled
+here — `apply_policy_verified` calls production's verdict function directly.
+
+The two bindings chain. `verified_core` established that production's verdict
+function and the Kani copy agree on all 1,536 `ResolvedMatch` inhabitants; this
+one establishes that the inlined tree agrees with that verdict function on every
+input it can receive. Together: the tree production actually runs, the verdict
+function three systems share, and the Verus kernel are one decision.
+
+**Two implementations of one decision, kept in step by hand, is the
+highest-risk shape in this crate** — it is exactly how `KANI-GLOB-ORDER-1`
+happened, where an iterative and a recursive matcher diverged on branch order.
+Here the divergence is declared and deliberate, which makes the binding more
+necessary rather than less.
+
+Mutation-verified 5/5 on the first pass, every one a fail-open of the engine's
+entry path: missing context no longer denying (which would make time-window and
+max-calls conditions bypassable by omitting the context), path denial no longer
+preceding policy type, the IP denial dropped (the DNS-rebinding guard),
+all-skipped constraints failing open to Allow, and an unknown policy type
+failing open.
 
 ## KANI-COLLUSION-GAPS-1 — a validator missing two of production's checks
 

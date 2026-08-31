@@ -97,6 +97,39 @@ if ! flock -n 9; then
     flock 9
 fi
 
+# The lock stops two runs racing. It does not stop a run being *interrupted*.
+# A run killed between mutating a file and restoring it leaves the shared target
+# directory holding artifacts built from mutated source, and the next run's
+# control case then "drifts" against a pristine tree — a fabricated hole, which
+# for a guard self-test is as dangerous as a fabricated pass. That happened on
+# 2026-08-28 after a run was stopped mid-case: the differential control reported
+# a hole while the same guard passed on a clean target directory.
+#
+# So: drop a marker while running and clear it on a clean exit. If the marker is
+# still there at startup the previous run did not finish, the directory cannot
+# be trusted, and this script refuses to measure rather than reporting numbers
+# it has not earned.
+RUNNING_MARKER="$DIFFERENTIAL_TARGET_DIR/.guard-selftest.running"
+if [ -e "$RUNNING_MARKER" ]; then
+    cat >&2 <<MSG
+ERROR: a previous guard-selftest did not finish.
+
+  $DIFFERENTIAL_TARGET_DIR may hold build artifacts compiled from mutated
+  source. Results from it cannot be trusted in either direction.
+
+  Clear the target directory, or point this run somewhere else:
+
+    DIFFERENTIAL_TARGET_DIR=/tmp/vellaveto-guard-selftest-target-\$\$ \\
+      bash formal/tools/guard-selftest.sh
+
+  Refusing to run. A self-test that reports numbers it has not earned is
+  worse than no self-test.
+MSG
+    exit 2
+fi
+: > "$RUNNING_MARKER"
+trap 'rm -f "$RUNNING_MARKER"' EXIT
+
 echo "=== Formal Guard Self-Test ==="
 echo "Each case breaks one thing a guard claims to protect and expects it to fire."
 echo ""
@@ -184,6 +217,61 @@ run_case "claim trusted without delegation" "$DIFF_GUARD" drift \
 
 run_case "session-bound approval replayable" "$DIFF_GUARD" drift \
     perl -0pi -e 's/!approval_has_session_binding \|\| \(request_has_session && request_matches_bound_session\)/!approval_has_session_binding || request_has_session/' vellaveto-approval/src/verified_approval_scope.rs
+
+# ── 1b. Intent scope and sequence gate (MODEL-SHAPE-1/2) ──────────────────
+# These kernels used to model a design production did not implement. The design
+# was built on 2026-08-28; these cases test that the guards notice if it is
+# taken back out. Two of them were written wrong first: one matched a comment
+# rather than a call, and one matched a renamed function by prefix.
+echo ""
+echo "--- intent scope + sequence gate ---"
+
+run_case "scope mask narrowed back below nine classes" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/pub const SCOPE_CLASS_COUNT: u8 = 9;/pub const SCOPE_CLASS_COUNT: u8 = 8;/' vellaveto-types/src/verified_intent_scope.rs
+
+run_case "scope restriction widens instead of narrowing" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/Self\(self\.0 & restriction\.0\)/Self(self.0 | restriction.0)/' vellaveto-types/src/verified_intent_scope.rs
+
+run_case "trust-floor narrowing bypasses the mask" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/\.restrict\(Self::trust_floor_mask\(trust_floor\)\)/.restrict(ScopeMask::ALL)/' vellaveto-config/src/channel_separation.rs
+
+run_case "relay stops calling the verified sequence gate" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/vellaveto_engine::verified_sequence_gate::should_restrict\(/std::convert::identity::<bool>(/' vellaveto-mcp/src/proxy/bridge/relay.rs
+
+run_case "relay stops persisting the narrowed scope" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/fn narrow_session_scope\(/fn narrow_session_scope_disabled(/' vellaveto-mcp/src/proxy/bridge/relay.rs
+
+run_case "relay stops consulting the scope on the call path" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/scope\.check_in_scope\(&tool_name, sink\)/ScopeCheckResult::InScope/' vellaveto-mcp/src/proxy/bridge/relay.rs
+
+run_case "restriction threshold drifts from the kernel" "$VERUS_GUARD" drift \
+    perl -0pi -e 's/pub const RESTRICTION_THRESHOLD: u32 = 70;/pub const RESTRICTION_THRESHOLD: u32 = 71;/' vellaveto-engine/src/verified_sequence_gate.rs
+
+run_case "sequence gate fires without an anomaly" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/    anomaly_detected && anomaly_confidence >= RESTRICTION_THRESHOLD\n\}/    anomaly_confidence >= RESTRICTION_THRESHOLD\n}/' vellaveto-engine/src/verified_sequence_gate.rs
+
+# ── 1c. Kani extraction ↔ production behaviour (KANI-PATH-BOUND-1) ────────
+# The Kani side had no behavioural binding at all until 2026-08-28. These test
+# the first one. The reason-comparison case is here because the binding's first
+# version missed it: deleting one null-byte check left both copies returning
+# Err, so outcome-only comparison saw nothing.
+echo ""
+echo "--- kani extraction ↔ production behaviour ---"
+
+run_case "kani path copy: iteration bound drifts" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 20;/pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 30;/' formal/kani/src/path.rs
+
+run_case "kani path copy: raw null-byte check removed" "$DIFF_GUARD" drift \
+    perl -0pi -e "s/if raw\\.contains\\('\\\\0'\\) \\{/if false {/" formal/kani/src/path.rs
+
+run_case "kani path copy: backslash normalization dropped" "$DIFF_GUARD" drift \
+    perl -0pi -e "s/let decoded = if decoded\\.contains\\('\\\\\\\\'\\) \\{/let decoded = if false {/" formal/kani/src/path.rs
+
+run_case "kani ip copy: CGNAT mask widened" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/\\(octets\\[1\\] & 0xC0\\) == 64/(octets[1] & 0xE0) == 64/' formal/kani/src/ip.rs
+
+run_case "kani ip copy: loopback check removed" "$DIFF_GUARD" drift \
+    perl -0pi -e 's/let is_loopback = octets\\[0\\] == 127;/let is_loopback = false;/' formal/kani/src/ip.rs
 
 # ── 2. Kani ↔ production extraction ───────────────────────────────────────
 # formal/kani/Cargo.toml states the extracted code "is tested to be identical to

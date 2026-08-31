@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Taint-driven intent scope narrowing did nothing** (`SCOPE-NOOP-1`).
+  `IntentScopeConfig::restrict_to_trust_floor` narrowed scope by filtering
+  `allowed_sink_classes`, but an empty list there means *unrestricted*, so
+  filtering it returned another empty list. Restricting the default
+  configuration narrowed nothing: `PolicyMutation`, the highest-privilege sink,
+  stayed in scope after a restriction to `Quarantined`, the lowest trust floor.
+  Narrowing now runs through `ScopeMask::restrict`, an intersection, so the
+  result is always a subset of what was in force.
+
+  Two further holes are closed with it. Both relay call sites computed the
+  restricted scope and discarded it (`let _ = restricted`), so narrowing never
+  persisted; `RelayState` now carries the session scope and successive
+  narrowings compose. And `check_in_scope` had no caller anywhere in the relay;
+  it is now consulted on the tool-call path before forwarding.
+
+  This tightens real behaviour. An unconfigured scope still admits every sink
+  class — there is no new default-deny — but a session that narrows now stays
+  narrowed. `out_of_scope_action = RequireApproval` refuses on this path rather
+  than allowing, because the stdio relay has no interactive approval channel
+  there.
+
+### Added
+
+- `vellaveto-types::verified_intent_scope::ScopeMask` — intent scope as a
+  bitmask over sink classes, the production counterpart of
+  `formal/verus/verified_intent_scope.rs`. `u16`, because `SinkClass` has nine
+  variants and the kernel's `u8` could not represent rank 8 at all.
+- `vellaveto-engine::verified_sequence_gate` — the restriction gate driven by
+  behavioural sequence analysis, with named `RESTRICTION_THRESHOLD` and
+  `WARMUP_CALLS`. Previously the threshold was a bare `70` at one relay call
+  site whose result was thrown away.
+
+### Changed
+
+- `IntentScopeConfig` gains `effective_scope_mask: Option<ScopeMask>`. Additive
+  and `#[serde(default)]`, so deserialization of older configs is unaffected,
+  but it breaks external code constructing the struct with a literal.
+- `IntentScopeConfig::restrict_to_trust_floor` no longer rewrites
+  `allowed_sink_classes`; that field stays the config surface the session was
+  created from, and the narrowed scope lives in `effective_scope_mask`. Code
+  reading `allowed_sink_classes` to learn the scope in force should call
+  `scope_mask()` instead.
+
+
 ## [7.0.0] - 2026-08-04
 
 First release since 6.1.1 (2026-03-27). 273 commits.

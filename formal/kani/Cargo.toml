@@ -13,8 +13,30 @@ description = "Kani bounded model checking proofs for Vellaveto security invaria
 # (path normalization, fail-closed logic) do not use IDNA, we extract them here
 # with minimal dependencies to make verification tractable.
 #
-# The extracted code is tested to be identical to the production code via
-# the CI diff check in .github/workflows/ci.yml.
+# Correspondence to production — read this before trusting a proof here.
+#
+# This crate previously claimed the extracted code "is tested to be identical to
+# the production code via the CI diff check in .github/workflows/ci.yml". No
+# such diff check existed. The `test_*_parity` functions in this crate assert
+# hardcoded vectors against this crate's *own* copy, which cannot disagree with
+# itself, and `formal/tools/check-kani-parity.sh` greps for symbol names. This
+# crate is also excluded from the workspace and does not depend on the
+# production crates, so nothing here could compare the two.
+#
+# As of 2026-08-28, two extractions are genuinely compared against production by
+# differential tests that live in the production crate and run in the ordinary
+# workspace suite:
+#
+#   src/path.rs -> vellaveto-engine/src/kani_path_differential.rs
+#   src/ip.rs   -> vellaveto-engine/src/kani_ip_differential.rs
+#
+# Both are mutation-verified. The other 33 extractions are NOT compared to
+# production by anything. A proof about one of them constrains the copy in this
+# crate; whether it also constrains the shipped code is a hand-established
+# assumption, tracked as PARITY-HAND-2 in formal/ASSUMPTION_REGISTRY.md.
+#
+# When adding an extraction, add its differential binding too, or the proof
+# claims more than it establishes.
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

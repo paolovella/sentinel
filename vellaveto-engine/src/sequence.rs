@@ -46,9 +46,9 @@ pub struct SequenceConfig {
 impl Default for SequenceConfig {
     fn default() -> Self {
         Self {
-            warmup_calls: 3,
+            warmup_calls: crate::verified_sequence_gate::WARMUP_CALLS,
             read_to_act_window_ms: 5000,
-            max_new_tools_after_taint: 2,
+            max_new_tools_after_taint: crate::verified_sequence_gate::MAX_NEW_TOOLS,
             anomaly_action: AnomalyAction::AuditOnly,
         }
     }

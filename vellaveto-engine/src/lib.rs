@@ -44,6 +44,25 @@ mod entropy_gate;
 mod error;
 pub mod impact;
 mod ip;
+// The Kani `collusion_detection` extraction's own tests reach for its sibling
+// `crate::temporal_window`. Reproducing that module here — test-only — lets the
+// extraction compile as written rather than having build.rs rewrite it, which
+// is the line those scripts are documented not to cross. It also materializes
+// the temporal_window extraction, bound in `kani_temporal_window_differential`.
+#[cfg(test)]
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod temporal_window {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_temporal_window_extraction.rs"
+    ));
+}
+// The Kani `resolve` extraction imports its sibling `crate::verified_core`.
+// The production module of that name already exists at this crate root, and the
+// extraction's needs are satisfied by it, so no test-only stand-in is required.
+mod kani_ip_differential;
+mod kani_path_differential;
+mod kani_rule_check_differential;
 pub mod least_agency;
 mod legacy;
 pub mod lint;
@@ -51,6 +70,19 @@ mod matcher;
 pub mod nhi_overpermission;
 mod normalize;
 mod path;
+
+/// Test-only stand-in for `formal/kani/src/lib.rs`'s `PathError`.
+///
+/// `formal/kani/src/path.rs` is compiled verbatim into this crate's test build
+/// by `kani_path_differential`, and it refers to `crate::PathError`. Supplying
+/// it here is what lets the extraction be compared against production instead
+/// of merely described as identical to it. See `PARITY-HAND-2` in
+/// `formal/ASSUMPTION_REGISTRY.md`.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathError {
+    pub reason: String,
+}
 mod policy_compile;
 mod rule_check;
 pub mod sequence;
@@ -63,6 +95,7 @@ pub mod verified_core;
 mod verified_deputy;
 mod verified_entropy_fixed_point;
 mod verified_entropy_gate;
+pub mod verified_sequence_gate;
 pub mod wasm_plugin;
 
 #[cfg(kani)]
@@ -1369,3 +1402,165 @@ impl PolicyEngine {
 #[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 #[path = "engine_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod verus_sort_refinement_differential {
+    //! Differential binding for `PARITY-HAND-1`, refinement kernel
+    //! `formal/verus/verified_refinement_sort_stutter.rs`.
+    //!
+    //! The kernel models policy ordering abstractly — a `SortPolicy` carrying
+    //! priority, a deny flag and an id order — and proves it is a total
+    //! preorder with deny-overrides at equal priority. `sort_policies` is the
+    //! production realisation.
+    //!
+    //! The binding checks the **postcondition**, which is the security
+    //! property. Ordering matters because `compute_verdict` takes the first
+    //! policy that decides, so a mis-ordered deny lands behind an allow and
+    //! never fires.
+    //!
+    //! BOUNDED: all 120 permutations of a 5-policy corpus chosen to force each
+    //! tier of the comparator — priority, deny-override at equal priority, and
+    //! the id tiebreak when priority *and* kind match.
+
+    use super::*;
+
+    fn spec_is_deny(policy_type: &PolicyType) -> bool {
+        matches!(policy_type, PolicyType::Deny)
+    }
+
+    /// Transcription of `spec_policy_before`, with the kernel's abstract
+    /// `id_order` realised as the lexicographic order production tiebreaks on.
+    fn spec_policy_before(a: &Policy, b: &Policy) -> bool {
+        a.priority > b.priority
+            || (a.priority == b.priority
+                && spec_is_deny(&a.policy_type)
+                && !spec_is_deny(&b.policy_type))
+            || (a.priority == b.priority
+                && spec_is_deny(&a.policy_type) == spec_is_deny(&b.policy_type)
+                && a.id <= b.id)
+    }
+
+    /// Transcription of `spec_sorted_by_priority`.
+    fn spec_sorted_by_priority(policies: &[Policy]) -> bool {
+        for i in 0..policies.len() {
+            for j in (i + 1)..policies.len() {
+                if !spec_policy_before(&policies[i], &policies[j]) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn policy(id: &str, priority: i32, policy_type: PolicyType) -> Policy {
+        Policy {
+            id: id.to_string(),
+            name: id.to_string(),
+            policy_type,
+            priority,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    fn corpus() -> Vec<Policy> {
+        vec![
+            policy("a", 10, PolicyType::Allow),
+            policy("b", 10, PolicyType::Deny),
+            policy("c", 20, PolicyType::Allow),
+            policy("d", 10, PolicyType::Allow),
+            policy("e", 20, PolicyType::Deny),
+        ]
+    }
+
+    fn permutations(items: Vec<Policy>) -> Vec<Vec<Policy>> {
+        if items.len() <= 1 {
+            return vec![items];
+        }
+        let mut out = Vec::new();
+        for i in 0..items.len() {
+            let mut rest = items.clone();
+            let head = rest.remove(i);
+            for mut tail in permutations(rest) {
+                let mut one = vec![head.clone()];
+                one.append(&mut tail);
+                out.push(one);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn test_sort_policies_establishes_the_kernel_postcondition() {
+        let all = permutations(corpus());
+        assert_eq!(all.len(), 120, "expected 5! permutations; corpus changed");
+
+        for perm in all {
+            let mut sorted = perm.clone();
+            PolicyEngine::sort_policies(&mut sorted);
+            assert!(
+                spec_sorted_by_priority(&sorted),
+                "PARITY-HAND-1: sort_policies did not establish spec_sorted_by_priority for {:?} -> {:?}",
+                perm.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+                sorted.iter().map(|p| p.id.as_str()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// The ordering the kernel proves total: for any pair at least one
+    /// direction holds. Without totality `sort_policies` has no well-defined
+    /// result and first-match-wins evaluation would depend on input order.
+    #[test]
+    fn test_ordering_relation_is_total() {
+        let c = corpus();
+        for a in &c {
+            for b in &c {
+                assert!(
+                    spec_policy_before(a, b) || spec_policy_before(b, a),
+                    "PARITY-HAND-1: neither ordering holds for ({}, {})",
+                    a.id,
+                    b.id
+                );
+            }
+        }
+    }
+
+    /// Deny-overrides at equal priority is the security-relevant tier.
+    #[test]
+    fn test_deny_sorts_ahead_of_allow_at_equal_priority() {
+        let mut policies = vec![
+            policy("z-allow", 10, PolicyType::Allow),
+            policy("a-deny", 10, PolicyType::Deny),
+        ];
+        PolicyEngine::sort_policies(&mut policies);
+        assert_eq!(
+            policies[0].id, "a-deny",
+            "PARITY-HAND-1: an allow sorted ahead of a deny at equal priority — the deny would never fire, since evaluation stops at the first policy that decides"
+        );
+
+        // And not merely because the id tiebreak agreed: reverse the ids so
+        // lexicographic order would otherwise put the allow first.
+        let mut policies = vec![
+            policy("a-allow", 10, PolicyType::Allow),
+            policy("z-deny", 10, PolicyType::Deny),
+        ];
+        PolicyEngine::sort_policies(&mut policies);
+        assert_eq!(
+            policies[0].id, "z-deny",
+            "PARITY-HAND-1: the id tiebreak overrode deny-overrides"
+        );
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        let hi_allow = policy("a", 20, PolicyType::Allow);
+        let lo_deny = policy("b", 10, PolicyType::Deny);
+        assert!(spec_policy_before(&hi_allow, &lo_deny));
+        assert!(!spec_policy_before(&lo_deny, &hi_allow));
+        assert!(spec_sorted_by_priority(&[
+            hi_allow.clone(),
+            lo_deny.clone()
+        ]));
+        assert!(!spec_sorted_by_priority(&[lo_deny, hi_allow]));
+    }
+}

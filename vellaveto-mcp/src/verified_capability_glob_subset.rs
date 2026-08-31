@@ -85,6 +85,55 @@ impl PatternStateSet {
     }
 }
 
+/// Return true when the product-automaton state just reached is a witness that
+/// the child language is *not* contained in the parent language: the child
+/// accepts here and the parent does not.
+///
+/// Named counterpart of `spec_glob_subset_accepting_counterexample`.
+#[inline]
+#[must_use = "security decisions must not be discarded"]
+pub(crate) const fn accepting_counterexample(parent_accepts: bool, child_accepts: bool) -> bool {
+    child_accepts && !parent_accepts
+}
+
+/// Return true when the representative alphabet still needs a byte standing in
+/// for "every character neither pattern mentions".
+///
+/// Below a full 256-class alphabet such a byte exists and the transition
+/// relation cannot distinguish it from any other unmentioned byte; at 256 there
+/// is nothing left to represent.
+///
+/// Named counterpart of `spec_representative_other_byte_needed`.
+#[inline]
+#[must_use = "security decisions must not be discarded"]
+pub(crate) const fn representative_other_byte_needed(literal_class_count: usize) -> bool {
+    literal_class_count < 256
+}
+
+/// Route a parent/child pattern pair to the branch that decides containment.
+///
+/// Named counterpart of `spec_glob_subset_fast_path`. The wildcard and
+/// case-insensitive-equality parents are immediate; a child with no
+/// metacharacters is a literal and is decided by the literal matcher;
+/// everything else needs the exact language-subset check.
+#[inline]
+#[must_use = "security decisions must not be discarded"]
+pub(crate) const fn glob_subset_fast_path(
+    parent_is_wildcard: bool,
+    parent_equals_child_ignore_ascii_case: bool,
+    child_has_metacharacters: bool,
+    literal_child_subset: bool,
+    exact_child_glob_subset: bool,
+) -> bool {
+    if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
+        true
+    } else if !child_has_metacharacters {
+        literal_child_subset
+    } else {
+        exact_child_glob_subset
+    }
+}
+
 fn collect_representative_bytes(parent_pattern: &[u8], child_pattern: &[u8]) -> Vec<u8> {
     let mut seen = [false; 256];
     let mut representatives = Vec::new();
@@ -101,8 +150,10 @@ fn collect_representative_bytes(parent_pattern: &[u8], child_pattern: &[u8]) -> 
         }
     }
 
-    if let Some(other) = (u8::MIN..=u8::MAX).find(|byte| !seen[*byte as usize]) {
-        representatives.push(other);
+    if representative_other_byte_needed(representatives.len()) {
+        if let Some(other) = (u8::MIN..=u8::MAX).find(|byte| !seen[*byte as usize]) {
+            representatives.push(other);
+        }
     }
 
     representatives
@@ -125,7 +176,7 @@ pub(crate) fn glob_pattern_subset(parent_pattern: &str, child_pattern: &str) -> 
     let mut visited = HashSet::from([start]);
 
     while let Some((parent_states, child_states)) = queue.pop_front() {
-        if child_states.accepts(child) && !parent_states.accepts(parent) {
+        if accepting_counterexample(parent_states.accepts(parent), child_states.accepts(child)) {
             return false;
         }
 
@@ -141,6 +192,176 @@ pub(crate) fn glob_pattern_subset(parent_pattern: &str, child_pattern: &str) -> 
     }
 
     true
+}
+
+#[cfg(test)]
+mod verus_spec_differential {
+    //! Differential binding for `PARITY-HAND-1` (see
+    //! `formal/ASSUMPTION_REGISTRY.md`), kernel
+    //! `formal/verus/verified_capability_glob_subset.rs`.
+    //!
+    //! The kernel proves three executable functions equal their specs. All
+    //! three had been inline in this module and in `capability_token.rs`, so
+    //! nothing linked the proof to what shipped; they are now named, called on
+    //! the shipped path, and compared against transcriptions of the specs over
+    //! their **total** input domains (2² and 2⁵ booleans, and the byte-class
+    //! count across the 256 boundary).
+    //!
+    //! Scope note: the routing test below computes the two expensive booleans
+    //! by calling the same sub-matchers production calls, so a mutation *inside*
+    //! `literal_child_matches_parent_glob` or `glob_pattern_subset` is not
+    //! caught here. That is deliberate — those functions are bound by their own
+    //! kernels (`verified_capability_glob`, and the counterexample predicate
+    //! above). This binding is about the routing between them.
+
+    use super::{
+        accepting_counterexample, glob_pattern_subset, glob_subset_fast_path,
+        representative_other_byte_needed,
+    };
+
+    /// Transcription of `spec_glob_subset_accepting_counterexample`.
+    fn spec_accepting_counterexample(parent_accepts: bool, child_accepts: bool) -> bool {
+        child_accepts && !parent_accepts
+    }
+
+    /// Transcription of `spec_glob_subset_fast_path`.
+    fn spec_fast_path(
+        parent_is_wildcard: bool,
+        parent_equals_child_ignore_ascii_case: bool,
+        child_has_metacharacters: bool,
+        literal_child_subset: bool,
+        exact_child_glob_subset: bool,
+    ) -> bool {
+        if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
+            true
+        } else if !child_has_metacharacters {
+            literal_child_subset
+        } else {
+            exact_child_glob_subset
+        }
+    }
+
+    /// Transcription of `spec_representative_other_byte_needed`.
+    fn spec_other_byte_needed(literal_class_count: usize) -> bool {
+        literal_class_count < 256
+    }
+
+    /// TOTAL over 2² inputs.
+    #[test]
+    fn test_accepting_counterexample_matches_verus_spec_total_domain() {
+        for parent_accepts in [false, true] {
+            for child_accepts in [false, true] {
+                assert_eq!(
+                    accepting_counterexample(parent_accepts, child_accepts),
+                    spec_accepting_counterexample(parent_accepts, child_accepts),
+                    "PARITY-HAND-1: counterexample predicate disagrees at \
+                     (parent={parent_accepts}, child={child_accepts})"
+                );
+            }
+        }
+        // The two ensures clauses the kernel attaches: a counterexample implies
+        // the child accepted and the parent did not.
+        for parent_accepts in [false, true] {
+            for child_accepts in [false, true] {
+                if accepting_counterexample(parent_accepts, child_accepts) {
+                    assert!(
+                        child_accepts,
+                        "PARITY-HAND-1: witness without child acceptance"
+                    );
+                    assert!(
+                        !parent_accepts,
+                        "PARITY-HAND-1: witness with parent acceptance"
+                    );
+                }
+            }
+        }
+    }
+
+    /// TOTAL over 2⁵ inputs.
+    #[test]
+    fn test_fast_path_matches_verus_spec_total_domain() {
+        let mut checked = 0usize;
+        for wildcard in [false, true] {
+            for equal in [false, true] {
+                for meta in [false, true] {
+                    for literal in [false, true] {
+                        for exact in [false, true] {
+                            assert_eq!(
+                                glob_subset_fast_path(wildcard, equal, meta, literal, exact),
+                                spec_fast_path(wildcard, equal, meta, literal, exact),
+                                "PARITY-HAND-1: fast-path routing disagrees at \
+                                 ({wildcard}, {equal}, {meta}, {literal}, {exact})"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 32, "enumeration collapsed");
+    }
+
+    /// Covers the 256 boundary in both directions.
+    #[test]
+    fn test_other_byte_needed_matches_verus_spec_across_the_boundary() {
+        for count in 0..=300usize {
+            assert_eq!(
+                representative_other_byte_needed(count),
+                spec_other_byte_needed(count),
+                "PARITY-HAND-1: representative-byte predicate disagrees at {count}"
+            );
+        }
+        assert!(representative_other_byte_needed(255));
+        assert!(!representative_other_byte_needed(256));
+    }
+
+    /// The shipped routing in `capability_token::pattern_is_subset` must equal
+    /// the kernel's routing over real pattern pairs.
+    #[test]
+    fn test_shipped_routing_matches_verus_spec() {
+        use crate::{
+            capability_token::pattern_is_subset, verified_capability_glob,
+            verified_capability_pattern,
+        };
+
+        const PATTERNS: [&str; 10] = ["*", "a", "A", "a*", "a?", "?b", "ab", "AB", "a*b", "*b*"];
+
+        let mut checked = 0usize;
+        for parent in PATTERNS {
+            for child in PATTERNS {
+                let wildcard = parent == "*";
+                let equal = parent.eq_ignore_ascii_case(child);
+                let meta = verified_capability_pattern::has_glob_metacharacters(child);
+                let literal = !meta
+                    && verified_capability_glob::literal_child_matches_parent_glob(parent, child);
+                let exact = meta && glob_pattern_subset(parent, child);
+
+                assert_eq!(
+                    pattern_is_subset(parent, child),
+                    spec_fast_path(wildcard, equal, meta, literal, exact),
+                    "PARITY-HAND-1: shipped routing disagrees for parent={parent:?} \
+                     child={child:?}"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 100, "pattern enumeration collapsed");
+    }
+
+    #[test]
+    fn test_spec_oracle_can_reject() {
+        // A wildcard parent admits everything.
+        assert!(spec_fast_path(true, false, true, false, false));
+        // A non-wildcard, non-equal, literal child defers to the literal result.
+        assert!(!spec_fast_path(false, false, false, false, true));
+        assert!(spec_fast_path(false, false, false, true, false));
+        // A glob child defers to the exact checker, not the literal one.
+        assert!(!spec_fast_path(false, false, true, true, false));
+        assert!(spec_fast_path(false, false, true, false, true));
+        // Only child-accepts-and-parent-rejects is a counterexample.
+        assert!(!spec_accepting_counterexample(true, true));
+        assert!(spec_accepting_counterexample(false, true));
+    }
 }
 
 #[cfg(test)]

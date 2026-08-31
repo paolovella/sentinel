@@ -209,3 +209,211 @@ mod verus_spec_differential {
         assert_eq!(entropy_observation_millibits(-1.0), 0);
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against.
+#[allow(
+    clippy::approx_constant,
+    clippy::manual_range_contains,
+    dead_code,
+    unused_imports
+)]
+mod kani_entropy_wrapper_extraction {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/kani_entropy_wrapper_extraction.rs"
+    ));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_entropy_wrapper {
+    //! Differential binding for `PARITY-HAND-2` — entropy float-to-fixed-point.
+    //!
+    //! The **third closed triangle**. This mirror was extracted during the
+    //! Verus campaign so `verified_entropy_pipeline` could be bound to
+    //! something reachable; the Kani extraction (K86-K88) proved its own copy
+    //! of the same conversion and was connected to nothing. Both now meet on
+    //! this function.
+    //!
+    //! What rides on it: the Verus kernel proves the alert gate over *integers*
+    //! and assumes a faithful float-to-fixed conversion feeding it. If this
+    //! conversion disagrees between the two, the integer proof is about
+    //! observations that never occur — a threshold comparison off by a
+    //! millibit decides whether an entropy alert fires.
+
+    use super::kani_entropy_wrapper_extraction as extracted;
+    use super::{entropy_fixed_point, entropy_observation_millibits, entropy_threshold_millibits};
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/entropy_wrapper.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The scale constants, pinned on both sides independently.
+    #[test]
+    fn test_scale_constants_match() {
+        assert_eq!(extracted::ENTROPY_DECISION_SCALE, 1000);
+        assert_eq!(extracted::MAX_ENTROPY_DECISION_MILLIBITS, 8000);
+        // Production's bound, reached through the function rather than the
+        // constant, so a change to either side is visible.
+        assert_eq!(entropy_fixed_point(8.0, false), 8000);
+        assert_eq!(entropy_fixed_point(0.0, false), 0);
+    }
+
+    /// A dense sweep across the whole representable range plus the values that
+    /// break naive conversions.
+    ///
+    /// The rounding boundary is where a millibit is won or lost, so the sweep
+    /// steps finely enough to land on and between them, in **both** rounding
+    /// directions.
+    #[test]
+    fn test_conversion_matches_production_across_the_range() {
+        let mut checked = 0usize;
+        // 0.000 to 8.100 in thousandths — past the clamp on purpose.
+        for milli in 0..=8_100u32 {
+            let bits = f64::from(milli) / 1000.0;
+            for round_up in [false, true] {
+                assert_eq!(
+                    extracted::entropy_fixed_point(bits, round_up),
+                    entropy_fixed_point(bits, round_up),
+                    "PARITY-HAND-2: fixed-point conversion disagrees at \
+                     {bits} bits/byte (round_up={round_up})"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 8_101 * 2, "sweep collapsed");
+    }
+
+    /// The values a float conversion is most likely to mishandle.
+    #[test]
+    fn test_non_finite_and_out_of_range_match_production() {
+        const HOSTILE: [f64; 10] = [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            -0.0,
+            -1.0,
+            -1e300,
+            8.0,
+            8.000_1,
+            1e300,
+            f64::MIN_POSITIVE,
+        ];
+        for bits in HOSTILE {
+            for round_up in [false, true] {
+                assert_eq!(
+                    extracted::entropy_fixed_point(bits, round_up),
+                    entropy_fixed_point(bits, round_up),
+                    "PARITY-HAND-2: conversion disagrees for {bits:?} \
+                     (round_up={round_up})"
+                );
+            }
+        }
+        // K87: non-finite input converts to 0, never to a large value that
+        // would clear an entropy threshold.
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                entropy_fixed_point(bad, false),
+                0,
+                "K87: a non-finite entropy observation did not convert to 0"
+            );
+            assert_eq!(entropy_fixed_point(bad, true), 0);
+        }
+        // K86: the output is bounded, so no observation can exceed the maximum
+        // the integer gate is proved over.
+        for bits in HOSTILE {
+            assert!(
+                entropy_fixed_point(bits, true) <= 8000,
+                "K86: conversion of {bits:?} exceeded MAX_ENTROPY_DECISION_MILLIBITS"
+            );
+        }
+    }
+
+    /// Two mutations of this conversion are **equivalent**, verified rather
+    /// than assumed, and recorded so nobody writes a contrived test chasing
+    /// them.
+    ///
+    /// The upper bound is enforced *twice* — by `clamp(0.0, 8.0)` on the input
+    /// and by the `rounded >= MAX` branch on the output — so removing either
+    /// alone changes no result. Widening the clamp to `9.0` still hits the
+    /// output branch; weakening `>=` to `>` is unreachable because
+    /// `scaled <= 8.0 * 1000` means `rounded` never exceeds `MAX`.
+    ///
+    /// This is `FP-WRAP-1`, predicted earlier in this campaign: a value bounded
+    /// by two independent mechanisms cannot be mutation-tested one mechanism at
+    /// a time. Removing *both* is caught; that is the test worth having, and it
+    /// is what `test_non_finite_and_out_of_range_match_production` performs by
+    /// asserting the output bound directly.
+    #[test]
+    fn test_the_upper_bound_is_enforced_twice() {
+        // Neither mechanism alone is observable, so assert the property they
+        // jointly guarantee instead of either mechanism.
+        for bits in [8.0, 8.000_1, 8.5, 9.0, 1e300, f64::INFINITY] {
+            for round_up in [false, true] {
+                assert!(
+                    entropy_fixed_point(bits, round_up) <= 8000,
+                    "the output bound was exceeded for {bits:?}"
+                );
+            }
+        }
+        // And the bound is actually reached, so the assertion is not vacuous.
+        assert_eq!(entropy_fixed_point(8.0, false), 8000);
+        assert_eq!(entropy_fixed_point(9.0, true), 8000);
+    }
+
+    /// The two directional wrappers, which decide the *side* of a threshold
+    /// comparison an observation lands on.
+    ///
+    /// The rounding runs the way a **detector** needs, which is the opposite of
+    /// what "conservative" suggests if you read it as an access decision: the
+    /// threshold rounds **down** (`round_up = false`) and the observation
+    /// rounds **up** (`round_up = true`). So a borderline observation *does*
+    /// clear a borderline threshold, and the gate errs toward firing.
+    ///
+    /// That is fail-closed here — a missed high-entropy observation is missed
+    /// exfiltration, so the safe error is a false alert rather than a false
+    /// silence. Swapping the two directions would flip that, and the resulting
+    /// off-by-one-millibit is exactly the gap an exfiltration payload sits in.
+    #[test]
+    fn test_directional_wrappers_match_production() {
+        for milli in 0..=8_100u32 {
+            let bits = f64::from(milli) / 1000.0;
+            assert_eq!(
+                extracted::entropy_threshold_millibits(bits),
+                entropy_threshold_millibits(bits),
+                "PARITY-HAND-2: threshold conversion disagrees at {bits}"
+            );
+            assert_eq!(
+                extracted::entropy_observation_millibits(bits),
+                entropy_observation_millibits(bits),
+                "PARITY-HAND-2: observation conversion disagrees at {bits}"
+            );
+        }
+        // The asymmetry itself, at a value that is not exactly representable:
+        // 6.5005 bits scales to 6500.5 millibits, so the threshold floors to
+        // 6500 and the observation ceils to 6501.
+        let borderline = 6.500_5;
+        assert_eq!(entropy_threshold_millibits(borderline), 6500);
+        assert_eq!(entropy_observation_millibits(borderline), 6501);
+        assert!(
+            entropy_observation_millibits(borderline) >= entropy_threshold_millibits(borderline),
+            "the observation must never round below the threshold, or a \
+             high-entropy payload sitting between two millibits goes undetected"
+        );
+        // And the direction holds across the range, not just at one point.
+        for milli in 0..=8_000u32 {
+            let bits = f64::from(milli) / 1000.0 + 0.000_5;
+            assert!(
+                entropy_observation_millibits(bits) >= entropy_threshold_millibits(bits),
+                "rounding direction inverted at {bits} bits/byte"
+            );
+        }
+    }
+}

@@ -1165,7 +1165,16 @@ fn proof_is_cacheable_context_no_session_state() {
         has_session_state: kani::any(),
         has_verification_tier: kani::any(),
         context_present: kani::any(),
+        has_risk_score: kani::any(),
     };
+
+    // SECURITY (R237-ENG-6): a request carrying a risk score is never cacheable.
+    if fields.has_risk_score {
+        assert!(
+            !is_cacheable_context(&fields),
+            "K33 violated: cacheable while carrying a risk score"
+        );
+    }
 
     if is_cacheable_context(&fields) && fields.context_present {
         assert!(
@@ -2522,7 +2531,10 @@ fn proof_all_lock_poison_handlers_safe() {
 // =========================================================================
 
 #[kani::proof]
-#[kani::unwind(32)]
+// The placeholder grew from 18 to 28 characters when the model was corrected to
+// production's {:016X} format (KANI-SANITIZER-DRIFT-1), so the string loops need
+// a larger bound than the old six-digit form did.
+#[kani::unwind(64)]
 fn proof_sanitizer_roundtrip_inversion() {
     use crate::sanitizer::sanitize_and_record;
 
@@ -2539,7 +2551,7 @@ fn proof_sanitizer_roundtrip_inversion() {
 
     // K69: fixed-case inversion records the exact placeholder and exact original.
     assert_eq!(
-        sanitized, "Hi [PII_EMAIL_000000] bye",
+        sanitized, "Hi [PII_EMAIL_0000000000000000] bye",
         "K69 violated: sanitized output did not match the expected tokenized form"
     );
     assert_eq!(
@@ -2548,7 +2560,7 @@ fn proof_sanitizer_roundtrip_inversion() {
         "K69 violated: sanitizer did not record exactly one inverse mapping"
     );
     assert_eq!(
-        mappings[0].0, "[PII_EMAIL_000000]",
+        mappings[0].0, "[PII_EMAIL_0000000000000000]",
         "K69 violated: sanitizer recorded the wrong placeholder"
     );
     assert_eq!(
@@ -2569,36 +2581,56 @@ fn proof_sanitizer_roundtrip_inversion() {
 
 #[kani::proof]
 fn proof_sanitizer_token_uniqueness() {
-    use crate::sanitizer::render_six_digits;
+    use crate::sanitizer::render_sixteen_hex_digits;
 
-    let cat1: u8 = kani::any();
-    let cat2: u8 = kani::any();
-    let seq1: u64 = kani::any();
-    let seq2: u64 = kani::any();
-    kani::assume(cat1 < 4 && cat2 < 4);
-    kani::assume(seq1 <= 999999 && seq2 <= 999999); // 6-digit range
+    // KANI-SANITIZER-DRIFT-1: this proof used to be about a monotonic sequence
+    // counter rendered as six decimal digits. Production abandoned that design
+    // in R242-SHLD-1 — a guessable placeholder can be probed as a
+    // desanitization oracle — and now draws a random u64 rendered as
+    // `{:016X}`. The old version also had a vacuous branch: under
+    // `if cat1 != cat2` it asserted `cat1 != cat2`, which is a tautology and
+    // constrained no token at all.
+    //
+    // What actually needs proving is that the *encoding* is injective, so two
+    // different token values can never render to the same placeholder text.
+    // Uniqueness of the values themselves comes from the redraw loop, modelled
+    // by `token_is_fresh`, not from this function.
+    let value1: u64 = kani::any();
+    let value2: u64 = kani::any();
+    kani::assume(value1 != value2);
 
-    // If category or sequence differ, tokens must differ
-    kani::assume(cat1 != cat2 || seq1 != seq2);
+    let digits1 = render_sixteen_hex_digits(value1);
+    let digits2 = render_sixteen_hex_digits(value2);
 
-    if cat1 != cat2 {
-        assert_ne!(
-            cat1, cat2,
-            "K70 violated: distinct categories must produce distinct token encodings"
-        );
-    } else {
-        let digits1 = render_six_digits(seq1);
-        let digits2 = render_six_digits(seq2);
-        assert!(
-            digits1[0] != digits2[0]
-                || digits1[1] != digits2[1]
-                || digits1[2] != digits2[2]
-                || digits1[3] != digits2[3]
-                || digits1[4] != digits2[4]
-                || digits1[5] != digits2[5],
-            "K70 violated: distinct sequence values produced identical digit encodings"
-        );
+    let mut differs = false;
+    let mut i = 0usize;
+    while i < 16 {
+        if digits1[i] != digits2[i] {
+            differs = true;
+        }
+        i += 1;
     }
+    assert!(
+        differs,
+        "K70 violated: two distinct token values rendered to the same sixteen \
+         hex digits, so two different PII values could share a placeholder"
+    );
+}
+
+#[kani::proof]
+fn proof_sanitizer_token_freshness_is_the_uniqueness_mechanism() {
+    use crate::sanitizer::token_is_fresh;
+
+    // R242-SHLD-1: production redraws until the candidate is absent from the
+    // mapping table. A candidate that is already present must never be used —
+    // reusing it would map two distinct PII values to one placeholder and make
+    // desanitization ambiguous.
+    let already_present: bool = kani::any();
+    assert_eq!(
+        token_is_fresh(already_present),
+        !already_present,
+        "K70 violated: a token already in the mapping table was accepted as fresh"
+    );
 }
 
 // =========================================================================

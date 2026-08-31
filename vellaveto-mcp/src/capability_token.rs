@@ -576,6 +576,56 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
     verified_capability_glob::literal_child_matches_parent_glob(pattern, value)
 }
 
+/// Decide whether every value the `child` pattern admits is also admitted by
+/// the `parent` pattern.
+///
+/// Hoisted out of `grant_is_subset` so the routing itself is reachable from the
+/// differential binding for `formal/verus/verified_capability_glob_subset.rs`;
+/// the behaviour is unchanged.
+///
+/// The two expensive branches are evaluated lazily — only the one the routing
+/// selects. `spec_glob_subset_fast_path` proves the result depends on nothing
+/// else in each branch, so `false` is a sound placeholder for the branch not
+/// taken.
+pub(crate) fn pattern_is_subset(parent: &str, child: &str) -> bool {
+    let parent_is_wildcard = parent == "*";
+    let parent_equals_child_ignore_ascii_case = parent.eq_ignore_ascii_case(child);
+    let child_has_metacharacters = verified_capability_pattern::has_glob_metacharacters(child);
+
+    let (literal_child_subset, exact_child_glob_subset) =
+        if verified_capability_pattern::pattern_subset_guard(
+            parent_is_wildcard,
+            parent_equals_child_ignore_ascii_case,
+            child_has_metacharacters,
+        ) {
+            if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
+                (false, false)
+            } else {
+                // Child is a literal value — safe to check against parent glob.
+                (
+                    verified_capability_literal::literal_child_pattern_subset(
+                        child_has_metacharacters,
+                        verified_capability_glob::literal_child_matches_parent_glob(parent, child),
+                    ),
+                    false,
+                )
+            }
+        } else {
+            (
+                false,
+                verified_capability_glob_subset::glob_pattern_subset(parent, child),
+            )
+        };
+
+    verified_capability_glob_subset::glob_subset_fast_path(
+        parent_is_wildcard,
+        parent_equals_child_ignore_ascii_case,
+        child_has_metacharacters,
+        literal_child_subset,
+        exact_child_glob_subset,
+    )
+}
+
 /// Check if new_grant is a subset of parent_grant.
 ///
 /// A grant is a subset if its tool/function patterns are equal to or more
@@ -594,30 +644,8 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
     // Example: parent "fi?" matches literal "fi*", but at runtime "fi*" is broader than "fi?".
     //
     // Fix: Keep the wildcard/equality/literal fast paths, and route the
-    // remaining child-glob branch through the exact subset checker.
-    fn pattern_is_subset(parent: &str, child: &str) -> bool {
-        let parent_is_wildcard = parent == "*";
-        let parent_equals_child_ignore_ascii_case = parent.eq_ignore_ascii_case(child);
-        let child_has_metacharacters = verified_capability_pattern::has_glob_metacharacters(child);
-
-        if verified_capability_pattern::pattern_subset_guard(
-            parent_is_wildcard,
-            parent_equals_child_ignore_ascii_case,
-            child_has_metacharacters,
-        ) {
-            if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
-                return true;
-            }
-
-            // Child is a literal value — safe to check against parent glob.
-            return verified_capability_literal::literal_child_pattern_subset(
-                child_has_metacharacters,
-                verified_capability_glob::literal_child_matches_parent_glob(parent, child),
-            );
-        }
-
-        verified_capability_glob_subset::glob_pattern_subset(parent, child)
-    }
+    // remaining child-glob branch through the exact subset checker. That
+    // routing lives in `pattern_is_subset` above.
 
     // Tool pattern must be subset of parent
     if !pattern_is_subset(&parent_grant.tool_pattern, &new_grant.tool_pattern) {

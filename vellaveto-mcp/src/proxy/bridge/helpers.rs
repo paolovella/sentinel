@@ -129,7 +129,7 @@ impl ProxyBridge {
         }
     }
 
-    fn infer_sink_class(
+    pub(super) fn infer_sink_class(
         action: &Action,
         annotations: Option<&ToolAnnotations>,
     ) -> Option<SinkClass> {

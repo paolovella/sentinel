@@ -25,6 +25,13 @@
 //! # Production Correspondence
 //!
 //! - `normalize_domain_for_match` ↔ `vellaveto-engine/src/domain.rs:237-325`
+//!
+//! That correspondence is checked behaviourally by the
+//! `kani_parity_differential_domain` module in
+//! `vellaveto-engine/src/domain.rs`, which supplies the real `idna` result
+//! for each input and requires the two wrappers to agree. Before 2026-08-28
+//! nothing checked it — see PARITY-HAND-2 in
+//! formal/ASSUMPTION_REGISTRY.md.
 
 /// Normalize a domain for matching.
 ///

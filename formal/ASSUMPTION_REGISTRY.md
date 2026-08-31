@@ -36,7 +36,7 @@ it is considered part of the reviewed proof surface.
 | `FLOAT-CONV-4` | Monotone ordering: if actual ≥ threshold (finite, float domain) then `ceil(actual×1000) ≥ floor(threshold×1000)` — no false negatives from conservative rounding | `formal/verus/float_boundary_axioms.rs` | `axiom_entropy_conv_ordering` in allowlist |
 
 | `PARITY-HAND-1` | Each Verus kernel and its production mirror implement the same function. The two sides are **structurally different** implementations (kernels are index-based over `Vec<u8>` with an explicit `decreases`; mirrors are slice-based with `split_first()`), so this correspondence is established **by hand** and is not checked by any tool. | `formal/verus/*.rs` ↔ `vellaveto-*/src/verified_*.rs` | **undischarged** — `check-verus-parity.sh` checks symbol *existence* only; measured by `formal/tools/guard-selftest.sh` |
-| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; **no such diff check exists**, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **undischarged** — in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
+| `PARITY-HAND-2` | Each Kani extracted module and its production counterpart implement the same function. `formal/kani/Cargo.toml` states the extracted code "is tested to be identical to the production code via the CI diff check"; no such diff check existed, and the crate has no dependency on the production crates. | `formal/kani/src/*.rs` ↔ `vellaveto-*/src/*.rs` | **26 of 33 discharged** (2026-08-28/30) — `path.rs`, `ip.rs`, `cache.rs`, `domain.rs`, `rule_check.rs` + `collusion_detection.rs` + `temporal_window.rs` + `entropy_wrapper.rs` + `verified_core.rs` + `resolve.rs` + `cascading_fsm.rs` (in `vellaveto-engine`), `unicode.rs` + `evidence_signing.rs` + `trust_containment.rs` + `output_contracts.rs` + `counterfactual_containment.rs` (in `vellaveto-types`), `webhook_dedup.rs` (in `vellaveto-server`) `sanitizer.rs` + `credential_vault.rs` (in `vellaveto-mcp-shield`) and `injection_pipeline.rs` + `dlp_core.rs` + `task.rs` + `transitive_revoke.rs` + `capability.rs` (in `vellaveto-mcp`) `approval_drift.rs` (in `vellaveto-approval`) and `merkle_sanity.rs` (in `vellaveto-audit`) are compiled into the production crates' test builds and compared against production, mutation-verified 6/6, 6/6, 4/4, 5/5, 4/4, 4/4, 5/5, 4/4, 7/7, 4/4, 9/9, 6/6, 5/5, 5/5, 5/5, 6/6, 4/4, 5/5, 4/4, 3/3, 4/4, 3/3, 4/4, 5/5, 5/5 and 5/5; see `KANI-PATH-BOUND-1` and `KANI-CACHE-DRIFT-1`. The other 7 extractions remain undischarged: their in-crate `test_*_parity` functions are hardcoded vectors asserted against Kani's own copy |
 
 ## TAINT-MODEL-DRIFT — found, then closed
 
@@ -166,60 +166,103 @@ The binding therefore checks the restated primitives against the shipped ones
 first, and only then checks the n-step results against iterating the shipped
 functions. AUDIT-LEGACY-1 is exactly what that first half is for.
 
-## MODEL-SHAPE-1/2 — kernels modelling a design production does not implement
+## MODEL-SHAPE-1/2 — kernels modelling a design production did not implement
 
-Found 2026-08-24 while attempting to bind them. Both pass
-`check-verus-parity.sh`, which pairs them by *symbol name* against production
-files whose structures are unrelated to what the kernel models.
+Found 2026-08-24 while attempting to bind them; **closed 2026-08-28 by building
+the design**, which is the option chosen over reshaping the kernels to match
+production. Both had passed `check-verus-parity.sh`, which pairs them by
+*symbol name* against production files whose structures were unrelated to what
+the kernel modelled.
 
 Unlike TAINT-MODEL-DRIFT (a wrong value in a right-shaped model) these two
-model a **different design**. Neither is a vulnerability — both are stricter or
-simply absent — but no claim about the running system should be sourced to
-them until the shapes are reconciled.
+modelled a **different design**. Building it surfaced `SCOPE-NOOP-1` below,
+which no test in the workspace had caught.
 
 ### MODEL-SHAPE-1 — `verified_intent_scope`
 
-The kernel models scope as `ScopeState { allowed_mask: u8, .. }`, an 8-bit
-bitmask, with `spec_in_scope(allowed_mask, sink_bit) = sink_bit < 8 && ...`.
-Production models it as
-`IntentScopeConfig { allowed_sink_classes: Vec<SinkClass>, .. }`.
+The kernel modelled scope as `ScopeState { allowed_mask, .. }`, a bitmask, with
+restriction as bitwise AND. Production modelled it as
+`IntentScopeConfig { allowed_sink_classes: Vec<SinkClass>, .. }` under the
+convention *empty means everything is allowed*.
 
-Two mismatches:
+Both mismatches are now closed:
 
-- **Representation.** A bitmask and a `Vec<SinkClass>` are not the same
-  structure, so `spec_restrict_scope = current & restriction` (bitwise AND) has
-  no counterpart in `restrict_to_trust_floor`, which the parity guard
-  nonetheless pairs it with.
-- **Width.** The mask holds 8 bits and `SinkClass` has **nine** variants, so the
-  kernel cannot represent rank 8 — `PolicyMutation`, the highest-privilege sink.
-  `spec_in_scope` returns false for it unconditionally.
-
-The width half is the same root cause as `TAINT-MODEL-DRIFT`: kernels written
-against a six-or-eight-class world while production ships nine. It is
-fail-closed (the kernel refuses what production may allow), so nothing is
-under-enforced.
+- **Representation.** `vellaveto-types/src/verified_intent_scope.rs` defines
+  `ScopeMask`, and `restrict` is the bitwise AND the kernel proves. The config
+  surface keeps `allowed_sink_classes`; the empty-means-everything convention is
+  converted to an explicit value at exactly one place,
+  `ScopeMask::from_config_sink_classes`. Downstream, "allow nothing"
+  (`ScopeMask::NONE`) and "allow everything" (`ScopeMask::ALL`) are different
+  values, which is what makes intersection genuinely narrowing.
+- **Width.** The mask is `u16` and `SCOPE_CLASS_COUNT` is 9. The kernel's `u8`
+  could not represent rank 8 — `PolicyMutation`, the highest-privilege sink — so
+  `spec_in_scope` returned false for it unconditionally. The kernel was widened
+  to match, the same correction applied to the taint kernels under
+  `TAINT-MODEL-DRIFT`. Re-verified: 16 verified, 0 errors.
 
 ### MODEL-SHAPE-2 — `verified_sequence_analysis`
 
-The kernel models `anomaly_confidence: u8` gated by
-`RESTRICTION_THRESHOLD: u8 = 70`, and a warm-up gate `WARMUP_CALLS: u32 = 3`.
+The kernel modelled a restriction gate built from `RESTRICTION_THRESHOLD` and
+`WARMUP_CALLS`, and proved properties of it.
 
-Production's `SequenceAnomaly.confidence` is **`u32`**, `max_confidence()`
-returns `u32`, and its emitted confidences are 60/80/85/90. Neither
-`RESTRICTION_THRESHOLD` nor `WARMUP_CALLS` exists anywhere in the workspace, and
-no restriction gate is built from them.
+The original entry said neither constant existed anywhere in the workspace.
+That was too strong, and is corrected here: `warmup_calls` existed as a
+`SequenceConfig` field defaulting to 3, and the threshold existed as a bare
+literal `70` at one relay call site. What was true is that neither was **named**
+and no gate was built from them — the call site's result was discarded with
+`let _ = restricted`.
 
-So the kernel proves properties of a gate production has not implemented. It is
-not wrong so much as unattached.
+The gate now exists as `vellaveto-engine/src/verified_sequence_gate.rs`
+(`should_restrict`, `warmup_complete`, `update_confidence`,
+`update_anomaly_detected`, `new_tool_budget_available`, `is_taint_restricted`,
+`increment_new_tools`), drives `SequenceConfig::default()`, and decides at the
+relay call site. Confidence is `u32` on both sides now: production's
+`SequenceAnomaly.confidence` is `u32`, and the kernel's `u8` was an arbitrary
+narrowing rather than a claim about the value. Re-verified: 22 verified,
+0 errors.
 
-### Why these are not bound
+Both are bound and mutation-verified — 6/6 and 8/8.
 
-A differential test needs two things to compare. Where the shapes differ this
-much, writing one would mean inventing an adapter — and an adapter is a third
-piece of hand-written code that could itself be wrong, which is the opposite of
-narrowing the trusted base. These two need a decision first: reshape the kernel
-to production, or build the production design the kernel describes. Recorded
-here rather than papered over.
+## SCOPE-NOOP-1 — taint-driven scope narrowing did nothing
+
+Found 2026-08-28 while building the design for `MODEL-SHAPE-1`. Fixed in the
+same change.
+
+`IntentScopeConfig::restrict_to_trust_floor` narrowed the session's scope by
+**filtering `allowed_sink_classes`**. An empty `allowed_sink_classes` means
+"unrestricted", and filtering an empty list yields an empty list — so
+restricting the default configuration narrowed nothing at all:
+
+```
+let scope = IntentScopeConfig::default();          // allowed_sink_classes: []
+let restricted = scope.restrict_to_trust_floor(TrustTier::Quarantined);
+restricted.check_in_scope("t", SinkClass::PolicyMutation)  // => InScope
+```
+
+`PolicyMutation`, the highest-privilege sink there is, stayed in scope after a
+restriction to `Quarantined`, the lowest trust floor there is. The kernel proves
+SCOPE-1 and SCOPE-2 — restriction is a subset, scope only narrows — and both
+were false in production for the default configuration.
+
+Two further holes were open around it, both closed in the same change:
+
+- **The result was discarded.** Both relay call sites computed `restricted` and
+  threw it away (`let _ = restricted; // full enforcement in 6.2C`). Narrowing
+  never persisted, so even a correct restriction would not have survived to the
+  next call. `RelayState` now carries `session_scope`, and successive narrowings
+  compose from the scope in force rather than from the immutable per-relay
+  config.
+- **Nothing consulted the scope.** `check_in_scope` had no caller anywhere in
+  the relay. It is now called on the tool-call path before forwarding, honouring
+  `out_of_scope_action`. `Deny` and `RequireApproval` both refuse: the stdio
+  relay has no interactive approval channel on that path, so `RequireApproval`
+  is honoured in the fail-closed direction rather than degraded to an allow.
+  That is stricter than an operator configuring `RequireApproval` may expect,
+  and is called out here rather than left to be discovered.
+
+Nothing in the workspace's 11,800+ tests caught this. The kernel had been
+proving the property since Phase 6.2E; what was missing was any path from the
+proof to the code, which is what this campaign has been closing.
 
 ## A difference that is not drift — `spec_spans_junction`
 
@@ -436,6 +479,14 @@ first (a failing test *also* prints a line starting with `error:`), then
 `^error\[` or `could not compile` as invalid, then missed. Getting that order
 wrong misreports caught mutations as invalid.
 
+**Domain separation needs the forgery, not just a difference.** Checking that a
+leaf hash and an internal hash merely *differ* is too weak: dropping the RFC 6962
+**leaf** prefix leaves them different anyway, because the internal prefix alone
+still separates plain concatenations. The test has to construct the actual
+second preimage — `hash_leaf(0x01 || left || right)` against
+`hash_internal(left, right)` — which collide exactly when the leaf prefix is
+missing. Mutation testing found this; the weaker check passed the mutant.
+
 **Equivalent mutants.** Mutation-verifying a property discharge can surface
 mutants that change the text without changing behaviour. FP-WRAP-1 is enforced
 jointly by a `clamp` and a range branch; removing either alone is equivalent,
@@ -451,7 +502,7 @@ differential test binds *spec == shipped*; together they reach production.
 itself mutation-tested by `formal/tools/guard-selftest.sh` — a discharge that
 cannot fail would reinstate the assumption while appearing to remove it.
 
-**Measured trusted base (2026-08-25): 51 of 59 kernels bound (43 discharged + 5 partial + 3 property), 8 remain — of which 2 are blocked on a design decision, see `MODEL-SHAPE-1/2`.**
+**Measured trusted base (2026-08-28): 59 of 59 kernels bound (47 discharged + 5 partial + 7 property).** The last two, `MODEL-SHAPE-1/2`, were closed by building the design their kernels described rather than by reshaping the kernels to fit production; doing so surfaced `SCOPE-NOOP-1`. Bound is not the same as strong — the discharge kind for each kernel is in the table above, and `PARITY-HAND-2` still stands over the mirror-to-kernel correspondence itself.
 
 An earlier revision of this count claimed every mirrored kernel was bound. That
 was wrong: the survey looked only at `vellaveto-*/src/<kernel>.rs` and so missed
@@ -504,6 +555,10 @@ collapsed here.
 | `verified_capability_chain` | bounded | chain lengths 0..=64 from all 256 `u8` starting depths, checked against iterating the shipped depth primitive; 8-step expiry chains over 5×5 root/ttl pairs; step identity rules cross-checked against the shipped `verified_capability_identity` predicates |
 | `verified_replay_provenance` | **partial** | `merge_replay_status` totally over all 9 status pairs plus commutativity, idempotence and absorption; `ReplayDetected` quarantine bound through `infer_trust_tier`. The `NotChecked` cap is pinned — see `REPLAY-NOTCHECKED-1` |
 | `verified_evidence_signing` | **property** | tamper coverage — 20 named field mutations must each move `signing_content()`, plus a field-boundary ambiguity check; hex-length and count-consistency predicates bound directly |
+| `verified_merkle_integrity` | **property** | the twelve derived lemmas checked against shipped hashing: 32-byte lengths, RFC 6962 domain separation including the second-preimage forgery, order sensitivity, corpus-distinctness, leaf-to-root propagation, and hex codec round-trip and injectivity. The collision-resistance axioms it rests on stay trusted — `MERKLE-HASH-1/2` |
+| `verified_refinement_safety` | **property** | SAFETY-1..3 against the shipped `compute_verdict`: empty set denies, an all-miss trace of length 0..7 denies, and a first-matching deny contribution denies across 16 lead/trail shapes |
+| `verified_refinement_completeness` | **property** | COMPLETENESS-1..5 against `compute_single_verdict`/`compute_verdict`: miss advances, hit decides, both non-deny terminal verdicts apply, and evaluation stops at the first deciding entry with the decisive one placed at every position |
+| `verified_refinement_sort_stutter` | **property** | postcondition binding — all 120 permutations of a 5-policy corpus forcing each comparator tier; ordering totality; deny-override checked independently of the id tiebreak |
 | `verified_cross_call_split` | **property** | CC-SPLIT-1..4 checked against the shipped `format!("{tail}{current}")` join over 36 piece pairs, plus every junction-spanning range of each; end-to-end, a secret split across two calls is detected by the overlap scan and by neither half alone |
 | `verified_transitive_revoke` | total + bounded | link and collateral predicates over 2³; depth bound over a `usize` set around the limit and both extremes, with the literal 50 pinned |
 | `verified_warm_restart` | total + bounded | `should_restore` over every `SessionState` variant, with a test forcing a new variant to be classified deliberately; capacity and counter over a `usize` set including both extremes |
@@ -548,13 +603,23 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   `check-verus-parity.sh` pairs each against a whole production file, so there
   is no function to transcribe against. Discharging these needs the production
   logic extracted into a mirror first — a code change, not only a test change.
-- **Inline within a mirror** — a mirror file exists, but the predicates the
-  kernel models were never given names in it. `verified_capability_glob_subset`
-  is the only one: its `spec_glob_subset_fast_path` and
-  `spec_glob_subset_accepting_counterexample` correspond to expressions inside
-  the BFS product-automaton loop of `glob_pattern_subset`, not to functions, so
-  there is nothing to call from a differential test. It needs the same
-  extraction as the inline kernels.
+- **Inline within a mirror** *(cleared 2026-08-28)* — a mirror file existed, but
+  the predicates the kernel models were never given names in it.
+  `verified_capability_glob_subset` was the only one: its
+  `spec_glob_subset_fast_path`, `spec_glob_subset_accepting_counterexample` and
+  `spec_representative_other_byte_needed` corresponded to expressions inside the
+  BFS product-automaton loop of `glob_pattern_subset` and inside
+  `capability_token.rs`, not to functions, so there was nothing to call from a
+  differential test. All three are now named
+  (`accepting_counterexample`, `representative_other_byte_needed`,
+  `glob_subset_fast_path`), called on the shipped path, and bound over their
+  total input domains. Routing the shipped `pattern_is_subset` through
+  `glob_subset_fast_path` required hoisting it out of `grant_is_subset`; the two
+  pre-existing verified helpers (`pattern_subset_guard`,
+  `literal_child_pattern_subset`) were deliberately kept on the path so their
+  own bindings do not lapse. The expensive branches stay lazily evaluated —
+  `spec_glob_subset_fast_path` proves the result reads only the selected branch,
+  which is what makes `false` sound for the other.
 - **Abstract** — the kernel's specs range over opaque values rather than
   concrete ones. `verified_merkle_fold` states its fold over `Seq<Seq<int>>`
   hashes, so a differential test would have to supply a *hash model*, and a
@@ -563,9 +628,1034 @@ Three shapes of undischarged kernel exist and they are not equally tractable:
   the fold obligations stay under `PARITY-HAND-1` and are deliberately not
   counted as discharged.
 
-The remaining 8 kernels are listed in `PROOF_OWNER_LEDGER.md`. Until each has a
-differential binding, its proof constrains the kernel and not the shipped code,
-and no claim should say otherwise.
+No kernel now lacks a differential binding. What each binding establishes still
+varies — see the discharge kinds — and a binding constrains the shipped function
+it names, not the whole subsystem around it.
+
+## DRIFT-STORE-1 — approval drift is decided by two disjuncts, not one
+
+`verified_approval_drift` models four predicates. Three of them
+(`spec_trust_downgraded`, `spec_taint_accumulated`, `spec_drift_detected`)
+already had a named production home in
+`vellaveto_approval::check_approval_lineage_drift` and are bound against it
+directly, over every ordered pair of the seven `TrustTier` ranks crossed with a
+taint boundary set (784 comparisons).
+
+The fourth, `spec_fail_closed_drift`, did not: the store-error disjunct existed
+only as a local `drift_detected = true` in the relay's `Err(e)` arm. It is now
+`vellaveto_approval::approval_refused_for_drift(store_error,
+drift_reason_found)`, called from the relay, and bound over its total 2³ domain.
+
+This is the disjunct that matters most and was the least visible: R265-RELAY-3
+records that a store read failure once left drift undetected and let the
+approval be consumed unverified. Mutation-verified 4/4 — inverting the trust
+comparison, weakening the taint comparison to `>=`, dropping the trust check,
+and making the store-error branch fail open are all caught.
+
+## GUARD-COMMENT-1 — two new guard checks that a comment could satisfy
+
+Found 2026-08-28, immediately after writing them, by mutation-testing the guard
+checks added for `MODEL-SHAPE-1/2` rather than trusting that a passing check
+means anything.
+
+`check-verus-parity.sh` matches production patterns with line-based `grep`.
+Two of the seven new checks passed against a tree where the thing they claimed
+to check had been removed:
+
+- **A comment satisfied the check.** The pattern was
+  `verified_sequence_gate::should_restrict`. The relay's own explanatory comment
+  contains that text, so replacing the actual call left the guard green.
+- **A prefix satisfied the check.** The pattern was `fn narrow_session_scope`,
+  which is a substring of `fn narrow_session_scope_disabled`. Renaming the
+  function away did not trip it.
+
+Both patterns now require a call or definition — the symbol followed by `(` —
+and are anchored `^[^/]*` so a line comment cannot satisfy them. Re-tested: both
+mutations are caught, along with commenting the call out entirely.
+
+The general rule this adds to the ones above: **a grep-based guard must be
+written so that prose cannot satisfy it, and so that a longer identifier
+containing the pattern cannot either.** Eight cases covering these checks are
+now in `formal/tools/guard-selftest.sh`, so the property is re-tested on every
+run rather than established once by hand.
+
+## KANI-PATH-BOUND-1 — the first Kani extractions actually compared to production
+
+Added 2026-08-28. `PARITY-HAND-1` is now fully discharged (59 of 59 Verus
+kernels); this begins the same work on the Kani side, which had none.
+
+**What was claimed.** `formal/kani/src/path.rs` opens by stating it is a
+"verbatim extraction from `vellaveto-engine/src/path.rs`", that "the algorithm
+is identical", and that "this correspondence is verified by CI".
+
+**What CI actually did.** The Kani job's *Verify extracted code correspondence*
+step runs `cargo test --lib` **inside `formal/kani`**, where the assertions are
+hardcoded vectors checked against Kani's own copy — the copy cannot disagree
+with itself. *Verify extraction sync* runs `check-kani-parity.sh`, which greps
+for symbol names. Neither compares the two implementations, and neither could:
+`formal/kani` is excluded from the workspace and does not depend on the
+production crates.
+
+**What now happens.** `vellaveto-engine/src/kani_path_differential.rs` compiles
+the extraction directly — `build.rs` materializes it into `OUT_DIR`, changing
+only `//!` to `//` because Rust rejects inner attributes arriving from a macro
+expansion — and compares it against production over a 54-input corpus, across
+the decode-iteration bound from 0 to 8, and along the default limit. It runs in
+the ordinary workspace test suite, so it gates every CI job rather than only the
+Kani one.
+
+**Two things the binding had to get right, both found by mutation testing:**
+
+- **Compare the reason, not just the outcome.** The first version compared the
+  `Ok` value and whether the input errored. Deleting the null-byte check on the
+  raw input survived it, because the check inside the decode loop still
+  rejected and both copies still returned `Err`. The extraction declares the
+  error *type* as its only difference, so the reason string is comparable — and
+  comparing it catches a check moving between branches in one copy only.
+- **A missing extraction must not read as agreement.** `build.rs` degrades to a
+  stub when the file is absent, so the comparison would pass against nothing.
+  `EXTRACTION_PRESENT` is asserted.
+
+Lints are suppressed on the extracted module rather than satisfied. Clippy
+wants `manual_range_contains` and `implicit_saturating_sub` fixed in the
+extraction; doing so would edit the copy the proofs run against so it no longer
+matches what was extracted, which is the drift this binding exists to detect.
+
+Mutation-verified 6/6: iteration bound 20→30, either null-byte check removed,
+backslash normalization dropped, the limit comparison weakened to `>`, and the
+parent-dir-at-root absorb removed are all caught.
+
+**`ip.rs` followed the same day**, and needed a different shape. Its header
+claims "each function is a verbatim translation of the production logic — the
+only difference is the type representation (`[u8; 4]` vs `Ipv4Addr`, `[u16; 8]`
+vs `Ipv6Addr`)", which makes textual comparison inapplicable: the binding builds
+the `std::net` value from the same octets and requires the classifications to
+agree. It sweeps all 65,536 `a.b.1.1` addresses — the classification branches
+almost entirely on the first two octets, so that covers the branch structure
+exhaustively in the dimension that matters rather than sampling 2^32 — plus the
+boundary immediately outside each RFC range, the IPv6 transition mechanisms, and
+K30's embedded-IPv4 recovery. Mutation-verified 6/6: CGNAT mask widened,
+RFC 1918 `172.16/12` mask dropped, loopback and link-local checks removed, the
+benchmarking mask narrowed, and `192.168/16` widened to `192/8`.
+
+What rides on it: `is_private_ip` is what `block_private` enforces, so a
+disagreement means the SSRF and DNS-rebinding proofs describe a classifier that
+is not the one deciding.
+
+One thing to know before mutating that file: the classifier appears **twice**,
+in `is_private_ipv4` and again in `is_embedded_ipv4_reserved` (that duplication
+is what K29's "parity" is about). A mutation anchored on the shared text hits
+both; anchor on the first occurrence to test the function the sweep exercises.
+
+**Remaining: 7 extractions.** The mechanism (build.rs materialization, a
+corpus, and comparison of the reason and not only the outcome) is reusable, so
+the remaining work is per-module corpus design rather than new machinery.
+
+Four shapes have been seen: **verbatim** (`path.rs` — compile and compare
+directly); **representation-shifted** (`ip.rs` — `[u8; 4]` vs `Ipv4Addr`, bridge
+the declared difference); **modelled** (`cache.rs` — booleans standing in for a
+struct, construct real values and map them); and **abstracted dependency**
+(`domain.rs` — the third-party `idna` call is a symbolic parameter, so the
+binding supplies the real result and compares the wrapper around it).
+
+`domain.rs` is worth singling out. Abstracting `idna::domain_to_ascii` is the
+right boundary and is declared, but nothing had checked that the wrapper
+K61-K63 explore is the wrapper that runs — and that wrapper has a history.
+R25-ENG-5: a wildcard prefix was not stripped before IDNA, so `*.münchen.de`
+failed normalization, the pattern never matched, and internationalized domains
+bypassed wildcard blocking. R39-ENG-3: malformed ASCII slipped past a blocklist
+because some IDNA implementations accept whitespace and colons without error.
+Both fail open. The binding is mutation-verified against exactly those two
+regressions, plus trailing-dot stripping, the wildcard character in the
+ASCII-lowercase fast path, and the SRV underscore allowance from R27-ENG-2.
+
+### `unicode.rs` — a total discharge over the whole Unicode range
+
+Added 2026-08-30. K64 (idempotence) and K65 (mapped confusables collapse to
+ASCII) rest on a `normalize_confusable_char` described as "verbatim from
+`vellaveto-types/src/unicode.rs:50-188`". Production inlines that mapping inside
+`normalize_homoglyphs` rather than exposing a `char -> char` function, so the
+comparison is made at the string level — equivalent, because production maps
+characters independently — and over **every Unicode scalar value**
+(`0..=0x10FFFF` minus surrogates, 1,112,064 of them). Chunked for speed, with a
+per-character re-walk on any mismatching chunk so the failure names the exact
+scalar.
+
+That makes the mapping a **total** discharge rather than a sampled one: there is
+no character on which the two can differ without the test saying so.
+
+K64 and K65 are also restated against production rather than only against the
+model, and the four canonical homoglyph attacks (Cyrillic `а`, Cyrillic `е`,
+Greek omicron, fullwidth `ａ`) are asserted as behaviour rather than as a
+character table.
+
+Two guards against a vacuous pass: the scalar count is pinned (a shrunken
+enumeration fails rather than passing quietly), and the sweep must find more
+than 50 characters that actually change — two identity functions agree
+everywhere, so agreement alone proves nothing.
+
+What rides on it: `normalize_homoglyphs` feeds `normalize_full`, which decides
+policy matching and cache keys. Mutation-verified 4/4 — Cyrillic `а` no longer
+folding, the fullwidth range off by one at `ｚ`, fullwidth uppercase folding to
+ASCII uppercase instead of lowercase, and Cyrillic `е` folding to the wrong
+letter are all caught.
+
+This is the first binding to require a `build.rs` in `vellaveto-types`; the
+mechanism is otherwise identical to `vellaveto-engine`'s.
+
+### `rule_check.rs` — derived inputs, not a free product
+
+Added 2026-08-30. K41-K45 are the fail-closed properties of the path, network
+and IP rule checks, proved over pure boolean predicates with glob matching
+abstracted to `matches: bool` (globset is third-party — the right boundary).
+
+The binding for the path predicate does **not** enumerate the free product of
+its five booleans. Most of those 32 combinations are not realisable: a path
+cannot be blocked when there are no paths. Comparing production against inputs
+that cannot occur would prove nothing about the ones that can, and would fail
+for reasons that are artefacts of the enumeration.
+
+Instead it constructs real policies and actions — allowlist/blocklist present or
+absent, crossed with six path sets covering allowed-only, blocked-and-allowed,
+neither, and mixed — compiles them through `PolicyEngine::compile_policies`, and
+**derives** the model's five booleans from the same `CompiledPathRules`
+production is about to use. The two are given the same world rather than the
+same guess about it.
+
+A guard against a one-sided comparison: the scenarios must produce both denials
+and passes, or they cannot distinguish a predicate that always denies.
+
+K41 and K42 are also restated against production directly. K41 is R28-ENG-1 —
+an allowlist with no target paths must deny, because absent paths mean the
+extractor could not identify what the tool touches, so the allowlist cannot be
+checked at all.
+
+Mutation-verified 4/4: removing the K41 no-paths denial (reinstating the
+R28-ENG-1 fail-open), removing the K42 blocked-beats-allowed denial, removing
+allowlist enforcement entirely, and inverting the allowlist check are all
+caught.
+
+### `webhook_dedup.rs` — replay protection, bound through the real tracker
+
+Added 2026-08-30. K138 (a second call with the same id returns false) and K139
+(empty, oversized and dangerous ids rejected) are proved over three boolean
+predicates. `WebhookDedup::check_or_insert` is public, so the binding drives the
+real tracker rather than a reconstruction: fresh tracker per case, first and
+second calls, and every id shape production distinguishes — empty, ordinary, at
+the 512-byte bound, one over, far over, embedded NUL, newline, bidi override.
+
+What rides on it: this is billing webhook replay protection. A duplicate reading
+as first-occurrence is a re-processed payment event. Production treats a
+malformed id as a duplicate precisely so it is never processed — fail-closed —
+and the model has to agree, or K139 describes a different rejection rule than
+the one running.
+
+The length bound is pinned on **both** sides rather than compared to itself.
+`MAX_EVENT_ID_LEN` in the model and `MAX_WEBHOOK_EVENT_ID_LEN` in production are
+separate constants; asserting only that they are equal would let a change move
+both and escape, which is the trap recorded under "bind the value, not the
+relation". The binding instead exercises 512 and 513 through the real function
+and through the model independently.
+
+Mutation-verified 5/5: the length bound drifting to 1024, the dangerous-char
+rejection removed, the empty-id rejection removed, a malformed id becoming a
+first occurrence (the fail-open direction), and duplicate detection weakened
+from `&&` to `||` are all caught.
+
+This is the third crate to need a `build.rs` for extraction materialization
+(`vellaveto-engine`, `vellaveto-types`, `vellaveto-server`); the mechanism is
+identical in each.
+
+### The denominator was wrong — 33 extractions, not 35
+
+Corrected 2026-08-30 while looking for the next module to bind. `formal/kani/src`
+holds 35 `.rs` files, and the count of "extractions" had simply been the file
+count. Two of those files carry no extracted production logic and therefore no
+drift risk:
+
+- **`merkle_codec.rs`** — contains no functions at all, only Kani harnesses that
+  call `hex::encode` and `hex::decode` directly. Production
+  (`vellaveto-audit/src/trusted_merkle_hash.rs`) wraps the *same* `hex` crate,
+  so there is no second copy that could drift. K141/K142 constrain the shared
+  dependency, which is a different (and weaker) kind of claim than the others —
+  but not an undischarged correspondence.
+- **`proofs.rs`** — 116 function definitions, 109 of them `#[kani::proof]`
+  harnesses. It is the harness file, not an extraction.
+
+So `PARITY-HAND-2` ranges over **33** extractions, of which 7 are discharged.
+
+Worth recording *how* this was found, because the classification took four
+attempts and each early answer was confidently wrong. A `^pub fn` grep missed
+methods inside `impl` blocks (`credential_vault.rs` has a whole `Vault` state
+machine and was counted as empty). Adding indentation tolerance still missed
+`pub const fn`. A skip flag for `#[cfg(test)]` blocks was set once and never
+reset, so every function after the first test module vanished. Only a
+brace-depth-aware scan gave a stable answer, and even that needed a manual read
+of the two outliers to confirm what they are.
+
+The lesson generalises past this count: **a number derived by grep is a
+hypothesis, not a measurement.** An inflated denominator here would have made
+the remaining work look larger and each discharge look smaller — harmless in
+that direction. The same carelessness pointed the other way is how a coverage
+claim gets overstated.
+
+## KANI-CACHE-DRIFT-1 — a proof about the function as it was before a security fix
+
+Found 2026-08-28 by building the third Kani binding. Fixed the same day.
+
+`formal/kani/src/cache.rs` modelled `is_cacheable_context` with a struct of
+booleans and described the logic as "verbatim from production". It was not.
+Production gained a `has_risk_score` short-circuit in **R237-ENG-6**:
+
+> risk_score from continuous authorization can change ABAC verdicts between
+> calls. A cached Allow for risk_score=0.1 must not be served when the next
+> request has risk_score=0.9.
+
+The model never followed. It had no such field, so **K33 was proved about the
+function as it stood before that fix** — a model in which a request carrying a
+risk score is cacheable whenever its context is clean.
+
+Not a vulnerability: production has the fix and always had it after R237. What
+was wrong is the claim. A reader checking whether cache poisoning via stale risk
+scores was ruled out would have found a Kani proof that appears to cover it and
+does not.
+
+**Resolution.** `CacheabilityFields` gains `has_risk_score`, checked before the
+context exactly as production checks it; the K33 harness quantifies over it and
+asserts that a risk-carrying request is never cacheable. Re-verified with Kani
+locally: 62 checks, 0 failed. The differential binding in
+`vellaveto-engine/src/cache.rs` then enumerates **all 2⁸ combinations** of the
+seven session-dependent fields and the risk flag, plus both risk states with no
+context.
+
+Mutation-verified 4/4, and the first mutation is the drift itself: deleting the
+`has_risk_score` branch — restoring exactly the pre-fix model — is caught.
+
+**Why this one matters more than its severity suggests.** It is the same failure
+as `TAINT-MODEL-DRIFT`: production was fixed, the model was not, and every guard
+stayed green because no guard compared them. That is now three findings of this
+shape (`TAINT-MODEL-DRIFT`, `MODEL-SHAPE-1/2`, this), which is enough to call it
+the dominant failure mode of the formal program rather than a series of
+accidents. A model only tracks production if something forces it to.
+
+The binding lives inside `cache.rs` rather than a sibling module because
+`DecisionCache::is_cacheable_context` is private; a binding that required
+widening its visibility would be changing shipped API surface in order to test
+it.
+
+## KANI-SANITIZER-DRIFT-1 — a proof endorsing the design a security fix removed
+
+Found 2026-08-30 while building the eighth Kani binding. Fixed the same day.
+This is the fourth finding of the model-drift shape and the most pointed one.
+
+`formal/kani/src/sanitizer.rs` built PII placeholders as
+`[PII_{CAT}_{SEQ:06}]` from a **monotonic sequence counter**, under a doc
+comment reading "Mirrors the production format". K70 was titled *"Token
+uniqueness from monotonic sequence counter"* and proved exactly that.
+
+Production does not do this, and stopped doing it deliberately:
+
+> **SECURITY (R242-SHLD-1)**: Use an unpredictable token instead of a
+> sequential counter so placeholders cannot be guessed and probed as a
+> desanitization oracle.
+
+It draws a random `u64` and formats it `{:016X}` — sixteen uppercase hex digits
+— redrawing until the candidate is absent from the mapping table.
+
+So the proof did not merely describe a stale function, as `KANI-CACHE-DRIFT-1`
+did. **It asserted the virtue of an arrangement that was removed because it was
+a vulnerability.** A reader auditing whether placeholder guessing was ruled out
+would find "token uniqueness proved" and never learn that uniqueness-from-a-
+counter *was* the weakness.
+
+**A second defect in the same proof.** The K70 harness contained
+
+```rust
+if cat1 != cat2 {
+    assert_ne!(cat1, cat2, "distinct categories must produce distinct tokens");
+}
+```
+
+which asserts the condition it just branched on. A tautology, constraining no
+token at all. Half of K70 was vacuous — the same family as `VACUOUS-SPEC-1` and
+`GUARD-COMMENT-1`, and invisible for the same reason: it passed.
+
+**Resolution.** The model now builds production's format via
+`render_sixteen_hex_digits`, and `token_is_fresh` models the redraw loop, which
+is where uniqueness actually comes from. K70 was rewritten to prove the property
+that matters — the *encoding* is injective, so two distinct token values can
+never render to the same placeholder — and a second harness pins that a
+candidate already in the mapping table is never accepted. Both verify under Kani
+locally, as does K69 after its expected literals were corrected and its unwind
+bound raised from 32 to 64 (the placeholder grew from 18 to 28 characters).
+
+**What the binding can and cannot compare.** Production's token *value* is
+random, so there is no generation to compare. What is comparable is the
+encoding: given the same category and value, both must produce the same
+placeholder text, and that is asserted against the exact `format!` production
+uses. Mutation-verified 4/4 — reverting to decimal (the original drift),
+lowercase hex, reversed nibble order, and a freshness check that always accepts
+are all caught.
+
+### `dlp_core.rs` — the cleanest correspondence, and two proof systems resting on it
+
+Added 2026-08-30. This extraction states that "the algorithm is identical to the
+production code. Verified by Verus (ALL inputs) and Kani (bounded inputs)
+independently." **Two** proof systems rest on that identity, and nothing checked
+it — which makes it the highest-leverage correspondence in the crate and, as it
+turned out, the only one that was actually faithful.
+
+Six functions, same names, same signatures, all `pub`, so the comparison is
+direct: `is_utf8_char_boundary` **total** over all 256 bytes;
+`extract_tail` at every truncation point of inputs mixing 1-, 2-, 3- and 4-byte
+characters plus invalid UTF-8; `can_track_field` over 1,764 combinations
+including the `checked_add` overflow path; the saturating arithmetic at and
+around its saturation points; and `overlap_covers_secret` over 3,456
+combinations.
+
+What rides on it: these decide how much of a previous call's value is retained
+and rescanned, which is what catches a secret split across two tool calls
+(Phase 71, R233-DLP-1). An overlap computed too small stops detecting split
+secrets and says nothing while doing so.
+
+Mutation-verified 4/4: the UTF-8 continuation mask widened from `0xC0` to
+`0x80`, the byte accounting reordered so saturation differs, the overlap size
+wrapping instead of saturating, and the field capacity check weakened from `>=`
+to `>` are all caught.
+
+**Worth noting that this one was clean.** Five extractions in a row had drifted,
+and it would be easy to conclude the whole crate is rotten. It is not: where the
+correspondence is one-to-one and the functions are `pub`, the copies had stayed
+faithful. The drift clustered in extractions that *model* rather than mirror —
+`cache` (booleans for a struct), `sanitizer` (a counter for a random draw),
+`injection` (a hand-maintained substitution table). That is the useful
+predictor for the remaining 23: **the further an extraction is from a
+one-to-one copy, the more likely it has drifted.**
+
+### `credential_vault.rs` — enumerate the transition table, not a happy path
+
+Added 2026-08-30. The most instructive binding of the campaign, and the lesson
+is about test *shape* rather than about the extraction.
+
+This is a hand-built state machine — a `Vec<CredState>` where production has an
+encrypted, persisted, mutex-guarded entry list — carrying K108-K112: single use,
+epoch monotonicity, capacity bound, fail-closed exhaustion, valid transitions.
+
+**The predictor recorded under `dlp_core.rs` was wrong here, and that is worth
+stating.** It says extractions that *model* drift while those that *mirror* do
+not, and this one models heavily. It had not drifted: the transition rules match
+production exactly. The predictor is a heuristic about where to look first, not
+a law.
+
+**Four mutations survived the first version of the binding**, all for the same
+reason: it was a happy path plus ad-hoc cases, and each surviving mutation was a
+match arm no case reached — consume from `Consumed`, from `Expired`, from
+`Absent`, and re-adding an existing credential.
+
+The `Consumed` one is the pointed one. **K108 is named "consumed credential
+cannot be re-consumed", and the test re-consumed an *Active* credential**, which
+takes a different arm entirely. The property the proof is named for was
+precisely the one not being tested, and everything passed.
+
+Replacing the ad-hoc cases with the **full 5 states × 3 operations table**
+closed all four at once, and the binding is now 9/9. A state machine has a
+small, totally enumerable transition table; testing less than all of it leaves
+arms dark, and which arms are dark is not visible from a passing run.
+
+The expected column is written out longhand rather than computed from the
+model, so a behaviour change has to be reconciled with a stated intention
+instead of silently redefining the expectation.
+
+**Scope the model does not cover**, recorded rather than compared: production's
+persistence — rollback on persist failure (R236-SHIELD-3 on consume,
+R237-SHIELD-3 on expire) and the `activated_at` stamp used to reclaim orphaned
+Active entries (R250-NHI-3). K108-K112 say nothing about those paths.
+
+### `task.rs` — the transition-table lesson, applied first time
+
+Added 2026-08-30. K56 (terminal states admit no transition), K57 (registration
+rejected at capacity), K58 (self-cancel rejects a different requester).
+
+Written directly as total enumerations rather than as a happy path, taking the
+lesson from `credential_vault`: `is_terminal` across all six states,
+`can_transition` across all **36** ordered pairs, `can_cancel` across its whole
+2 × 3 × 3 × 2 domain. **6/6 on the first mutation pass**, with no follow-up
+round needed — the first binding in this campaign where that was true.
+
+`can_cancel` is then driven through the real `TaskStateManager` so the
+authorization rule is checked against the running system and not only against a
+restatement of it.
+
+**A scope difference the model cannot represent, recorded rather than
+compared.** Production refuses to cancel a task already in a terminal state
+*before* it considers authorization at all; the model's `can_cancel` takes no
+state parameter, so it has no way to express that guard. The direction is safe —
+production is strictly stricter, so nothing K58 permits is under-enforced — but
+it means K58 is about **authorization only**, and terminal immutability
+(FIND-R60-004) is outside its scope. The binding asserts both halves: that
+production refuses, and that the model still authorizes, so the difference is
+visible rather than mistaken for agreement.
+
+### `transitive_revoke.rs` — the first closed triangle
+
+Added 2026-08-30. The first place where **all three** descriptions of one
+function meet.
+
+`vellaveto-mcp/src/verified_transitive_revoke.rs` is the production mirror. The
+Verus kernel proves its specs against it (bound under `PARITY-HAND-1`), and
+`formal/kani/src/transitive_revoke.rs` proves K136/K137 against its own separate
+copy of the same predicates. Nothing connected the Kani copy to anything.
+
+This binding closes the triangle over the total domain of each predicate — 2³
+for link deactivation, the whole range around the depth bound, 2² for the
+collateral test. With the Verus binding already in place, agreement here means
+Verus, Kani and production are three descriptions of **one** function rather
+than three plausible functions.
+
+What rides on it: revoking an NHI must sever every delegation reachable from it.
+Cutting on *either* endpoint is deliberate — revoking an agent severs both what
+it granted and what was granted to it — and two of the mutations attack exactly
+that.
+
+**A comparison deliberately not made.** The Kani copy has
+`visited_insert_new` (BFS progress); production has `no_collateral`
+(reachability). Both are one-argument-ish booleans and it would be easy to
+assert they agree. They model different things, so they are checked separately —
+asserting an accidental agreement between two unrelated predicates is precisely
+the vacuous check this campaign exists to remove, and it would have passed.
+
+Mutation-verified 5/5 on the first pass: the depth bound drifting 50 → 500 (the
+same escape that `verified_merkle`'s sibling cap made under `PARITY-HAND-1`),
+requiring *both* endpoints revoked, dropping the incoming-delegation half,
+an off-by-one at the boundary, and BFS revisiting nodes so K136's termination
+argument fails.
+
+## KANI-LEET-DRIFT-1 — a model that claimed a decode production does not perform
+
+Found 2026-08-30 while building the ninth Kani binding. Fixed the same day.
+Fifth finding of the model-drift shape, and the first in the **over-claiming**
+direction.
+
+`formal/kani/src/injection_pipeline.rs` models the decoders the injection
+scanner runs before pattern matching; K76 is pipeline completeness and K77 is
+that known attack strings are detected after decoding. Its leetspeak
+substitution map had diverged from production's `LEET_MAP` five ways:
+
+| Character | Production | Model (before) |
+|---|---|---|
+| `+` | `t` | *absent* |
+| `2` | `z` | *absent* |
+| `9` | `g` | *absent* |
+| `\|` | `l` | `i` |
+| `#` | *not decoded* | `h` |
+
+The first three are production's R226-MCP-2 expansion, which the model never
+picked up. The fourth is simply wrong.
+
+**The fifth is the one that matters.** Production does not decode `#` at all.
+The model did. Direction is everything here: a model that decodes *less* than
+production under-claims, and the proof is merely weaker than reality — safe. A
+model that decodes *more* **over-claims**: K77 would establish that a
+`#`-obfuscated attack string is detected after decoding, when production never
+performs that substitution and does not detect it. That is a proof asserting a
+defence that is not there.
+
+Every previous drift finding in this campaign was in the safe direction. This
+one was not.
+
+**Resolution.** The map now matches production character for character, and the
+binding sweeps **every printable ASCII character** through both, so no future
+divergence in either direction can hide. The specific five are also pinned
+individually, including an assertion that production does *not* decode `#` — so
+if production ever adds it, the binding fails and the model is updated
+deliberately rather than by coincidence.
+
+**Mutation testing found a hole in the binding, again.** ROT13 was compared
+using four hand-picked encoded words, and an `a..=m` → `a..=l` off-by-one
+survived: none of the four happened to contain `m`, which is exactly the
+boundary between the two rotation arms. The comparison now sweeps the whole
+alphabet in one word — chosen as a single word so production's stop-word density
+guard (which needs ≥ 8 words) does not suppress the decode. After the fix, that
+mutation and two further ROT13 boundary mutations are all caught.
+
+That is the fourth time in this campaign a binding looked finished and was not,
+and the reason every one of them is mutation-tested at the moment it is written.
+
+**A scope difference that is not drift:** production suppresses ROT13 for text
+reading as natural English (R228-INJ-1 / R238-MCP-3 stop-word density) and
+requires 3+ substitutable characters before leetspeak decoding (a false-positive
+guard on strings like `127.0.0.1`). The model represents neither. The binding
+therefore compares on inputs the guards do not suppress, and says so.
+
+### `approval_drift.rs` — the second closed triangle
+
+Added 2026-08-30. K140: a trust downgrade since approval means drift.
+
+`verified_approval_drift.rs` (Verus) proves its specs against
+`check_approval_lineage_drift` and `approval_refused_for_drift`, bound under
+`PARITY-HAND-1` — including `approval_refused_for_drift`, which was extracted
+*during* that work because the store-error disjunct existed only as a local
+`drift_detected = true` in the relay. K140 proved its own copy of the same
+predicates and was connected to nothing. This binding connects it, so Verus,
+Kani and production are again three descriptions of one function.
+
+Compared against the production function rather than a restatement: every
+ordered pair of the seven `TrustTier` ranks (49), taint accumulation across a
+boundary set, and the fail-closed disjunction total over 2³.
+
+What rides on it: an approval is consumed only if the session's trust and taint
+are no worse than when it was granted. Two audit findings are disjuncts here —
+R264-RELAY-1 made drift produce a denial rather than a warning, and
+R265-RELAY-3 made a store read failure fail closed — and mutations reinstating
+each are caught.
+
+Mutation-verified 5/5 on the first pass.
+
+### `merkle_sanity.rs` — checking an axiom against the implementation that runs
+
+Added 2026-08-30. K121-K125 exist to bridge an **axiomatized** boundary: the
+Verus Merkle proofs treat SHA-256 as uninterpreted, and these checks assert the
+real implementation behaves as axiomatized — 32-byte output, determinism, RFC
+6962 domain separation, 64-char hex, distinctness on distinct inputs.
+
+That makes the correspondence unusually load-bearing. If the Kani copy hashes
+differently from production — a different prefix, a different field order — the
+axioms are sanity-checked against a function nobody runs, and the Merkle
+argument rests on an unexamined assumption rather than a checked one.
+
+**K123 is tested as the attack, not as the constants.** The requirement is not
+"the two prefixes differ"; it is that a leaf hash over `0x01 ‖ a ‖ b` cannot
+equal the internal hash of `(a, b)`. Asserting the prefix constants differ would
+pass while a second preimage remained constructible — the same weaker-check
+mistake found under `PARITY-HAND-1`, where dropping the RFC 6962 *leaf* prefix
+escaped because the internal prefix alone kept concatenations distinct. The
+binding builds the forgery and asserts it fails.
+
+Collision resistance stays a cryptographic assumption. K125 is a sanity check,
+not a proof, and the binding says so rather than implying otherwise.
+
+Mutation-verified 4/4 on the first pass: each prefix replaced by the other, the
+leaf prefix dropped entirely, and the internal hash absorbing the right child
+twice so sibling order stops mattering.
+
+`vellaveto-audit` is the seventh crate to carry an extraction build script.
+
+### `temporal_window.rs` — and a second kind of guard that does no work
+
+Added 2026-08-31. K71/K72 model the sliding window the cascading circuit
+breaker keeps. Bound against the cutoff rule at **every boundary offset** (81
+values of `now` across five events), plus the real `CascadingBreaker`'s error
+rate. Mutation-verified 4/4 on the reachable behaviour: the `<` / `>=` cutoff
+comparisons in both directions, the saturating subtraction that stops early
+events appearing to be from the future, and an empty window reporting 100%.
+
+**A fifth mutation survived, correctly.** Production's `compute_error_rate` has
+a fail-closed `if !rate.is_finite() { return 1.0 }` arm that **cannot execute**:
+`total > 0` makes the divisor at least `1.0`, both operands convert to finite
+`f64` (`u64::MAX as f64` ≈ 1.8e19, well inside range), and finite divided by
+finite-nonzero is finite. Changing that arm to `0.0` is an equivalent mutation.
+
+That is a *different* dead guard from `ACCEPT-REJECT-ASYMMETRY-1`. There the
+guard was redundant because of the **polarity** of the expression around it;
+here it is dead because the **arithmetic** cannot produce the value it defends
+against. Both read as protective, neither does work, and both matter when
+reading a proof: **a property established over a branch nothing reaches is
+established vacuously.**
+
+Neither is a defect — defensive code against a case the type system already
+excludes is cheap insurance against a future refactor that changes the operand
+types. What would be a defect is citing either as evidence that the fail-closed
+behaviour is exercised.
+
+### `entropy_wrapper.rs` — the third closed triangle, and a rounding direction I had backwards
+
+Added 2026-08-31. The mirror `verified_entropy_fixed_point.rs` was extracted
+during the Verus campaign so `verified_entropy_pipeline` could be bound to
+something reachable; the Kani extraction (K86-K88) proved its own copy and was
+connected to nothing. Both now meet on one function.
+
+What rides on it: the Verus kernel proves the alert gate over **integers** and
+assumes a faithful float-to-fixed conversion feeding it. If the conversion
+disagrees, the integer proof is about observations that never occur.
+
+**A wrong assumption of mine, caught by the binding.** I wrote the invariant as
+"threshold rounds up, observation rounds down", reasoning from the word
+*conservative* in the doc comments. It is the reverse: `entropy_threshold_
+millibits` uses `round_up = false` (floor) and `entropy_observation_millibits`
+uses `round_up = true` (ceil). A borderline observation therefore *does* clear a
+borderline threshold, and the gate errs toward **firing**.
+
+That is the fail-closed direction *for a detector*, and the inversion of what
+"conservative" means for an access decision. A missed high-entropy observation
+is missed exfiltration, so the safe error is a false alert, not a false silence.
+The assertion now states the real direction and checks it across the range
+rather than at one point.
+
+**Two mutations are equivalent, verified rather than assumed.** The upper bound
+is enforced *twice* — by `clamp(0.0, 8.0)` on the input and by `rounded >= MAX`
+on the output — so removing either alone changes no result: widening the clamp
+to `9.0` still hits the output branch, and weakening `>=` to `>` is unreachable
+because `scaled <= 8.0 * 1000` means `rounded` never exceeds `MAX`.
+
+This is `FP-WRAP-1`, **predicted earlier in this campaign** and now met in the
+wild. A value bounded by two independent mechanisms cannot be mutation-tested
+one mechanism at a time; the test worth having asserts the property they jointly
+guarantee, which is what the binding does — together with a check that the bound
+is actually reached, so the assertion is not vacuous.
+
+Mutation-verified 3/3 on the reachable behaviour: the non-finite guard removed
+(K87), the rounding directions swapped, and the decision scale drifting
+1000 → 100.
+
+### `trust_containment.rs` — the drifted function's other copy, and it was clean
+
+Added 2026-08-31. This is the mapping that produced **`TAINT-MODEL-DRIFT`**, the
+first finding of the whole campaign: two *Verus* kernels modelled
+`minimum_trust_tier_for_sink` with six-or-eight-class worlds that disagreed with
+production's nine and with each other, agreeing only at rank 0.
+
+The **Kani** copy of that same function had not drifted. Nine variants, nine
+arms, identical to production.
+
+That is worth binding precisely *because* the function drifted elsewhere. Three
+independent copies existed; two were wrong and one was right, and nothing
+distinguished them from the outside. **The copy that happens to be correct today
+is the one nobody is watching** — it has no guard, so it has no reason to stay
+correct.
+
+Bound totally: all nine sink classes, all 49 tier pairs, and all
+7 × 9 × 2 = 126 flow decisions. Also pinned is that the variant *counts* match
+and that both rank sequences stay dense and ordered — a mapping comparison over
+nine arms says nothing if production has since gained a tenth, which is exactly
+the shape `TAINT-MODEL-DRIFT` took.
+
+Mutation-verified 4/4 on the first pass, and TC1 **replays `TAINT-MODEL-DRIFT`
+exactly**: the highest-privilege sinks demanding `High` instead of `Verified`,
+the same off-by-one-tier that let a kernel claim a guarantee production did not
+provide. It is now caught in under a second.
+
+### `output_contracts.rs` — bound totally over 64 channel pairs
+
+Added 2026-08-31. An output contract says which channel a tool's output may be
+interpreted as; a violation is content arriving on a channel that grants it more
+interpretive power than it was promised — data that turns out to be free text,
+free text that turns out to be command-like.
+
+Bound **totally**: all 8 × 8 declared/observed pairs, plus the property the
+contract exists for (a channel never violates its own contract, and escalation
+to a more powerful channel always does).
+
+The channel *sets* are checked to match before any pairwise comparison runs, and
+the model mapping is checked to be a bijection rather than a collapse. An 8 × 8
+sweep establishes nothing if production has since gained a ninth channel or if
+two production channels map onto one model channel — and the variant-count
+mismatch is exactly the form `TAINT-MODEL-DRIFT` took.
+
+Mutation-verified 3/3 on the first pass, each one an interpretive escalation
+being quietly permitted: data reinterpreted as free text, free text as
+command-like, and resource content as command-like.
+
+### `counterfactual_containment.rs` — and a divergence that has not happened yet
+
+Added 2026-08-31. These weights decide how much a tainted input on a given
+channel contributes to the score gating a privileged sink. Every one bound
+**totally** over its enum: nine sinks, eight taints, eight channels.
+
+**One comparison is structurally interesting.** The model writes
+`sink_is_privileged` as `!matches!(ReadOnly)`; production enumerates the eight
+privileged variants explicitly. Over today's nine variants these agree
+everywhere — and they **diverge the moment a tenth is added**, because the model
+would call it privileged and production would not.
+
+So the binding cannot rely on the comparison alone. It asserts the variant count
+is exactly nine, which converts a latent future divergence into a failing test
+at the moment the variant is added, rather than a silent disagreement discovered
+later. Two implementations that agree today for different reasons are not the
+same implementation; they are two implementations that have not been asked the
+distinguishing question yet.
+
+Mutation-verified 4/4 on the first pass: low-risk writes dropping out of the
+privileged set, the quarantined taint weight collapsing 30 → 3, the command-like
+channel contributing nothing to attribution, and quarantined taint ceasing to be
+security-relevant.
+
+**Structural note.** This extraction imports its siblings as
+`crate::output_contracts` and `crate::trust_containment`, so all three are
+reproduced as test-only modules at the `vellaveto-types` crate root — the same
+approach taken in `vellaveto-engine` for `temporal_window`. The extractions
+compile exactly as written; `build.rs` still rewrites nothing but `//!` markers.
+
+### `verified_core.rs` — the verdict function, now one function in all three systems
+
+Added 2026-08-31. The most consequential correspondence in the crate.
+
+Under `PARITY-HAND-1` the Verus kernel was discharged **totally** against
+`vellaveto-engine/src/verified_core.rs` — all 1,536 `ResolvedMatch` inhabitants
+— making it the campaign's one complete discharge of the policy verdict
+function. The Kani copy proved its own version of the same decision and was
+connected to nothing.
+
+This binding covers the **same total domain**, so Verus kernel, production, and
+Kani copy are now demonstrably one function on every input it can receive rather
+than three plausible ones. `priority` is excluded from the enumeration because
+`compute_single_verdict` does not read it — it orders policies, it does not
+decide them.
+
+This extraction is also where the campaign's claim correction landed: its header
+once said the algorithm was identical "verified by unit tests and CI diff
+checks", which was false. It was corrected to say plainly that nothing checked
+it, and now something does.
+
+Mutation-verified 5/5 on the first pass, every one a fail-open of the engine's
+central decision: an unmatched policy yielding a verdict, `rule_override_deny`
+no longer forcing Deny (V4), `context_deny` no longer forcing Deny, all-skipped
+constraints continuing instead of denying, and `require_approval` collapsing to
+Allow.
+
+### `resolve.rs` — a declared structural divergence, now checked against production
+
+Added 2026-08-31. This extraction exists *because* of a divergence its own
+header declares: production's `apply_compiled_policy_ctx` does not call
+`compute_verdict`, it inlines an equivalent decision tree. K48 is the claim that
+the two agree.
+
+That claim had been checked only against the Kani crate's own copy of
+`compute_single_verdict`. It is now checked over the **total 2¹¹ × 2 × 4 =
+16,384 input domain**, and — because the extraction imports
+`crate::verified_core`, which resolves to **production's** module when compiled
+here — `apply_policy_verified` calls production's verdict function directly.
+
+The two bindings chain. `verified_core` established that production's verdict
+function and the Kani copy agree on all 1,536 `ResolvedMatch` inhabitants; this
+one establishes that the inlined tree agrees with that verdict function on every
+input it can receive. Together: the tree production actually runs, the verdict
+function three systems share, and the Verus kernel are one decision.
+
+**Two implementations of one decision, kept in step by hand, is the
+highest-risk shape in this crate** — it is exactly how `KANI-GLOB-ORDER-1`
+happened, where an iterative and a recursive matcher diverged on branch order.
+Here the divergence is declared and deliberate, which makes the binding more
+necessary rather than less.
+
+Mutation-verified 5/5 on the first pass, every one a fail-open of the engine's
+entry path: missing context no longer denying (which would make time-window and
+max-calls conditions bypassable by omitting the context), path denial no longer
+preceding policy type, the IP denial dropped (the DNS-rebinding guard),
+all-skipped constraints failing open to Allow, and an unknown policy type
+failing open.
+
+### `cascading_fsm.rs` — bound, and the drift predictor restated with its numbers
+
+Added 2026-08-31. K73-K75 model the circuit breaker at implementation level.
+The extraction's header notes that `CascadingFailure.tla` models this abstractly
+and these harnesses check the Rust matches — so this correspondence carries the
+**TLA+** argument too, not only the Kani one.
+
+Mutation-verified 5/5 on the first pass: both `>=` boundaries weakened to `>`
+(each delays the break by one event or one failure), an already-broken pipeline
+re-breaking so `break_count` inflates, the probe deadline wrapping instead of
+saturating, and a broken pipeline with no timestamp allowing probes.
+
+**The predictor needs restating, because it is now wrong as originally worded.**
+
+Under `dlp_core.rs` this registry recorded: *extractions that mirror stay
+faithful, extractions that model drift*. With 26 bound, the actual counts are:
+
+| Shape | Bound | Drifted |
+|---|---|---|
+| mirrors a production function one-to-one | 8 | **0** |
+| models it with a simplified representation | 11 | 4 |
+
+So the second half overstates. `credential_vault`, `cascading_fsm` and
+`trust_containment` are all heavy models and all were clean — and
+`trust_containment` is the *same function* that drifted in two Verus kernels,
+which makes it the sharpest counterexample available.
+
+The half that has held without exception is the first: **no one-to-one mirror
+has drifted, in 8 of 8.** That is the claim worth keeping, and it is the useful
+one anyway — it says where drift *cannot* be, which is a stronger statement than
+a coin-flip about where it might be. Among models the rate is 4 in 11, better
+than nothing for ordering the work but not a rule.
+
+Restating it costs nothing now and would have cost credibility later, when
+someone leaned on "models drift" to skip a mirror.
+
+## KANI-COLLUSION-GAPS-1 — a validator missing two of production's checks
+
+Found 2026-08-30 while binding `collusion_detection.rs`. Fixed the same day.
+Eighth drift finding.
+
+The extraction's `CollusionConfig::validate()` is documented as mirroring
+production's. Diffing the *set of fields each rejects on* — rather than reading
+the two side by side — showed the model validating eight fields where
+production validates ten. Missing:
+
+- **`min_coordinated_agents < 2`.** Collusion needs at least two agents; below
+  that a single agent is "coordinated" with itself.
+- **`drift_min_actions == 0`.** Zero divides drift detection by an empty action
+  set.
+
+Direction is safe — production is stricter, so no config the proof blesses is
+one production rejects — but the model is more permissive than the function it
+claims to mirror, so a proof of the form "validate rejects bad configs" covers
+less than production does. K98-K102 rested on it.
+
+**How it was found is the transferable part.** Reading two `validate()` bodies
+in parallel is exactly the task attention fails at: they are long, structurally
+similar, and mostly identical. Extracting the field set each one mentions and
+diffing those turned a careful-reading problem into a set-difference, and the
+gap fell out immediately. Where two implementations should agree on *which*
+inputs they examine, compare the extracted sets, not the prose.
+
+Both checks added to the model; the binding compares against production's real
+`validate()` field by field, at each boundary, over eighteen cases. Production
+writes the **reject** form with `!is_finite()`, so comparing against a
+restatement would have risked the polarity trap in
+`ACCEPT-REJECT-ASYMMETRY-1` above.
+
+Mutation-verified 5/5, and the first two restore the finding itself. Also
+covered: R231-COLL-1 (zero `min_entropy_observations` causing an alert flood),
+the NaN guard in its load-bearing reject form, and R229-ENG-1 (capacity
+exhaustion alerting one entry late if `>=` weakens to `>`).
+
+**One structural note.** This extraction's own tests reach for its sibling
+`crate::temporal_window`, which does not exist in `vellaveto-engine`. Rather
+than have `build.rs` strip the test module — rewriting an extraction to make it
+compile is the line those scripts are documented not to cross — the sibling is
+reproduced as a test-only module that includes the `temporal_window`
+extraction. The extraction compiles exactly as written.
+
+## ACCEPT-REJECT-ASYMMETRY-1 — the same guard, load-bearing in one form and redundant in the other
+
+Named 2026-08-30 while binding `evidence_signing.rs`. **Not a defect** — a
+scope observation that a mutation survived and that turned out to be worth more
+than the mutation would have been.
+
+K134 is "validate() rejects NaN/Infinity coverage percent". The model checks
+
+```rust
+pct.is_finite() && pct >= 0.0 && pct <= 100.0        // accept form
+```
+
+Production checks
+
+```rust
+!pct.is_finite() || pct < 0.0 || pct > 100.0         // reject form -> error
+```
+
+These are the same predicate, and both reject `NaN`. But they depend on
+`is_finite()` completely differently:
+
+- In the **accept** form the guard is **redundant**. `NaN >= 0.0` is already
+  false, so the conjunction rejects `NaN` with or without it. Deleting it from
+  the model is an *equivalent mutation* — no test can catch it, and none should
+  be written to try.
+- In the **reject** form the guard is **load-bearing**. `NaN < 0.0` and
+  `NaN > 100.0` are both false, so without it `NaN` passes validation.
+
+So K134 is true of the model, and true of production, and the model
+demonstrates it using a formulation where the mechanism production depends on
+does nothing. **The proof establishes the property without covering the reason
+it is needed.**
+
+This is why the binding compares against production's real
+`EvidenceSection::validate()` rather than against a restatement of the check.
+A restatement would have been written in whichever form came to mind, and the
+accept form — the natural one to write — is exactly the one that cannot fail.
+
+The general rule: when a guard exists to defeat a value that compares false
+against everything (`NaN`, and any partial order with incomparable elements),
+**the polarity of the surrounding expression decides whether the guard matters
+at all**. Check the form production actually uses.
+
+### `evidence_signing.rs` — bound, 6/6
+
+Ed25519 evidence pack signing is the non-repudiation and tamper-detection
+mechanism from R259-R267. Bound against production's real `validate()`:
+coverage across twelve values including all three non-finite ones, signature
+hex length at and around both bounds through the real function, and requirement
+count accounting.
+
+**A second mutation survived first time**, and this one *was* a hole. The
+saturating-vs-wrapping test used `(MAX, MAX, MAX, 10)`, where both arithmetics
+give the same answer — `MAX + MAX` wraps to `MAX - 1`, still far above 10.
+`(MAX, 2, 0, 10)` discriminates: wrapping gives 1, which passes; saturating
+gives `MAX`, which does not. Choosing extreme inputs is not the same as
+choosing *discriminating* inputs, and for saturating arithmetic the
+discriminating input is one that wraps to something **small**.
+
+## KANI-GLOB-ORDER-1 — two glob matchers that disagree on branch order
+
+Found 2026-08-30 while binding `capability.rs`, the largest extraction. Fixed
+the same day. Seventh drift finding.
+
+`formal/kani/src/capability.rs::glob_match` describes itself as "the
+bounded-model witness for the runtime metachar matcher now routed through
+`verified_capability_glob::literal_child_matches_parent_glob`". The exhaustive
+comparison — every pattern/value pair over `* ? @ A Z [ a z` up to length 2,
+5,329 pairs — found them disagreeing.
+
+The witness: pattern `"*?"`, value `"*"`. Production matches; the model did not.
+
+**Cause: branch order.** The model's iterative matcher tested literal equality
+*before* the star branch, so a literal `*` in the **value** was consumed by
+`eq_ignore_ascii_case` against the pattern's `*`, leaving `?` with nothing to
+match. Production's recursive matcher tests the star arm first and treats a
+pattern `*` as a wildcard unconditionally. Two reasonable matchers; one
+semantics.
+
+**Direction.** The model was *stricter* than production — it refused matches
+production accepts. For a coverage predicate that is the direction that
+undermines a no-escalation argument: K37 is proved over a matcher that admits
+**fewer** delegations than the one running, so pairs production considers
+covered were never examined by the proof.
+
+**Reachability, stated honestly.** In `pattern_is_subset`, a child carrying
+metacharacters is routed to the exact subset checker rather than to this
+matcher, so the divergence is not reachable there. It is reachable through
+`pattern_matches(pattern, value)` for runtime action coverage — but only for a
+tool or function name containing a literal `*` or `?`. Unusual, not impossible,
+and the point stands regardless: K36-K41 were about a different function than
+the one running.
+
+**Resolution.** The star branch now precedes the equality branch. All 5,329
+pairs agree, and all six capability harnesses re-verify under Kani locally —
+`proof_grant_is_subset_reflexive`, `_no_escalation`,
+`proof_pattern_is_subset_correctness`, `proof_glob_match_wildcard_universal`,
+`proof_normalize_path_for_grant_no_traversal`, `proof_grant_covers_action_fail_closed`.
+
+**This binding closes six triangles at once.** `capability.rs` duplicates
+predicates that already have production mirrors bound to Verus under
+`PARITY-HAND-1` — `verified_capability_pattern`, `_glob`, `_literal`, `_domain`,
+`_path`, `_glob_subset`. For each, Verus proves the mirror and this shows the
+Kani copy is the same function.
+
+Mutation-verified 5/5, and two are worth naming: reverting the branch order (the
+finding itself), and the `A..=Z` → `A..<Z` case-fold off-by-one — **the exact
+mutation that started this campaign**, which once passed the symbol-name guard
+and all 1,950 crate tests. It is now caught.
+
+## NORMALIZE-MODEL-1 — K34's normalization is weaker than production's
+
+Named 2026-08-28. **Deliberate, not a defect.**
+
+K34 states "build_key is case-insensitive" and demonstrates it on the model's
+`normalize_for_key`, which is `s.to_lowercase()`. Production's `build_key`
+hashes through `normalize_full` — NFKC, lowercase, and homoglyph mapping — which
+is strictly stronger. So the proof is about a different, weaker normalization
+than the one running.
+
+This gap is not closable in Kani and should not be: `formal/kani/Cargo.toml`
+exists precisely because Kani 0.67 cannot compile the `icu_normalizer`/`zerovec`
+chain, and modelling NFKC in a SAT encoding is intractable.
+
+What *is* bindable is the property K34 claims — that the normalization
+production actually uses is case-insensitive — and that is now asserted directly
+against `normalize_full`, together with a pin that the model remains the weaker
+of the two (a fullwidth `Ｆ` folds under production's normalization and not
+under the model's). If the model ever started folding fullwidth forms, the
+difference this assumption is recorded against would have changed and the pin
+fails.
 
 ## Artifact Map
 

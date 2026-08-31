@@ -185,15 +185,21 @@ pub fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
     let mut star_vi = 0;
 
     while vi < value.len() {
-        if pi < pattern.len()
+        // KANI-GLOB-ORDER-1: the star branch must be tested BEFORE literal
+        // equality. Production's matcher treats a `*` in the pattern as a
+        // wildcard unconditionally; testing equality first consumed a literal
+        // `*` in the *value* against the pattern's star, so `("*?", "*")`
+        // matched in production and not here. See
+        // formal/ASSUMPTION_REGISTRY.md.
+        if pi < pattern.len() && pattern[pi] == b'*' {
+            star_pi = pi;
+            star_vi = vi;
+            pi += 1;
+        } else if pi < pattern.len()
             && (pattern[pi] == b'?' || pattern[pi].eq_ignore_ascii_case(&value[vi]))
         {
             pi += 1;
             vi += 1;
-        } else if pi < pattern.len() && pattern[pi] == b'*' {
-            star_pi = pi;
-            star_vi = vi;
-            pi += 1;
         } else if star_pi != usize::MAX {
             pi = star_pi + 1;
             star_vi += 1;

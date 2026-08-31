@@ -8,8 +8,12 @@
 //! Verified core verdict computation — extraction from
 //! `vellaveto-engine/src/verified_core.rs`.
 //!
-//! The algorithm is identical. This correspondence is verified by unit tests
-//! and CI diff checks.
+//! The algorithm is intended to be identical, but nothing checks that against
+//! production. The unit tests in this crate assert hardcoded vectors against
+//! this crate's own copy, and there is no CI diff check. Treat any proof here
+//! as constraining this copy only, under PARITY-HAND-2 in
+//! formal/ASSUMPTION_REGISTRY.md. `path.rs` and `ip.rs` show the shape a real
+//! binding takes.
 
 /// The result of the core verdict computation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -36,13 +36,36 @@ pub struct CacheabilityFields {
     pub has_session_state: bool,     // session_state.is_some()
     pub has_verification_tier: bool, // verification_tier.is_some()
     pub context_present: bool,       // context.is_some()
+    /// Whether the request carries a risk score from continuous authorization.
+    ///
+    /// SECURITY (R237-ENG-6): a cached Allow computed at risk_score=0.1 must
+    /// not be served when the next request carries risk_score=0.9, so a request
+    /// with a risk score is never cacheable. This field was missing from the
+    /// model until 2026-08-28: production gained the parameter with that fix and
+    /// the extraction was not updated, so K33 was proved about the pre-fix
+    /// function while claiming to be verbatim. See KANI-CACHE-DRIFT-1 in
+    /// formal/ASSUMPTION_REGISTRY.md.
+    pub has_risk_score: bool,
 }
 
 /// Determine if a context is safe to cache.
 ///
-/// Verbatim logic from production `is_cacheable_context`.
+/// Mirrors production `is_cacheable_context`, with `Option<&EvaluationContext>`
+/// modelled as a struct of booleans.
+///
+/// Checked behaviourally by the `kani_parity_differential_cache` module in
+/// `vellaveto-engine/src/cache.rs`, which enumerates all 2^8 combinations of
+/// the session fields and the risk flag. Until 2026-08-28 this said "verbatim"
+/// and nothing checked it — the model was missing the `has_risk_score`
+/// short-circuit production gained in R237-ENG-6, so K33 was proved about the
+/// pre-fix function. See KANI-CACHE-DRIFT-1 in formal/ASSUMPTION_REGISTRY.md.
 /// Returns true only if NO session-dependent fields are populated.
 pub fn is_cacheable_context(fields: &CacheabilityFields) -> bool {
+    // SECURITY (R237-ENG-6): checked before the context, exactly as production
+    // does — a risk score makes the request uncacheable even with no context.
+    if fields.has_risk_score {
+        return false;
+    }
     if !fields.context_present {
         return true;
     }
@@ -72,6 +95,12 @@ pub fn is_stale(
 ///
 /// We model only the case-normalization property: the key must be the same
 /// regardless of the case of the tool/function input.
+///
+/// This is WEAKER than production, which normalizes through `normalize_full`
+/// (NFKC + lowercase + homoglyph mapping). The gap is deliberate — Kani cannot
+/// compile the icu_normalizer chain, which is why this crate exists — and is
+/// recorded as NORMALIZE-MODEL-1 in formal/ASSUMPTION_REGISTRY.md. The property
+/// K34 claims is bound against production's real normalization there.
 pub fn normalize_for_key(s: &str) -> String {
     s.to_lowercase()
 }
@@ -111,6 +140,7 @@ mod tests {
             has_session_state: false,
             has_verification_tier: false,
             context_present: false,
+            has_risk_score: false,
         };
         assert!(is_cacheable_context(&fields));
     }
@@ -126,6 +156,7 @@ mod tests {
             has_session_state: false,
             has_verification_tier: false,
             context_present: true,
+            has_risk_score: false,
         };
         assert!(is_cacheable_context(&fields));
     }
@@ -141,6 +172,7 @@ mod tests {
             has_session_state: true,
             has_verification_tier: false,
             context_present: true,
+            has_risk_score: false,
         };
         assert!(!is_cacheable_context(&fields));
     }

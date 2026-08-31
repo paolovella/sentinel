@@ -13,6 +13,10 @@ pub mod context_isolation;
 pub mod credential_vault;
 pub mod crypto;
 pub mod error;
+#[cfg(test)]
+mod kani_credential_vault_differential;
+#[cfg(test)]
+mod kani_sanitizer_differential;
 pub mod local_audit;
 pub mod sanitizer;
 pub mod session_isolator;

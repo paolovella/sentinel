@@ -27,20 +27,29 @@ run_differential() {
     if cargo test -p "$crate" --lib "$filter" >/dev/null 2>&1; then
         echo "  OK: $label"
     else
-        echo "  DRIFT: $label — shipped behaviour disagrees with the Verus spec"
+        echo "  DRIFT: $label — the two implementations disagree"
         FAILED=1
     fi
 }
 
-echo "=== Differential Parity (PARITY-HAND-1 discharge) ==="
+echo "=== Differential Parity (PARITY-HAND-1 and PARITY-HAND-2 discharge) ==="
 
 # One filter covers every `verus_spec_differential` module in the crate, so a
 # newly added discharge is picked up without editing this script.
 run_differential "vellaveto-mcp capability kernels ↔ their Verus specs" \
     vellaveto-mcp verus_spec_differential
 
+run_differential "vellaveto-mcp ↔ the Kani injection-pipeline extraction" \
+    vellaveto-mcp kani_parity_differential
+
+run_differential "vellaveto-mcp-shield ↔ the Kani sanitizer extraction" \
+    vellaveto-mcp-shield kani_parity_differential
+
 run_differential "vellaveto-audit chain/merkle kernels ↔ their Verus specs" \
     vellaveto-audit verus_spec_differential
+
+run_differential "vellaveto-audit ↔ the Kani merkle-sanity extraction" \
+    vellaveto-audit kani_parity_differential
 
 run_differential "vellaveto-engine policy/delegation kernels ↔ their Verus specs" \
     vellaveto-engine verus_spec_differential
@@ -48,11 +57,28 @@ run_differential "vellaveto-engine policy/delegation kernels ↔ their Verus spe
 run_differential "vellaveto-approval consumption/scope kernels ↔ their Verus specs" \
     vellaveto-approval verus_spec_differential
 
+run_differential "vellaveto-approval ↔ the Kani approval-drift extraction" \
+    vellaveto-approval kani_parity_differential
+
 run_differential "vellaveto-types transport-context kernel ↔ its Verus spec" \
     vellaveto-types verus_spec_differential
 
+run_differential "vellaveto-types ↔ the Kani unicode extraction" \
+    vellaveto-types kani_parity_differential
+
 run_differential "vellaveto-server approval-id kernel ↔ its Verus spec" \
     vellaveto-server verus_spec_differential
+
+run_differential "vellaveto-server ↔ the Kani webhook-dedup extraction" \
+    vellaveto-server kani_parity_differential
+
+# PARITY-HAND-2 (KANI-PATH-BOUND-1). The Kani extractions are a separate
+# assumption from the Verus kernels: these compare `formal/kani/src/*.rs`
+# against the production code they claim to be verbatim copies of. Kani's own
+# in-crate parity tests cannot do this — they assert hardcoded vectors against
+# Kani's own copy, which cannot disagree with itself.
+run_differential "vellaveto-engine ↔ the Kani path, ip, cache, domain and rule_check extractions" \
+    vellaveto-engine kani_parity_differential
 
 echo ""
 if [ "$FAILED" -ne 0 ]; then

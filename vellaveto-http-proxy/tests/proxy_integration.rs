@@ -1291,11 +1291,18 @@ async fn websocket_unsolicited_server_request_is_not_forwarded_to_client() {
     .expect("websocket connect timeout")
     .expect("websocket connect");
 
-    for _ in 0..20 {
+    // The upstream error arrives on a separate task, so this polls for it.
+    // The budget was 20 x 25ms = 500ms, which is ample in isolation and not
+    // always ample when the whole workspace suite is running its test binaries
+    // in parallel — this test failed exactly once that way, and passed 3/3
+    // alone and 2/2 for this file. 100 x 50ms = 5s keeps the fast path fast
+    // (it breaks as soon as the value lands) while removing a load-dependent
+    // failure from CI.
+    for _ in 0..100 {
         if captured_error.lock().expect("capture lock").is_some() {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     let upstream_error = captured_error

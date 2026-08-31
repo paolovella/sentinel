@@ -1,13 +1,13 @@
 {
   "version": "7.0.0",
-  "rustTests": 12919,
+  "rustTests": 13120,
   "sdkTests": 977,
-  "totalTests": 13896,
+  "totalTests": 14097,
   "verusItems": 1046,
-  "kaniHarnesses": 124,
+  "kaniHarnesses": 125,
   "tlaSpecs": 13,
   "leanTheorems": 32,
   "coqTheorems": 45,
   "alloyAssertions": 10,
-  "formalEvidenceItems": 1270
+  "formalEvidenceItems": 1271
 }

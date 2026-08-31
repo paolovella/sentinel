@@ -24,6 +24,12 @@
 //!
 //! - `normalize_homoglyphs` ↔ `vellaveto-types/src/unicode.rs:50-188`
 //! - `normalize_identity` ↔ `vellaveto-types/src/unicode.rs:220-222`
+//!
+//! That correspondence is checked behaviourally by
+//! `vellaveto-types/src/kani_unicode_differential.rs`, which compares this
+//! mapping against production over every Unicode scalar value. Before
+//! 2026-08-30 nothing checked it — see PARITY-HAND-2 in
+//! formal/ASSUMPTION_REGISTRY.md.
 
 /// Map common Unicode confusables to their ASCII equivalents.
 ///

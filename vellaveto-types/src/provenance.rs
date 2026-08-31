@@ -1616,3 +1616,514 @@ mod tests {
         assert!(token.validate().is_err());
     }
 }
+
+#[cfg(test)]
+mod kani_parity_differential_trust_containment {
+    //! Differential binding for `PARITY-HAND-2` — trust/sink containment.
+    //!
+    //! This is the mapping that produced `TAINT-MODEL-DRIFT`: two **Verus**
+    //! kernels modelled `minimum_trust_tier_for_sink` with six-or-eight-class
+    //! worlds that disagreed with production's nine and with each other,
+    //! agreeing only at rank 0.
+    //!
+    //! The Kani copy did **not** drift — it matches production variant for
+    //! variant and arm for arm. That is worth binding precisely because the
+    //! same function drifted elsewhere: the copy that happens to be right today
+    //! is the one nobody is watching.
+
+    use super::{minimum_trust_tier_for_sink, SinkClass, TrustTier};
+    use crate::trust_containment as extracted;
+
+    const ALL_SINKS: [SinkClass; 9] = [
+        SinkClass::ReadOnly,
+        SinkClass::LowRiskWrite,
+        SinkClass::FilesystemWrite,
+        SinkClass::NetworkEgress,
+        SinkClass::MemoryWrite,
+        SinkClass::ApprovalUi,
+        SinkClass::CodeExecution,
+        SinkClass::CredentialAccess,
+        SinkClass::PolicyMutation,
+    ];
+
+    const ALL_TIERS: [TrustTier; 7] = [
+        TrustTier::Quarantined,
+        TrustTier::Unknown,
+        TrustTier::Untrusted,
+        TrustTier::Low,
+        TrustTier::Medium,
+        TrustTier::High,
+        TrustTier::Verified,
+    ];
+
+    fn model_sink(sink: SinkClass) -> extracted::SinkClass {
+        match sink {
+            SinkClass::ReadOnly => extracted::SinkClass::ReadOnly,
+            SinkClass::LowRiskWrite => extracted::SinkClass::LowRiskWrite,
+            SinkClass::FilesystemWrite => extracted::SinkClass::FilesystemWrite,
+            SinkClass::NetworkEgress => extracted::SinkClass::NetworkEgress,
+            SinkClass::MemoryWrite => extracted::SinkClass::MemoryWrite,
+            SinkClass::ApprovalUi => extracted::SinkClass::ApprovalUi,
+            SinkClass::CodeExecution => extracted::SinkClass::CodeExecution,
+            SinkClass::CredentialAccess => extracted::SinkClass::CredentialAccess,
+            SinkClass::PolicyMutation => extracted::SinkClass::PolicyMutation,
+        }
+    }
+
+    fn model_tier(tier: TrustTier) -> extracted::TrustTier {
+        match tier {
+            TrustTier::Quarantined => extracted::TrustTier::Quarantined,
+            TrustTier::Unknown => extracted::TrustTier::Unknown,
+            TrustTier::Untrusted => extracted::TrustTier::Untrusted,
+            TrustTier::Low => extracted::TrustTier::Low,
+            TrustTier::Medium => extracted::TrustTier::Medium,
+            TrustTier::High => extracted::TrustTier::High,
+            TrustTier::Verified => extracted::TrustTier::Verified,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/trust_containment.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The variant counts must match, or every mapping comparison below is
+    /// silently partial — which is precisely how `TAINT-MODEL-DRIFT` hid.
+    #[test]
+    fn test_variant_counts_match_production() {
+        assert_eq!(ALL_SINKS.len(), 9, "production gained or lost a SinkClass");
+        assert_eq!(ALL_TIERS.len(), 7, "production gained or lost a TrustTier");
+        // Ranks are dense and ordered, so a new variant cannot be appended
+        // without this failing.
+        for (index, tier) in ALL_TIERS.iter().enumerate() {
+            assert_eq!(
+                tier.rank() as usize,
+                index,
+                "TrustTier ranks are no longer dense and ordered"
+            );
+        }
+        for (index, sink) in ALL_SINKS.iter().enumerate() {
+            assert_eq!(
+                sink.rank() as usize,
+                index,
+                "SinkClass ranks are no longer dense and ordered"
+            );
+        }
+    }
+
+    /// TOTAL over all nine sink classes: the mapping that drifted in Verus.
+    #[test]
+    fn test_minimum_trust_tier_matches_production_total_domain() {
+        for sink in ALL_SINKS {
+            let production = minimum_trust_tier_for_sink(sink);
+            let model = extracted::minimum_trust_tier_for_sink(model_sink(sink));
+            assert_eq!(
+                model_tier(production),
+                model,
+                "PARITY-HAND-2: the Kani copy maps {sink:?} to a different minimum \
+                 trust tier than production — this is the function that produced \
+                 TAINT-MODEL-DRIFT in two Verus kernels"
+            );
+        }
+        // The named consequence: the highest-privilege sinks require the
+        // highest trust, and read-only requires the lowest.
+        assert_eq!(
+            minimum_trust_tier_for_sink(SinkClass::PolicyMutation),
+            TrustTier::Verified
+        );
+        assert_eq!(
+            minimum_trust_tier_for_sink(SinkClass::ReadOnly),
+            TrustTier::Unknown
+        );
+    }
+
+    /// TOTAL over all 49 tier pairs: the trust ordering itself.
+    #[test]
+    fn test_trust_ordering_matches_production_total_domain() {
+        let mut checked = 0usize;
+        for a in ALL_TIERS {
+            for b in ALL_TIERS {
+                assert_eq!(
+                    extracted::TrustTier::at_least_as_trusted_as(model_tier(a), model_tier(b)),
+                    a.at_least_as_trusted_as(b),
+                    "PARITY-HAND-2: trust ordering disagrees for {a:?} vs {b:?}"
+                );
+                assert_eq!(
+                    model_tier(a).rank(),
+                    a.rank(),
+                    "PARITY-HAND-2: rank disagrees for {a:?}"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 49, "tier enumeration collapsed");
+        // Quarantined is the floor, Verified the ceiling.
+        for tier in ALL_TIERS {
+            assert!(tier.at_least_as_trusted_as(TrustTier::Quarantined));
+            assert!(TrustTier::Verified.at_least_as_trusted_as(tier));
+        }
+    }
+
+    /// TOTAL over all 7 × 9 × 2 flow decisions: whether a source at a given
+    /// trust tier may reach a given sink.
+    ///
+    /// This is the containment decision itself. A disagreement here means the
+    /// proofs describe a different flow policy than the one enforced.
+    #[test]
+    fn test_flow_admissibility_matches_production_total_domain() {
+        let mut checked = 0usize;
+        let mut allowed = 0usize;
+        for tier in ALL_TIERS {
+            for sink in ALL_SINKS {
+                for declassified in [false, true] {
+                    let production =
+                        tier.can_flow_to(minimum_trust_tier_for_sink(sink), declassified);
+                    let model = extracted::TrustTier::can_flow_to(
+                        model_tier(tier),
+                        extracted::minimum_trust_tier_for_sink(model_sink(sink)),
+                        declassified,
+                    );
+                    assert_eq!(
+                        model, production,
+                        "PARITY-HAND-2: flow admissibility disagrees for {tier:?} -> \
+                         {sink:?} (declassified={declassified})"
+                    );
+                    if production {
+                        allowed += 1;
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 7 * 9 * 2, "flow enumeration collapsed");
+        assert!(
+            allowed > 0 && allowed < checked,
+            "flow decisions are one-sided ({allowed} of {checked} allowed); the \
+             comparison cannot distinguish a policy that permits everything"
+        );
+
+        // The containment property, stated: an untrusted source cannot reach
+        // the highest-privilege sink without explicit declassification.
+        assert!(
+            !TrustTier::Untrusted.can_flow_to(
+                minimum_trust_tier_for_sink(SinkClass::PolicyMutation),
+                false
+            ),
+            "an untrusted source reached PolicyMutation without declassification"
+        );
+    }
+}
+
+#[cfg(test)]
+mod kani_parity_differential_output_contracts {
+    //! Differential binding for `PARITY-HAND-2` — semantic output contracts.
+    //!
+    //! An output contract says which channel a tool's output is allowed to be
+    //! interpreted as. A violation is content arriving on a channel that grants
+    //! it more interpretive power than it was promised — data that turns out to
+    //! be free text, free text that turns out to be command-like.
+    //!
+    //! Bound **totally**: all 8 × 8 declared/observed channel pairs.
+
+    use super::ContextChannel;
+    use crate::output_contracts as extracted;
+
+    const ALL_CHANNELS: [ContextChannel; 8] = [
+        ContextChannel::Data,
+        ContextChannel::FreeText,
+        ContextChannel::Url,
+        ContextChannel::CommandLike,
+        ContextChannel::ToolOutput,
+        ContextChannel::ResourceContent,
+        ContextChannel::ApprovalPrompt,
+        ContextChannel::Memory,
+    ];
+
+    fn model_channel(channel: ContextChannel) -> extracted::ContextChannel {
+        match channel {
+            ContextChannel::Data => extracted::ContextChannel::Data,
+            ContextChannel::FreeText => extracted::ContextChannel::FreeText,
+            ContextChannel::Url => extracted::ContextChannel::Url,
+            ContextChannel::CommandLike => extracted::ContextChannel::CommandLike,
+            ContextChannel::ToolOutput => extracted::ContextChannel::ToolOutput,
+            ContextChannel::ResourceContent => extracted::ContextChannel::ResourceContent,
+            ContextChannel::ApprovalPrompt => extracted::ContextChannel::ApprovalPrompt,
+            ContextChannel::Memory => extracted::ContextChannel::Memory,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/output_contracts.rs was not found, so this binding \
+             compared nothing"
+        );
+    }
+
+    /// The channel sets must match before any pairwise comparison means
+    /// anything — an 8 × 8 sweep says nothing if production has a ninth
+    /// channel. This is the lesson from `TAINT-MODEL-DRIFT`, where the
+    /// mismatch was in the *variant count* rather than in any single arm.
+    #[test]
+    fn test_channel_sets_match_production() {
+        assert_eq!(ALL_CHANNELS.len(), 8, "production gained or lost a channel");
+        // Every production channel maps to a distinct model channel, so the
+        // mapping above is a bijection and not a collapse.
+        let mut seen = std::collections::HashSet::new();
+        for channel in ALL_CHANNELS {
+            assert!(
+                seen.insert(format!("{:?}", model_channel(channel))),
+                "two production channels map to the same model channel"
+            );
+        }
+        assert_eq!(seen.len(), 8);
+    }
+
+    /// TOTAL over all 64 declared/observed pairs.
+    #[test]
+    fn test_output_contract_violation_matches_production_total_domain() {
+        let mut checked = 0usize;
+        let mut violations = 0usize;
+        for declared in ALL_CHANNELS {
+            for observed in ALL_CHANNELS {
+                let production = declared.violates_output_contract(observed);
+                let model = extracted::violates_output_contract(
+                    model_channel(declared),
+                    model_channel(observed),
+                );
+                assert_eq!(
+                    model, production,
+                    "PARITY-HAND-2: output contract violation disagrees for \
+                     declared={declared:?} observed={observed:?} — content could be \
+                     interpreted on a channel the contract did not grant"
+                );
+                if production {
+                    violations += 1;
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 64, "channel enumeration collapsed");
+        assert!(
+            violations > 0 && violations < checked,
+            "the contract is one-sided ({violations} of {checked} violate); the \
+             comparison cannot distinguish a contract that permits everything"
+        );
+    }
+
+    /// The property the contract exists for: a channel never violates its own
+    /// contract, and escalation to a more powerful channel does.
+    #[test]
+    fn test_contract_properties_hold_on_production() {
+        for channel in ALL_CHANNELS {
+            assert!(
+                !channel.violates_output_contract(channel),
+                "{channel:?} violates its own contract, so no output could ever \
+                 satisfy it"
+            );
+        }
+        // Data promised, command-like observed: the escalation the contract is
+        // for.
+        assert!(
+            ContextChannel::Data.violates_output_contract(ContextChannel::CommandLike),
+            "data reinterpreted as command-like was not flagged"
+        );
+    }
+}
+
+#[cfg(test)]
+mod kani_parity_differential_counterfactual {
+    //! Differential binding for `PARITY-HAND-2` — counterfactual containment
+    //! scoring.
+    //!
+    //! These weights decide how much a tainted input on a given channel
+    //! contributes to the score that gates a privileged sink. Every one is
+    //! bound **totally** over its enum.
+
+    use super::{
+        is_security_relevant_taint, taint_semantic_risk_weight, ContextChannel, SinkClass,
+        TaintLabel,
+    };
+    use crate::counterfactual_containment as extracted;
+    use crate::output_contracts as model_oc;
+    use crate::trust_containment as model_tc;
+
+    fn model_channel(c: ContextChannel) -> model_oc::ContextChannel {
+        match c {
+            ContextChannel::Data => model_oc::ContextChannel::Data,
+            ContextChannel::FreeText => model_oc::ContextChannel::FreeText,
+            ContextChannel::Url => model_oc::ContextChannel::Url,
+            ContextChannel::CommandLike => model_oc::ContextChannel::CommandLike,
+            ContextChannel::ToolOutput => model_oc::ContextChannel::ToolOutput,
+            ContextChannel::ResourceContent => model_oc::ContextChannel::ResourceContent,
+            ContextChannel::ApprovalPrompt => model_oc::ContextChannel::ApprovalPrompt,
+            ContextChannel::Memory => model_oc::ContextChannel::Memory,
+        }
+    }
+
+    const ALL_SINKS: [SinkClass; 9] = [
+        SinkClass::ReadOnly,
+        SinkClass::LowRiskWrite,
+        SinkClass::FilesystemWrite,
+        SinkClass::NetworkEgress,
+        SinkClass::MemoryWrite,
+        SinkClass::ApprovalUi,
+        SinkClass::CodeExecution,
+        SinkClass::CredentialAccess,
+        SinkClass::PolicyMutation,
+    ];
+
+    const ALL_TAINTS: [TaintLabel; 8] = [
+        TaintLabel::Untrusted,
+        TaintLabel::Sanitized,
+        TaintLabel::Quarantined,
+        TaintLabel::Sensitive,
+        TaintLabel::CrossAgent,
+        TaintLabel::Replayed,
+        TaintLabel::MixedProvenance,
+        TaintLabel::IntegrityFailed,
+    ];
+
+    const ALL_CHANNELS: [ContextChannel; 8] = [
+        ContextChannel::Data,
+        ContextChannel::FreeText,
+        ContextChannel::Url,
+        ContextChannel::CommandLike,
+        ContextChannel::ToolOutput,
+        ContextChannel::ResourceContent,
+        ContextChannel::ApprovalPrompt,
+        ContextChannel::Memory,
+    ];
+
+    fn model_sink(s: SinkClass) -> model_tc::SinkClass {
+        match s {
+            SinkClass::ReadOnly => model_tc::SinkClass::ReadOnly,
+            SinkClass::LowRiskWrite => model_tc::SinkClass::LowRiskWrite,
+            SinkClass::FilesystemWrite => model_tc::SinkClass::FilesystemWrite,
+            SinkClass::NetworkEgress => model_tc::SinkClass::NetworkEgress,
+            SinkClass::MemoryWrite => model_tc::SinkClass::MemoryWrite,
+            SinkClass::ApprovalUi => model_tc::SinkClass::ApprovalUi,
+            SinkClass::CodeExecution => model_tc::SinkClass::CodeExecution,
+            SinkClass::CredentialAccess => model_tc::SinkClass::CredentialAccess,
+            SinkClass::PolicyMutation => model_tc::SinkClass::PolicyMutation,
+        }
+    }
+
+    fn model_taint(t: TaintLabel) -> extracted::SemanticTaint {
+        match t {
+            TaintLabel::Untrusted => extracted::SemanticTaint::Untrusted,
+            TaintLabel::Sanitized => extracted::SemanticTaint::Sanitized,
+            TaintLabel::Quarantined => extracted::SemanticTaint::Quarantined,
+            TaintLabel::Sensitive => extracted::SemanticTaint::Sensitive,
+            TaintLabel::CrossAgent => extracted::SemanticTaint::CrossAgent,
+            TaintLabel::Replayed => extracted::SemanticTaint::Replayed,
+            TaintLabel::MixedProvenance => extracted::SemanticTaint::MixedProvenance,
+            TaintLabel::IntegrityFailed => extracted::SemanticTaint::IntegrityFailed,
+        }
+    }
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/counterfactual_containment.rs was not found, so this \
+             binding compared nothing"
+        );
+    }
+
+    /// TOTAL over all nine sinks.
+    ///
+    /// The two implementations are written differently: the model is
+    /// `!matches!(ReadOnly)`, production enumerates the eight privileged
+    /// variants explicitly. Identical today over nine variants — and they
+    /// **diverge the moment a tenth is added**, because the model would call it
+    /// privileged and production would not. The variant-count assertion below
+    /// is what turns that latent divergence into a failing test rather than a
+    /// silent one.
+    #[test]
+    fn test_sink_privilege_matches_production_total_domain() {
+        assert_eq!(
+            ALL_SINKS.len(),
+            9,
+            "SinkClass gained or lost a variant — the model's `!matches!(ReadOnly)` \
+             and production's explicit list only agree over exactly these nine"
+        );
+        for sink in ALL_SINKS {
+            assert_eq!(
+                extracted::sink_is_privileged(model_sink(sink)),
+                sink.is_privileged(),
+                "PARITY-HAND-2: sink privilege disagrees for {sink:?}"
+            );
+        }
+        assert!(!SinkClass::ReadOnly.is_privileged());
+        assert!(SinkClass::PolicyMutation.is_privileged());
+    }
+
+    /// TOTAL over all eight taints, both the relevance predicate and the risk
+    /// weight.
+    #[test]
+    fn test_taint_predicates_match_production_total_domain() {
+        assert_eq!(ALL_TAINTS.len(), 8, "TaintLabel gained or lost a variant");
+        for taint in ALL_TAINTS {
+            assert_eq!(
+                extracted::is_security_relevant_taint(model_taint(taint)),
+                is_security_relevant_taint(taint),
+                "PARITY-HAND-2: security relevance disagrees for {taint:?}"
+            );
+            assert_eq!(
+                extracted::taint_semantic_risk_weight(model_taint(taint)),
+                taint_semantic_risk_weight(taint),
+                "PARITY-HAND-2: risk weight disagrees for {taint:?}"
+            );
+        }
+        // The two ends of the scale, and the one taint that is deliberately
+        // *not* security-relevant.
+        assert_eq!(taint_semantic_risk_weight(TaintLabel::Sanitized), 0);
+        assert_eq!(taint_semantic_risk_weight(TaintLabel::Quarantined), 30);
+        assert!(!is_security_relevant_taint(TaintLabel::Sanitized));
+        assert!(
+            !is_security_relevant_taint(TaintLabel::Sensitive),
+            "Sensitive is a confidentiality label, not a provenance one; treating \
+             it as security-relevant here would conflate the two"
+        );
+    }
+
+    /// TOTAL over all eight channels: the attribution weight.
+    #[test]
+    fn test_attribution_weight_matches_production_total_domain() {
+        assert_eq!(
+            ALL_CHANNELS.len(),
+            8,
+            "ContextChannel gained or lost a variant"
+        );
+        let mut weights = Vec::new();
+        for channel in ALL_CHANNELS {
+            let production = channel.counterfactual_attribution_weight();
+            weights.push(production);
+            assert_eq!(
+                extracted::counterfactual_attribution_weight(model_channel(channel)),
+                production,
+                "PARITY-HAND-2: attribution weight disagrees for {channel:?}"
+            );
+        }
+        // The ordering that makes the score meaningful: inert data contributes
+        // nothing, and the channels that can act contribute most.
+        assert_eq!(ContextChannel::Data.counterfactual_attribution_weight(), 0);
+        assert_eq!(
+            ContextChannel::CommandLike.counterfactual_attribution_weight(),
+            35
+        );
+        assert!(
+            weights.contains(&0) && weights.iter().any(|w| *w > 0),
+            "attribution weights are uniform; the score cannot distinguish channels"
+        );
+    }
+}

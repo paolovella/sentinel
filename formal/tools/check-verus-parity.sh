@@ -219,6 +219,8 @@ VERUS_SOURCE_TAINT="$PROJECT_DIR/formal/verus/verified_source_taint.rs"
 PROD_CHANNEL_SEPARATION="$PROJECT_DIR/vellaveto-config/src/channel_separation.rs"
 VERUS_INTENT_SCOPE="$PROJECT_DIR/formal/verus/verified_intent_scope.rs"
 PROD_SEQUENCE="$PROJECT_DIR/vellaveto-engine/src/sequence.rs"
+PROD_SEQUENCE_GATE="$PROJECT_DIR/vellaveto-engine/src/verified_sequence_gate.rs"
+PROD_SCOPE_MASK="$PROJECT_DIR/vellaveto-types/src/verified_intent_scope.rs"
 PROD_SEQUENCE_RELAY="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/relay.rs"
 VERUS_SEQUENCE_ANALYSIS="$PROJECT_DIR/formal/verus/verified_sequence_analysis.rs"
 PROD_TRACED="$PROJECT_DIR/vellaveto-engine/src/traced.rs"
@@ -1626,6 +1628,36 @@ check_symbol_parity \
     "$VERUS_INTENT_SCOPE" \
     'pub[[:space:]]+struct[[:space:]]+ScopeState'
 check_symbol_parity \
+    "scope is a bitmask in production and Verus" \
+    "$PROD_SCOPE_MASK" \
+    'pub[[:space:]]+struct[[:space:]]+ScopeMask\(u16\)' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+allowed_mask:[[:space:]]+u16'
+check_symbol_parity \
+    "scope width covers every sink class in production and Verus" \
+    "$PROD_SCOPE_MASK" \
+    'pub[[:space:]]+const[[:space:]]+SCOPE_CLASS_COUNT:[[:space:]]+u8[[:space:]]*=[[:space:]]*9;' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+const[[:space:]]+SCOPE_CLASS_COUNT:[[:space:]]+u8[[:space:]]*=[[:space:]]*9;'
+check_symbol_parity \
+    "restriction is intersection in production and Verus" \
+    "$PROD_SCOPE_MASK" \
+    'Self\(self\.0[[:space:]]*&[[:space:]]*restriction\.0\)' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_restrict_scope'
+check_symbol_parity \
+    "trust-floor narrowing runs through the mask, not a filter over the config list" \
+    "$PROD_CHANNEL_SEPARATION" \
+    '\.restrict\(Self::trust_floor_mask\(trust_floor\)\)' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+fn[[:space:]]+restrict_scope'
+check_symbol_parity \
+    "the scope check is actually called on the relay tool-call path" \
+    "$PROD_SEQUENCE_RELAY" \
+    '^[^/]*scope\.check_in_scope\(&tool_name,[[:space:]]*sink\)' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_in_scope'
+check_symbol_parity \
     "intent scope trust-floor restriction exists in production and Verus model" \
     "$PROD_CHANNEL_SEPARATION" \
     'pub[[:space:]]+fn[[:space:]]+restrict_to_trust_floor' \
@@ -1653,13 +1685,13 @@ check_file_pair \
 check_symbol_parity \
     "sequence warmup configuration exists in production and Verus model" \
     "$PROD_SEQUENCE" \
-    'warmup_calls:[[:space:]]+u32' \
+    'warmup_calls:[[:space:]]+crate::verified_sequence_gate::WARMUP_CALLS' \
     "$VERUS_SEQUENCE_ANALYSIS" \
     'pub[[:space:]]+const[[:space:]]+WARMUP_CALLS:[[:space:]]+u32[[:space:]]*=[[:space:]]*3;'
 check_symbol_parity \
     "sequence new-tool budget exists in production and Verus model" \
     "$PROD_SEQUENCE" \
-    'max_new_tools_after_taint:[[:space:]]+u32' \
+    'max_new_tools_after_taint:[[:space:]]+crate::verified_sequence_gate::MAX_NEW_TOOLS' \
     "$VERUS_SEQUENCE_ANALYSIS" \
     'pub[[:space:]]+const[[:space:]]+MAX_NEW_TOOLS:[[:space:]]+u32[[:space:]]*=[[:space:]]*2;'
 check_symbol_parity \
@@ -1675,17 +1707,29 @@ check_symbol_parity \
     "$VERUS_SEQUENCE_ANALYSIS" \
     'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_warmup_complete'
 check_symbol_parity \
-    "relay high-confidence sequence gate exists and Verus models the restriction threshold" \
-    "$PROD_SEQUENCE_RELAY" \
-    'state\.sequence\.max_confidence\(\)[[:space:]]*>?=[[:space:]]*70' \
+    "restriction threshold is a named constant in production and Verus" \
+    "$PROD_SEQUENCE_GATE" \
+    'pub[[:space:]]+const[[:space:]]+RESTRICTION_THRESHOLD:[[:space:]]+u32[[:space:]]*=[[:space:]]*70;' \
     "$VERUS_SEQUENCE_ANALYSIS" \
-    'pub[[:space:]]+const[[:space:]]+RESTRICTION_THRESHOLD:[[:space:]]+u8[[:space:]]*=[[:space:]]*70;'
+    'pub[[:space:]]+const[[:space:]]+RESTRICTION_THRESHOLD:[[:space:]]+u32[[:space:]]*=[[:space:]]*70;'
 check_symbol_parity \
-    "relay tightens scope after sequence anomalies and Verus models restriction decisions" \
-    "$PROD_SEQUENCE_RELAY" \
-    'restrict_to_trust_floor\(TrustTier::Untrusted\)' \
+    "production restriction gate exists and Verus models the restriction decision" \
+    "$PROD_SEQUENCE_GATE" \
+    'pub[[:space:]]+const[[:space:]]+fn[[:space:]]+should_restrict' \
     "$VERUS_SEQUENCE_ANALYSIS" \
     'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_should_restrict'
+check_symbol_parity \
+    "relay high-confidence sequence gate calls the verified gate, not a bare literal" \
+    "$PROD_SEQUENCE_RELAY" \
+    '^[^/]*vellaveto_engine::verified_sequence_gate::should_restrict\(' \
+    "$VERUS_SEQUENCE_ANALYSIS" \
+    'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_should_restrict'
+check_symbol_parity \
+    "relay persists the narrowed scope instead of discarding it" \
+    "$PROD_SEQUENCE_RELAY" \
+    '^[^/]*fn[[:space:]]+narrow_session_scope\(' \
+    "$VERUS_INTENT_SCOPE" \
+    'pub[[:space:]]+open[[:space:]]+spec[[:space:]]+fn[[:space:]]+spec_restrict_scope'
 echo ""
 
 echo "--- Replay Non-Admission + Unknown-Provenance Kernel ---"

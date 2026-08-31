@@ -47,6 +47,10 @@ pub mod goal_drift;
 pub mod goal_tracking;
 pub mod inspection;
 pub mod jailbreak_patterns;
+#[cfg(test)]
+mod kani_capability_differential;
+#[cfg(test)]
+mod kani_task_differential;
 pub mod mediation;
 pub mod memory_query_poisoning;
 pub mod memory_security;

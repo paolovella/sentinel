@@ -549,3 +549,167 @@ mod tests {
         assert!(normalize_domain_for_match("evil\ncom").is_none());
     }
 }
+
+#[cfg(test)]
+// Suppressed rather than satisfied: linting the extraction would edit the copy
+// the Kani proofs run against. See `kani_path_differential`.
+#[allow(clippy::manual_range_contains, dead_code, unused_imports)]
+mod kani_domain_extraction {
+    include!(concat!(env!("OUT_DIR"), "/kani_domain_extraction.rs"));
+}
+
+#[cfg(test)]
+mod kani_parity_differential_domain {
+    //! Differential binding for `PARITY-HAND-2` — domain normalization.
+    //!
+    //! `formal/kani/src/domain.rs` abstracts the third-party `idna` call as a
+    //! symbolic `Result<String, ()>` parameter, so K61-K63 explore every
+    //! success/failure path of the wrapper without verifying the crate's
+    //! internals — which is the right boundary to draw, and is declared.
+    //!
+    //! What was never checked is whether the *wrapper* the proofs explore is
+    //! the wrapper that runs. This binding supplies the real `idna` result for
+    //! each input and requires the two to produce the same normalized domain.
+    //!
+    //! What rides on it: `normalize_domain_for_match` decides whether a domain
+    //! matches a blocklist pattern. R27-ENG-2 and R39-ENG-3 both record
+    //! fail-open bypasses in exactly this function — an IDNA failure returning
+    //! `None` means a blocked pattern does not match and the domain passes. So
+    //! a proof about a wrapper that is not this one is worth very little.
+
+    use super::kani_domain_extraction as extracted;
+    use super::normalize_domain_for_match;
+
+    /// Inputs spanning what the function branches on: pure ASCII, trailing
+    /// dots, wildcards, internationalized labels, the SRV underscore case that
+    /// R27-ENG-2 is about, and the malformed-ASCII shapes R39-ENG-3 rejects.
+    const CORPUS: &[&str] = &[
+        "",
+        ".",
+        "example.com",
+        "EXAMPLE.COM",
+        "Example.Com",
+        "example.com.",
+        "example.com..",
+        "*.example.com",
+        "*.EXAMPLE.COM",
+        "*.example.com.",
+        "*",
+        "*.",
+        "sub.example.com",
+        "a.b.c.d.example.com",
+        "_sip._tcp.example.com",
+        "_sip._tcp.EXAMPLE.com",
+        "*._sip.example.com",
+        "xn--mnchen-3ya.de",
+        "münchen.de",
+        "MÜNCHEN.de",
+        "*.münchen.de",
+        "münchen.de.",
+        "日本.jp",
+        "*.日本.jp",
+        "exa mple.com",
+        "example.com:8080",
+        "example.com/path",
+        "example\0.com",
+        "example..com",
+        "-example.com",
+        "example-.com",
+        "example.com-",
+        "127.0.0.1",
+        "[::1]",
+        "example_underscore.com",
+        "ex%41mple.com",
+        "example.com\u{200b}",
+        "exam\u{202e}ple.com",
+    ];
+
+    #[allow(clippy::assertions_on_constants)]
+    #[test]
+    fn test_extraction_is_actually_present() {
+        assert!(
+            extracted::EXTRACTION_PRESENT,
+            "formal/kani/src/domain.rs was not found, so this binding compared nothing"
+        );
+    }
+
+    /// Feed the extraction the same IDNA answer production gets, and require
+    /// the wrappers to agree.
+    ///
+    /// The extraction is given the IDNA result for the string production would
+    /// hand to IDNA — after trailing dots and the wildcard prefix are stripped
+    /// — because that stripping is part of the wrapper, and getting it wrong is
+    /// exactly the R25-ENG-5 bypass the wildcard handling exists to close.
+    #[test]
+    fn test_domain_normalization_matches_production() {
+        for raw in CORPUS {
+            let stripped = raw.trim_end_matches('.');
+            let idna_input = stripped.strip_prefix("*.").unwrap_or(stripped);
+            let idna_result = idna::domain_to_ascii(idna_input).map_err(|_| ());
+
+            let production = normalize_domain_for_match(raw).map(|c| c.into_owned());
+            let model = extracted::normalize_domain_for_match(raw, idna_result);
+
+            assert_eq!(
+                production, model,
+                "PARITY-HAND-2: production and the Kani domain model normalize \
+                 {raw:?} differently (production {production:?}, model {model:?}) \
+                 — K61-K63 are about a wrapper that is not the one deciding \
+                 whether a domain matches a blocklist pattern"
+            );
+        }
+        assert!(CORPUS.len() >= 35, "corpus shrank; recount before trusting");
+    }
+
+    /// K61-K63 restated against the pair, so the named properties are checked
+    /// on production and not only on the model.
+    #[test]
+    fn test_named_properties_hold_on_production() {
+        // K63: a wildcard prefix survives normalization of an IDN.
+        let wildcard = normalize_domain_for_match("*.münchen.de")
+            .expect("an internationalized wildcard must normalize, not vanish");
+        assert!(
+            wildcard.starts_with("*."),
+            "K63: the wildcard prefix was lost, so *.münchen.de would never match \
+             and the R25-ENG-5 bypass is back"
+        );
+
+        // K62: a valid ASCII domain never normalizes to None, even when IDNA
+        // rejects it — the R27-ENG-2 fail-open.
+        for ascii in ["_sip._tcp.example.com", "example.com", "a-b.example.com"] {
+            assert!(
+                normalize_domain_for_match(ascii).is_some(),
+                "K62: {ascii:?} normalized to None; a blocked pattern would not \
+                 match it and the domain would pass"
+            );
+        }
+
+        // K61 / R39-ENG-3: malformed ASCII is rejected rather than smuggled
+        // through as a domain.
+        for malformed in ["exa mple.com", "example.com:8080", "example.com/path"] {
+            assert!(
+                normalize_domain_for_match(malformed).is_none(),
+                "R39-ENG-3: {malformed:?} was accepted as a domain"
+            );
+        }
+    }
+
+    /// The corpus must reach both outcomes, or agreement is vacuous.
+    #[test]
+    fn test_corpus_reaches_both_outcomes() {
+        let mut some = 0usize;
+        let mut none = 0usize;
+        for raw in CORPUS {
+            if normalize_domain_for_match(raw).is_some() {
+                some += 1;
+            } else {
+                none += 1;
+            }
+        }
+        assert!(
+            some > 0 && none > 0,
+            "corpus is one-sided (Some {some}, None {none}); it cannot distinguish \
+             a wrapper that accepts everything"
+        );
+    }
+}

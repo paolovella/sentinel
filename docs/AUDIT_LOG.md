@@ -23,6 +23,26 @@ Finding IDs follow the pattern `FIND-R{round}-{number}` (e.g., `FIND-R116-001`).
 
 ---
 
+## Documentation Credibility Review (Mar 2026) — OPEN
+
+A review of published claims against the source found several places where the
+documentation asserted more than the code delivers. The claims were corrected in
+the docs; the underlying code gaps are tracked here and are **not yet fixed**.
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| **DOC-CRED-1** | P3 | `PiiScanner::default_patterns()` has no file-path or personal-name pattern, so the Consumer Shield cannot sanitize either. Adding cross-platform path detection (POSIX `/home`/`/Users`, Windows `C:\Users\`, UNC `\\host\share`) needs ReDoS review under `validate_regex_safety()` and false-positive testing — a bare path regex matches ordinary prose, and these patterns run on the request hot path against a <5ms P99 budget. Personal names are out of reach for regex and should not be claimed until a real approach exists. | Open — docs corrected to stop claiming the coverage |
+| **DOC-CRED-2** | P2 | No domain separation on any Ed25519 signature. Every payload is a bare 32-byte SHA-256 digest with no context prefix, so checkpoints, rotation manifests, evidence packs, and warrant canaries are indistinguishable to a verifier; separation rests on field layouts happening not to collide. An operator who reuses one seed across `VELLAVETO_SIGNING_KEY`, `create_canary`, `issue_capability_token`, `EtdiSigner`, and `sign_evidence_pack` makes digests cross-verifiable between artifact types. The `CHECKPOINT_CONTEXT`/`MANIFEST_CONTEXT` separators in `vellaveto-audit/src/pqc.rs` cover the ML-DSA half of the hybrid only. Fix: per-artifact context prefix in each Ed25519 signing payload (a signature-format change — needs a version bump and a verification-compatibility path). | Open — operator guidance documented |
+| **DOC-CRED-3** | P3 | Audit chain timestamp monotonicity is enforced only in `verify_chain()` (`vellaveto-audit/src/verification.rs`), as a lexicographic comparison of timestamp *strings*. Nothing is checked at append time — `log_entry_inner` stamps `Utc::now()` and writes unconditionally — so a backwards host clock jump produces a log that fails its own verification. `sequence == 0` is accepted unconditionally as "legacy", bypassing the sequence check. Checkpoint verification does not check timestamps at all. | Open — guarantee restated accurately |
+| **DOC-CRED-4** | P2 | Warrant canary is unusable as published. `create_canary()` has no caller outside its own tests — there is no CLI, route, or publication workflow — and `verify_canary()` checks the signature against the verifying key carried inside the canary, so `signature_valid: true` proves internal consistency, not authenticity. Fix: an issuance workflow with a stated cadence, plus `verify_canary_with_key(canary, expected_key)` that fails closed on key mismatch. | Open — "prove" claims withdrawn |
+| **DOC-CRED-5** | P3 | `SignedAgentMessage::verify` / `AgentKeyRegistry::verify_message` have no production callers; inter-agent Ed25519 signing and nonce replay protection are available library primitives, not enforced runtime controls, and were listed as ASI07 mitigations. Fix: wire them into the relay path. | Open — threat model corrected |
+| **DOC-CRED-6** | P2 | `SecureTask` replay protection evicts seen nonces **FIFO at a count cap** (`vellaveto-types/src/task.rs`). An attacker who emits `max_nonces` fresh nonces flushes the cache and can then replay an evicted one. Fix: evict by time window rather than by count, so eviction is tied to the freshness bound instead of to volume. | Open — limitation documented |
+
+All replay caches in the workspace are per-process (`RwLock<HashMap>` /
+`DashMap`): none survive a restart or coordinate across replicas.
+
+---
+
 ## ACIS Decision Envelopes (E1/E2, Mar 2026)
 
 Every security decision now carries a structured `AcisDecisionEnvelope` in the audit trail, providing:

@@ -72,7 +72,18 @@ Vellaveto applies multi-layer redaction before writing audit logs:
 
 **Sensitive value prefixes** (always redacted): `sk-` (OpenAI/Anthropic), `AKIA` (AWS), `ghp_`/`gho_`/`ghs_` (GitHub), `xoxb-`/`xoxp-` (Slack), `Bearer`/`Basic` (auth headers), `sk_live_` (Stripe), `AIza` (Google), `SG.` (SendGrid), `npm_`, `pypi-`
 
-**PII patterns** (configurable): email addresses, SSNs, phone numbers, credit card numbers (Luhn-validated), JWTs, IPv4 addresses
+**PII patterns** (extensible): the built-in set is exactly seven — email
+addresses, US SSNs, US phone numbers, credit card numbers (Luhn-validated),
+IPv4 addresses, JWTs, and AWS key IDs.
+
+These defaults are **US-centric and deliberately narrow**. Not covered: IBANs,
+NHS numbers, EU/UK national IDs, passport numbers, non-US phone formats, IPv6
+addresses, **filesystem paths**, and **personal names**. Add site-specific
+patterns as `CustomPiiPattern` entries; each is checked by
+`validate_regex_safety()` for ReDoS-prone constructs before being compiled.
+
+The same pattern set backs the Consumer Shield's `QuerySanitizer`, so the
+Shield's sanitization coverage is identical to the list above.
 
 Redaction level is configurable: `Off`, `KeysOnly`, `KeysAndPatterns` (default), `High`.
 

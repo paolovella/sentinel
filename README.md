@@ -57,33 +57,51 @@ Agent attempts: read_file("/home/user/.aws/credentials")
 
 ## Consumer Shield — Protect Users from AI Providers
 
-Enterprise security is half the story. When AI providers process tool calls through their infrastructure, they see your file paths, credentials, browsing patterns, and work context. The [Consumer Shield](examples/presets/consumer-shield.toml) is a user-side deployment mode that protects individuals from mass data collection — regardless of what the provider's terms of service say.
+Enterprise security is half the story. When AI providers process tool calls through their infrastructure, they see your credentials, browsing patterns, and work context. The [Consumer Shield](examples/presets/consumer-shield.toml) is a user-side deployment mode that protects individuals from mass data collection — regardless of what the provider's terms of service say.
 
 ```
-You type: "Read my medical records at /home/alice/health/lab-results.pdf"
+You type: "Email the Q3 numbers to alice@example.com from the box at 10.2.14.7"
   → Shield intercepts before the provider sees it
-  → PII replaced: "Read my medical records at [PII_PATH_1]"
+  → PII replaced: "Email the Q3 numbers to [PII_EMAIL_A3F91C4D8B2E7061]
+                   from the box at [PII_IPV4_7C40E1B9D6A2F358]"
   → Provider processes the sanitized request
-  → Response comes back, Shield restores original paths
-  → Encrypted local audit proves what was shared and what was stripped
+  → Response comes back, Shield restores the originals
+  → Encrypted local audit records what was shared and what was stripped
 ```
+
+Placeholder tokens are random, not sequential. A sequential placeholder is a
+desanitization oracle: an attacker who can guess `[PII_EMAIL_2]` can probe the
+restore path for a value they never saw.
 
 **What the Shield does:**
 
 | Layer | What It Protects | How |
 |---|---|---|
-| **PII sanitization** | File paths, emails, IPs, names, credentials | Bidirectional replacement with `[PII_{CAT}_{SEQ}]` placeholders — provider never sees originals |
+| **PII sanitization** | Emails, US SSNs, US phone numbers, credit card numbers (Luhn-checked), IPv4 addresses, JWTs, AWS key IDs | Bidirectional replacement with `[PII_{CAT}_{TOKEN}]` placeholders (16 random hex chars) — provider never sees originals |
 | **Encrypted local audit** | Full interaction history | XChaCha20-Poly1305 + Argon2id, stored on your machine, not the provider's |
 | **Session isolation** | Cross-session correlation | Each session gets a fresh credential — provider cannot link sessions to build a profile |
 | **Credential vault** | API keys, tokens passed through tool calls | Blind credential binding — provider sees the tool call but not the credential value |
 | **Stylometric resistance** | Writing style fingerprinting | Whitespace, punctuation, emoji, and filler word normalization so your writing patterns are not identifiable |
-| **Warrant canary** | Legal compulsion transparency | Ed25519-signed canary — if it stops being updated, assume legal pressure |
+| **Warrant canary** | Legal compulsion transparency | Verification for Ed25519-signed canaries. Issuance and publication are not yet shipped — see [Warrant canary](docs/SECURITY_MODEL.md#warrant-canary) for what a canary does and does not establish |
+
+**Scope of PII detection.** The built-in patterns are the seven listed above and
+are **US-centric** — there is no IBAN, NHS number, EU national ID, passport, or
+non-US phone format, and **file paths and personal names are not detected**.
+Non-US and site-specific PII must be supplied as `CustomPiiPattern` entries. See
+[Security Model](docs/SECURITY_MODEL.md) for the pattern list.
 
 The Shield runs locally as `vellaveto-shield` and is licensed under **MPL-2.0** — no enterprise license required.
 
 ```bash
 vellaveto-shield --config consumer-shield.toml -- npx @anthropic/claude-desktop
 ```
+
+**Platform support.** Release binaries are built for **Linux (x86_64, aarch64,
+musl) and macOS (x86_64, aarch64)**. There is no Windows target: the code is not
+platform-specific and would largely compile, but it is neither built nor tested
+there, the child-process environment allowlist passes POSIX variable names only,
+and the `0o600` permission hardening applied to the audit log and checkpoint
+files is a no-op outside Unix. CI runs on Linux.
 
 ## What It Does
 
@@ -183,7 +201,7 @@ docker run -p 3000:3000 \
 
 ### Use with Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux) — Windows is not a supported target, see [Platform support](#consumer-shield--protect-users-from-ai-providers):
 
 ```json
 {

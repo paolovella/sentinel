@@ -233,9 +233,7 @@ fn test_session_isolator_honours_custom_patterns() {
         "custom pattern must be applied, got {text}"
     );
 
-    let restored = isolator
-        .desanitize_json_in_session("s1", &out)
-        .unwrap();
+    let restored = isolator.desanitize_json_in_session("s1", &out).unwrap();
     assert_eq!(restored["note"].as_str().unwrap(), "see EMP-123456");
 }
 

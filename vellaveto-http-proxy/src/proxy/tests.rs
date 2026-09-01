@@ -5081,12 +5081,10 @@ fn test_ingest_tools_for_discovery_indexes_tools_list() {
     use vellaveto_mcp::discovery::DiscoveryEngine;
 
     let mut state = make_test_proxy_state(false);
-    let engine = std::sync::Arc::new(DiscoveryEngine::new(
-        vellaveto_config::DiscoveryConfig {
-            enabled: true,
-            ..Default::default()
-        },
-    ));
+    let engine = std::sync::Arc::new(DiscoveryEngine::new(vellaveto_config::DiscoveryConfig {
+        enabled: true,
+        ..Default::default()
+    }));
     state.discovery_engine = Some(std::sync::Arc::clone(&engine));
 
     assert_eq!(
@@ -5131,12 +5129,10 @@ fn test_ingest_tools_for_discovery_ignores_non_tools_responses() {
     use vellaveto_mcp::discovery::DiscoveryEngine;
 
     let mut state = make_test_proxy_state(false);
-    let engine = std::sync::Arc::new(DiscoveryEngine::new(
-        vellaveto_config::DiscoveryConfig {
-            enabled: true,
-            ..Default::default()
-        },
-    ));
+    let engine = std::sync::Arc::new(DiscoveryEngine::new(vellaveto_config::DiscoveryConfig {
+        enabled: true,
+        ..Default::default()
+    }));
     state.discovery_engine = Some(std::sync::Arc::clone(&engine));
 
     for payload in [

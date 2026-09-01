@@ -1560,8 +1560,8 @@ impl ProxyBridge {
         };
         // Serialization of an already-parsed Value cannot realistically fail;
         // fall back to a marker rather than dropping the entry entirely.
-        let details = serde_json::to_string(msg)
-            .unwrap_or_else(|_| "<unserializable message>".to_string());
+        let details =
+            serde_json::to_string(msg).unwrap_or_else(|_| "<unserializable message>".to_string());
         let mut guard = audit.lock().await;
         match guard.log_shield_event(event_type, &details).await {
             Ok(()) => Ok(()),
@@ -3280,10 +3280,9 @@ impl ProxyBridge {
                 // SECURITY: Fail-closed — if sanitization fails, PII must not leak to provider.
                 #[cfg(feature = "consumer-shield")]
                 #[allow(unused_mut)]
-                let mut msg = if let Some(sanitize_result) = self.shield_sanitize_json(
-                    state.agent_id.as_deref().unwrap_or("default"),
-                    &msg,
-                ) {
+                let mut msg = if let Some(sanitize_result) =
+                    self.shield_sanitize_json(state.agent_id.as_deref().unwrap_or("default"), &msg)
+                {
                     match sanitize_result {
                         Ok(sanitized) => sanitized,
                         Err(e) => {
@@ -4240,10 +4239,9 @@ impl ProxyBridge {
             ProxyDecision::Forward => {
                 // SECURITY (R233-SHIELD-2): PII sanitization for resource reads.
                 #[cfg(feature = "consumer-shield")]
-                let msg = if let Some(sanitize_result) = self.shield_sanitize_json(
-                    state.agent_id.as_deref().unwrap_or("default"),
-                    &msg,
-                ) {
+                let msg = if let Some(sanitize_result) =
+                    self.shield_sanitize_json(state.agent_id.as_deref().unwrap_or("default"), &msg)
+                {
                     match sanitize_result {
                         Ok(sanitized) => sanitized,
                         Err(e) => {
@@ -10514,7 +10512,8 @@ mod tests {
         )
         .expect("encrypted store");
         let manager = Arc::new(tokio::sync::Mutex::new(
-            vellaveto_mcp_shield::LocalAuditManager::new(dir.join("audit.log"), store).with_merkle(),
+            vellaveto_mcp_shield::LocalAuditManager::new(dir.join("audit.log"), store)
+                .with_merkle(),
         ));
         let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
             .with_shield_audit(Arc::clone(&manager))
@@ -10634,7 +10633,9 @@ mod tests {
             dir.path().join("audit2.log"),
         ));
         let bare = ProxyBridge::new(PolicyEngine::new(false), vec![], audit2);
-        assert!(bare.shield_sanitize_json("x", &json!({"q": "a@b.co"})).is_none());
+        assert!(bare
+            .shield_sanitize_json("x", &json!({"q": "a@b.co"}))
+            .is_none());
     }
 
     /// The finding this wiring exists to close: before it, `LocalAuditManager`
@@ -10662,8 +10663,14 @@ mod tests {
 
         let entries = manager.lock().await.read_entries().unwrap();
         assert_eq!(entries.len(), 2, "both directions must be recorded");
-        assert_eq!(entries[0].get("event").and_then(|e| e.as_str()), Some("request"));
-        assert_eq!(entries[1].get("event").and_then(|e| e.as_str()), Some("response"));
+        assert_eq!(
+            entries[0].get("event").and_then(|e| e.as_str()),
+            Some("request")
+        );
+        assert_eq!(
+            entries[1].get("event").and_then(|e| e.as_str()),
+            Some("response")
+        );
         // The message content itself must be recoverable, not just the event type.
         assert!(
             entries[0]
@@ -10687,14 +10694,20 @@ mod tests {
             .await
             .unwrap();
         let first = manager.lock().await.merkle_root();
-        assert!(first.is_some(), "merkle root should exist after first entry");
+        assert!(
+            first.is_some(),
+            "merkle root should exist after first entry"
+        );
 
         bridge
             .record_shield_audit("request", &json!({"id": 2}))
             .await
             .unwrap();
         let second = manager.lock().await.merkle_root();
-        assert_ne!(first, second, "merkle root must change as entries are added");
+        assert_ne!(
+            first, second,
+            "merkle root must change as entries are added"
+        );
     }
 
     /// With no store configured the hook is a no-op and never blocks — the

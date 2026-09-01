@@ -904,10 +904,7 @@ pub(super) async fn forward_to_upstream_url(
 
                                 // Transport parity: feed discovery the same
                                 // tools/list (stdio relay does this in relay.rs).
-                                super::helpers::ingest_tools_for_discovery(
-                                    state,
-                                    &response_json,
-                                );
+                                super::helpers::ingest_tools_for_discovery(state, &response_json);
 
                                 // MCP 2025-06-18: Validate structuredContent against registered schemas
                                 if let Some(structured) = result.get("structuredContent") {

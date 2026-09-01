@@ -715,7 +715,9 @@ mod tests {
 
         // A generous freshness window: the timestamp check cannot be what
         // rejects the replay here, so only the nonce cache can.
-        assert!(registry.verify_message(&message, 3600, &nonce_tracker).is_ok());
+        assert!(registry
+            .verify_message(&message, 3600, &nonce_tracker)
+            .is_ok());
 
         for _ in 0..3 {
             assert!(
@@ -740,7 +742,9 @@ mod tests {
         for i in 0..8u8 {
             let message = alice.sign_message("bob", &[i]).unwrap();
             assert!(
-                registry.verify_message(&message, 60, &nonce_tracker).is_ok(),
+                registry
+                    .verify_message(&message, 60, &nonce_tracker)
+                    .is_ok(),
                 "message {i} was wrongly rejected as a replay"
             );
         }
@@ -948,7 +952,9 @@ mod tests {
                 .unwrap()
                 .as_secs(),
         };
-        let err = msg.verify(&pubkey, 300, &NonceTracker::new(300)).unwrap_err();
+        let err = msg
+            .verify(&pubkey, 300, &NonceTracker::new(300))
+            .unwrap_err();
         assert!(
             matches!(err, MessageError::InvalidSender(_)),
             "expected InvalidSender, got: {err}"

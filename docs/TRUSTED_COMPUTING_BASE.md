@@ -3,7 +3,7 @@
 > **Version:** 3.0.0
 > **Date:** 2026-03-06
 > **Status:** Formal foundation current (882+ verification instances across Verus, Kani, TLA+, Coq, Lean 4, and Alloy)
-> **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the proof-program detail and [../ROADMAP.md](../ROADMAP.md) for 2026 execution sequencing
+> **Plan:** See [formal/README.md](../formal/README.md) for the proof-program detail and [../ROADMAP.md](../ROADMAP.md) for 2026 execution sequencing
 
 This document defines what Vellaveto formally verifies, what it trusts, and
 what it does not verify. It is the authoritative reference for all "formally

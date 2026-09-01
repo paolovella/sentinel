@@ -39,7 +39,7 @@ For the normative definition of each guarantee, see
 for 1,000 policies — two orders of magnitude below the 5ms target. The claim refers to the
 `/api/evaluate` hot path excluding network I/O.
 
-For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
+For load testing under concurrency, see the k6 scripts in [perf/](../perf/).
 
 ### C3. "Tamper-evident audit trail with cryptographic integrity"
 

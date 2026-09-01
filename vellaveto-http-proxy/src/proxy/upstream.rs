@@ -877,6 +877,13 @@ pub(super) async fn forward_to_upstream_url(
                                     .output_schema_registry
                                     .register_from_tools_list(&response_json);
 
+                                // Transport parity: feed discovery the same
+                                // tools/list (stdio relay does this in relay.rs).
+                                super::helpers::ingest_tools_for_discovery(
+                                    state,
+                                    &response_json,
+                                );
+
                                 // MCP 2025-06-18: Validate structuredContent against registered schemas
                                 if let Some(structured) = result.get("structuredContent") {
                                     let meta_tool_name = result

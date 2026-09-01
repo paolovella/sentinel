@@ -5070,6 +5070,98 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
     }
 }
 
+/// Transport parity: the HTTP-family transports must feed the discovery engine
+/// the same `tools/list` responses the stdio relay does. Before this wiring the
+/// engine was constructed and never fed, so discovery silently indexed nothing
+/// outside stdio.
+#[cfg(feature = "discovery")]
+#[test]
+fn test_ingest_tools_for_discovery_indexes_tools_list() {
+    use vellaveto_mcp::discovery::DiscoveryEngine;
+
+    let mut state = make_test_proxy_state(false);
+    let engine = std::sync::Arc::new(DiscoveryEngine::new(
+        vellaveto_config::DiscoveryConfig {
+            enabled: true,
+            ..Default::default()
+        },
+    ));
+    state.discovery_engine = Some(std::sync::Arc::clone(&engine));
+
+    assert_eq!(
+        engine.index_stats().unwrap().total_tools,
+        0,
+        "engine starts empty"
+    );
+
+    let response = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "tools": [
+                {
+                    "name": "read_file",
+                    "description": "Read a file from disk",
+                    "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}
+                },
+                {
+                    "name": "write_file",
+                    "description": "Write a file to disk",
+                    "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}
+                }
+            ]
+        }
+    });
+
+    super::helpers::ingest_tools_for_discovery(&state, &response);
+
+    assert_eq!(
+        engine.index_stats().unwrap().total_tools,
+        2,
+        "tools/list response must reach the discovery index"
+    );
+}
+
+/// A response with no `result.tools` must not disturb the index, since the
+/// helper is called on every response the transports see.
+#[cfg(feature = "discovery")]
+#[test]
+fn test_ingest_tools_for_discovery_ignores_non_tools_responses() {
+    use vellaveto_mcp::discovery::DiscoveryEngine;
+
+    let mut state = make_test_proxy_state(false);
+    let engine = std::sync::Arc::new(DiscoveryEngine::new(
+        vellaveto_config::DiscoveryConfig {
+            enabled: true,
+            ..Default::default()
+        },
+    ));
+    state.discovery_engine = Some(std::sync::Arc::clone(&engine));
+
+    for payload in [
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": {"content": []}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "error": {"code": -32000}}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "notifications/progress"}),
+    ] {
+        super::helpers::ingest_tools_for_discovery(&state, &payload);
+    }
+
+    assert_eq!(engine.index_stats().unwrap().total_tools, 0);
+}
+
+/// With no engine configured the helper must be inert, not panic — most
+/// deployments run without discovery enabled.
+#[cfg(feature = "discovery")]
+#[test]
+fn test_ingest_tools_for_discovery_without_engine_is_inert() {
+    let state = make_test_proxy_state(false);
+    assert!(state.discovery_engine.is_none());
+    super::helpers::ingest_tools_for_discovery(
+        &state,
+        &serde_json::json!({"result": {"tools": [{"name": "x", "description": "y"}]}}),
+    );
+}
+
 #[test]
 fn test_canonicalize_off_returns_original_bytes() {
     let state = make_test_proxy_state(false);

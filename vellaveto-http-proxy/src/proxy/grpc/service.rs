@@ -3175,6 +3175,9 @@ impl McpGrpcService {
             .output_schema_registry
             .register_from_tools_list(&response_json);
 
+        // Transport parity: feed discovery the same tools/list.
+        super::super::helpers::ingest_tools_for_discovery(&self.state, &response_json);
+
         // SECURITY (FIND-R53-GRPC-004): Output schema validation.
         // Parity with WS handler (websocket/mod.rs:2327-2370).
         let mut schema_violation_found = false;

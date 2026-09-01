@@ -298,18 +298,32 @@ impl SessionIsolator {
             .filter(|p| state.sanitizer.has_placeholder(p))
             .collect();
         if !owned.is_empty() {
-            let latest_outbound = state.history.back().ok_or_else(|| {
-                ShieldError::Desanitization(
+            if state.history.is_empty() {
+                return Err(ShieldError::Desanitization(
                     "no outbound sanitized request available for placeholder restoration"
                         .to_string(),
-                )
-            })?;
-            if owned
-                .iter()
-                .any(|placeholder| !latest_outbound.contains(placeholder.as_str()))
-            {
+                ));
+            }
+            // Every owned placeholder must have been emitted by *some* outbound
+            // message in this session's bounded history.
+            //
+            // Deliberately not "the most recent message only", which is what the
+            // string-based `desanitize_in_session` checks. JSON-RPC allows
+            // several requests in flight at once, so a response to request A can
+            // legitimately arrive after request B has gone out; binding to the
+            // latest message alone would fail those responses closed and break
+            // pipelining. Searching the whole history still blocks the attack
+            // that check exists for — a server echoing a guessed placeholder ID
+            // to probe the mapping table — because a placeholder this session
+            // never emitted appears nowhere in it.
+            if owned.iter().any(|placeholder| {
+                !state
+                    .history
+                    .iter()
+                    .any(|outbound| outbound.contains(placeholder.as_str()))
+            }) {
                 return Err(ShieldError::Desanitization(
-                    "response placeholders do not match the most recent outbound sanitized request (fail-closed)"
+                    "response contains placeholders this session never emitted (fail-closed)"
                         .to_string(),
                 ));
             }

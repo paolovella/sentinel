@@ -114,6 +114,19 @@ pub(super) fn make_jsonrpc_error(id: Option<&Value>, code: i64, message: &str) -
 ///
 /// If OAuth pass-through is enabled, the original Authorization header is
 /// forwarded to upstream.
+/// Whether a header must be withheld from upstream for privacy.
+///
+/// Consults [`PRIVACY_STRIP_HEADERS`] so the list stays the single source of
+/// truth rather than being restated at each call site.
+///
+/// [`PRIVACY_STRIP_HEADERS`]: vellaveto_http_proxy_shield::PRIVACY_STRIP_HEADERS
+pub(super) fn strip_for_privacy(state: &ProxyState, header: &str) -> bool {
+    state.strip_privacy_headers
+        && vellaveto_http_proxy_shield::PRIVACY_STRIP_HEADERS
+            .iter()
+            .any(|stripped| stripped.eq_ignore_ascii_case(header))
+}
+
 pub(super) async fn forward_to_upstream(
     state: &ProxyState,
     session_id: &str,
@@ -147,11 +160,18 @@ pub(super) async fn forward_get_to_upstream(
         request_builder = request_builder.header("authorization", auth);
     }
 
-    // Phase 28: Inject W3C Trace Context headers for distributed tracing
+    // Phase 28: Inject W3C Trace Context headers for distributed tracing.
+    // Suppressed under strip_privacy_headers: these are precisely the values an
+    // upstream operator would use to correlate a user's requests across
+    // sessions. See PRIVACY_STRIP_HEADERS for the full set.
     if let Some((traceparent, tracestate)) = trace_ctx {
-        request_builder = request_builder.header("traceparent", traceparent);
+        if !strip_for_privacy(state, "traceparent") {
+            request_builder = request_builder.header("traceparent", traceparent);
+        }
         if let Some(ts) = tracestate {
-            request_builder = request_builder.header("tracestate", ts);
+            if !strip_for_privacy(state, "tracestate") {
+                request_builder = request_builder.header("tracestate", ts);
+            }
         }
     }
 
@@ -445,11 +465,16 @@ pub(super) async fn forward_to_upstream_url(
         request_builder = request_builder.header("authorization", auth);
     }
 
-    // Phase 28: Inject W3C Trace Context headers for distributed tracing
+    // Phase 28: Inject W3C Trace Context headers for distributed tracing.
+    // Suppressed under strip_privacy_headers — see the GET path above.
     if let Some((traceparent, tracestate)) = options.trace_ctx {
-        request_builder = request_builder.header("traceparent", traceparent);
+        if !strip_for_privacy(state, "traceparent") {
+            request_builder = request_builder.header("traceparent", traceparent);
+        }
         if let Some(ts) = tracestate {
-            request_builder = request_builder.header("tracestate", ts);
+            if !strip_for_privacy(state, "tracestate") {
+                request_builder = request_builder.header("tracestate", ts);
+            }
         }
     }
 

@@ -706,6 +706,7 @@ async fn main() -> Result<()> {
         audit,
         sessions: sessions.clone(),
         upstream_url: args.upstream.clone(),
+        strip_privacy_headers: policy_config.shield.strip_privacy_headers,
         http_client,
         oauth,
         injection_scanner,

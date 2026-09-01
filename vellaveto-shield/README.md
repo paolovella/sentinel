@@ -27,6 +27,12 @@ Protects individual users when interacting with AI agents and MCP tools:
   result means the canary is internally consistent, not that it came from a
   particular publisher. Pin the publisher key out of band. See
   [Security Model](../docs/SECURITY_MODEL.md#warrant-canary).
+- **Traffic padding is not implemented.** `shield.traffic_padding` pads
+  nothing: the padding format is a length-prefixed framing that only works when
+  both peers agree to it, and no negotiation exists yet. It is also meaningless
+  for this stdio proxy, which has no network transport of its own. Privacy
+  header stripping (`shield.strip_privacy_headers`) is real, and applies to the
+  HTTP proxy.
 - **Platform support:** Linux and macOS are built and shipped; CI tests on
   Linux. Windows is neither built nor tested — the child-process environment
   allowlist passes POSIX variable names only, and `0o600` permission hardening

@@ -5003,6 +5003,7 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         audit: Arc::new(AuditLogger::new(PathBuf::from("/tmp/test-audit.log"))),
         sessions: Arc::new(SessionStore::new(std::time::Duration::from_secs(300), 100)),
         upstream_url: "http://localhost:9999".to_string(),
+        strip_privacy_headers: false,
         http_client: reqwest::Client::new(),
         oauth: None,
         injection_scanner: None,
@@ -5160,6 +5161,41 @@ fn test_ingest_tools_for_discovery_without_engine_is_inert() {
         &state,
         &serde_json::json!({"result": {"tools": [{"name": "x", "description": "y"}]}}),
     );
+}
+
+/// The privacy header list is authoritative: every name in it is stripped
+/// when the flag is on, and nothing is stripped when it is off.
+#[test]
+fn test_strip_for_privacy_honours_flag_and_list() {
+    let mut state = make_test_proxy_state(false);
+
+    state.strip_privacy_headers = false;
+    for header in vellaveto_http_proxy_shield::PRIVACY_STRIP_HEADERS {
+        assert!(
+            !super::upstream::strip_for_privacy(&state, header),
+            "{header} must be forwarded when stripping is off"
+        );
+    }
+
+    state.strip_privacy_headers = true;
+    for header in vellaveto_http_proxy_shield::PRIVACY_STRIP_HEADERS {
+        assert!(
+            super::upstream::strip_for_privacy(&state, header),
+            "{header} must be withheld when stripping is on"
+        );
+    }
+
+    // Header matching is case-insensitive, since HTTP header names are.
+    assert!(super::upstream::strip_for_privacy(&state, "TraceParent"));
+    assert!(super::upstream::strip_for_privacy(&state, "X-Request-Id"));
+
+    // Headers the proxy needs are never stripped by this path.
+    for keep in ["authorization", "content-type", "accept", "last-event-id"] {
+        assert!(
+            !super::upstream::strip_for_privacy(&state, keep),
+            "{keep} must never be stripped"
+        );
+    }
 }
 
 #[test]

@@ -123,10 +123,23 @@ pub struct ShieldConfig {
     pub stylometric_level: String,
 
     /// Whether traffic padding is enabled for HTTP transport.
-    /// When true, request/response sizes are padded to fixed buckets and
-    /// privacy-revealing headers are stripped. Default: false.
+    ///
+    /// Padding uses a length-prefixed framing that a standard MCP client cannot
+    /// parse, so it only applies where the peer has negotiated support for it.
+    /// Default: false. See `strip_privacy_headers` for the part that needs no
+    /// negotiation.
     #[serde(default)]
     pub traffic_padding: bool,
+
+    /// Whether to strip correlation and tracing headers from upstream requests.
+    ///
+    /// `traceparent`, `tracestate`, and the `x-*-trace-id` family let an
+    /// upstream operator correlate a user's requests across sessions. Stripping
+    /// them costs distributed tracing through the proxy, which is why it is
+    /// opt-in rather than the default. Unlike padding this changes no wire
+    /// format and needs no negotiation. Default: false.
+    #[serde(default)]
+    pub strip_privacy_headers: bool,
 }
 
 fn default_audit_mode() -> String {
@@ -185,6 +198,7 @@ impl Default for ShieldConfig {
             credential_epoch_interval: default_credential_epoch_interval(),
             stylometric_level: default_stylometric_level(),
             traffic_padding: false,
+            strip_privacy_headers: false,
         }
     }
 }

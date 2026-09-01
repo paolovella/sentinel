@@ -434,7 +434,7 @@ The live property catalog is maintained in [formal/README.md](formal/README.md);
 All four previously documented limitations have been addressed:
 
 - **Cross-call DLP** — `SessionDlpTracker` with overlap buffers detects secrets split across multiple tool calls within a session (~150 bytes state per field). See [`cross_call_dlp.rs`](vellaveto-mcp/src/inspection/cross_call_dlp.rs).
-- **Grammar-validated injection** — JSON Schema `pattern` constraints compiled to DFAs provide a positive security model (Phase 72). The existing Aho-Corasick pre-filter remains as defense-in-depth. MCPSEC A14 attack tests validate enforcement.
+- **Grammar-validated injection** — JSON Schema `pattern` constraints compiled to DFAs provide a positive security model (Phase 72). The existing Aho-Corasick pre-filter remains as defense-in-depth. Covered by MCPSEC A14 regression tests (ours, not an independent check).
 - **TLS termination** — Built-in rustls-based TLS/mTLS via the [`vellaveto-tls`](vellaveto-tls/) crate. Supports SPIFFE identity extraction, post-quantum key exchange policies, and automatic ALPN negotiation. External reverse proxy remains optional.
 - **Independent verification** — [Bug bounty program](SECURITY_BOUNTY.md) (HackerOne + Huntr), [OSTIF audit scope](docs/OSTIF_AUDIT_SCOPE.md), Codecov integration, and OpenSSF Best Practices Badge enrollment.
 
@@ -442,7 +442,11 @@ Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model
 
 ### MCPSEC Benchmark
 
-We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. The current published reference result for VellaVeto is [mcpsec/results/vellaveto-v6.1.json](mcpsec/results/vellaveto-v6.1.json): **100/100 (Tier 5: Hardened)** on 105/105 tests. Run it against any MCP gateway — including ours:
+We wrote [MCPSEC](mcpsec/), an open security benchmark for MCP gateways (Apache-2.0), defining 10 security properties and 105 reproducible attack test cases across 16 attack classes.
+
+**We also wrote the gateway, and the pass criteria.** VellaVeto scored 100/100 on the last published run ([v6.0.0 reference run](mcpsec/results/vellaveto-v6.0.json)), and that number is worth what a self-graded exam is worth: a regression result showing the suite still passes, not independent validation. The test selection reflects the attacks this project chose to think about — protocol replay, for instance, has no class in the suite at all. No third-party gateway has been benchmarked, and we do not publish estimated scores for other products.
+
+What the benchmark is actually good for is that it is reproducible. Run it against any MCP gateway, including ours, and check the result yourself:
 
 ```bash
 cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
@@ -484,7 +488,6 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | None | None | PII scanning (Presidio) |
 | **Enterprise IAM** | OIDC, SAML, RBAC, SCIM, DPoP | None | None | None |
 | **Response attestation** | HMAC-SHA256 content-bound scan results | None | None | None |
-| **MCPSEC score** | 100/100 (Tier 5, reference run) | Not tested | Not applicable | Not tested |
 | **Ease of setup** | `--protect shield` (one flag) / Docker / Helm | Docker / binary | `pip install` | `pip install` |
 | **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | Apache-2.0 | Apache-2.0 | MIT |
 

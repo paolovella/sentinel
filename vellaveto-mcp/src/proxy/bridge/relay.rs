@@ -1489,6 +1489,45 @@ impl ProxyBridge {
         }
     }
 
+    /// Append one intercepted message to the encrypted local audit store.
+    ///
+    /// Returns `Ok(())` when the entry was written, the store is not
+    /// configured, or the write failed in non-strict mode. Returns `Err(reason)`
+    /// only when the write failed *and* `shield_audit_strict` is set, in which
+    /// case the caller must block the request — an audit gap is the failure the
+    /// strict mode exists to prevent.
+    ///
+    /// Records the message as presented, before PII sanitization, so the local
+    /// history shows what the user actually wrote rather than placeholders. The
+    /// store is encrypted on the user's own machine, which is what makes that
+    /// safe — and what makes it useful for showing what was stripped.
+    #[cfg(feature = "consumer-shield")]
+    async fn record_shield_audit(&self, event_type: &str, msg: &Value) -> Result<(), String> {
+        let Some(ref audit) = self.shield_audit else {
+            return Ok(());
+        };
+        // Serialization of an already-parsed Value cannot realistically fail;
+        // fall back to a marker rather than dropping the entry entirely.
+        let details = serde_json::to_string(msg)
+            .unwrap_or_else(|_| "<unserializable message>".to_string());
+        let mut guard = audit.lock().await;
+        match guard.log_shield_event(event_type, &details).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                tracing::warn!(
+                    "Shield encrypted audit write failed ({}): {}",
+                    event_type,
+                    e
+                );
+                if self.shield_audit_strict {
+                    Err(format!("encrypted audit write failed: {e}"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
     async fn create_pending_approval(
         &self,
         action: &Action,
@@ -3168,6 +3207,21 @@ impl ProxyBridge {
                     if let Err(e) = isolator.record_json_request(session_id, &msg) {
                         tracing::debug!("Shield context record (outbound) failed: {}", e);
                     }
+                }
+
+                // Consumer shield: append to the encrypted local audit store,
+                // also before sanitization so the user's own history is readable.
+                #[cfg(feature = "consumer-shield")]
+                if let Err(reason) = self.record_shield_audit("request", &msg).await {
+                    let error_response = make_denial_response(
+                        &id,
+                        "Shield encrypted audit write failed — request blocked (audit strict mode)",
+                    );
+                    write_message(agent_writer, &error_response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    tracing::error!("Shield audit strict mode blocked request: {}", reason);
+                    return Ok(());
                 }
 
                 // Consumer shield: sanitize outbound request parameters
@@ -8047,6 +8101,24 @@ impl ProxyBridge {
             }
         }
 
+        // Consumer shield: append the response to the encrypted local audit store.
+        // In strict mode an unauditable response is not delivered — the agent gets
+        // an explicit error rather than content that left no record, and rather
+        // than a silent drop that would hang the caller.
+        #[cfg(feature = "consumer-shield")]
+        if let Err(reason) = self.record_shield_audit("response", &msg).await {
+            tracing::error!("Shield audit strict mode blocked response: {}", reason);
+            let denial_id = msg.get("id").cloned().unwrap_or(Value::Null);
+            let error_response = make_denial_response(
+                &denial_id,
+                "Shield encrypted audit write failed — response withheld (audit strict mode)",
+            );
+            write_message(agent_writer, &error_response)
+                .await
+                .map_err(ProxyError::Framing)?;
+            return Ok(());
+        }
+
         // Remove from pending requests on response
         let mut response_tool_name: Option<String> = None;
         let mut response_trace: Option<EvaluationTrace> = None;
@@ -10360,6 +10432,110 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_deref(), Some(approval_id.as_str()));
+    }
+
+    /// Build a bridge with an encrypted shield audit store rooted in `dir`.
+    #[cfg(feature = "consumer-shield")]
+    fn bridge_with_shield_audit(
+        dir: &std::path::Path,
+        strict: bool,
+    ) -> (
+        ProxyBridge,
+        Arc<tokio::sync::Mutex<vellaveto_mcp_shield::LocalAuditManager>>,
+    ) {
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(dir.join("audit.log")));
+        let store = vellaveto_mcp_shield::EncryptedAuditStore::new(
+            dir.join("shield-audit.enc"),
+            "test-passphrase-not-a-secret",
+        )
+        .expect("encrypted store");
+        let manager = Arc::new(tokio::sync::Mutex::new(
+            vellaveto_mcp_shield::LocalAuditManager::new(dir.join("audit.log"), store).with_merkle(),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_shield_audit(Arc::clone(&manager))
+            .with_shield_audit_strict(strict);
+        (bridge, manager)
+    }
+
+    /// The finding this wiring exists to close: before it, `LocalAuditManager`
+    /// was constructed and never called, so the encrypted store stayed empty
+    /// while the shield logged "Encrypted audit store: ENABLED".
+    #[cfg(feature = "consumer-shield")]
+    #[tokio::test]
+    async fn test_shield_audit_records_requests_and_responses() {
+        let dir = tempfile::tempdir().unwrap();
+        let (bridge, manager) = bridge_with_shield_audit(dir.path(), false);
+
+        assert!(
+            manager.lock().await.read_entries().unwrap().is_empty(),
+            "store should start empty"
+        );
+
+        bridge
+            .record_shield_audit("request", &json!({"method": "tools/call", "id": 1}))
+            .await
+            .expect("request write");
+        bridge
+            .record_shield_audit("response", &json!({"result": "ok", "id": 1}))
+            .await
+            .expect("response write");
+
+        let entries = manager.lock().await.read_entries().unwrap();
+        assert_eq!(entries.len(), 2, "both directions must be recorded");
+        assert_eq!(entries[0].get("event").and_then(|e| e.as_str()), Some("request"));
+        assert_eq!(entries[1].get("event").and_then(|e| e.as_str()), Some("response"));
+        // The message content itself must be recoverable, not just the event type.
+        assert!(
+            entries[0]
+                .get("details")
+                .and_then(|d| d.as_str())
+                .is_some_and(|d| d.contains("tools/call")),
+            "entry must carry the intercepted message"
+        );
+    }
+
+    /// Merkle chaining advances as entries are appended, so the local history
+    /// is tamper-evident rather than merely encrypted.
+    #[cfg(feature = "consumer-shield")]
+    #[tokio::test]
+    async fn test_shield_audit_merkle_root_advances() {
+        let dir = tempfile::tempdir().unwrap();
+        let (bridge, manager) = bridge_with_shield_audit(dir.path(), false);
+
+        bridge
+            .record_shield_audit("request", &json!({"id": 1}))
+            .await
+            .unwrap();
+        let first = manager.lock().await.merkle_root();
+        assert!(first.is_some(), "merkle root should exist after first entry");
+
+        bridge
+            .record_shield_audit("request", &json!({"id": 2}))
+            .await
+            .unwrap();
+        let second = manager.lock().await.merkle_root();
+        assert_ne!(first, second, "merkle root must change as entries are added");
+    }
+
+    /// With no store configured the hook is a no-op and never blocks — the
+    /// shield must work with the encrypted store turned off.
+    #[cfg(feature = "consumer-shield")]
+    #[tokio::test]
+    async fn test_shield_audit_absent_store_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_shield_audit_strict(true);
+        assert!(
+            bridge
+                .record_shield_audit("request", &json!({"id": 1}))
+                .await
+                .is_ok(),
+            "strict mode must not block when no store is configured"
+        );
     }
 
     /// SECURITY (R246-RELAY-2): Approval created with requested_by tracks identity,

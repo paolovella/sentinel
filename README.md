@@ -78,7 +78,7 @@ restore path for a value they never saw.
 | Layer | What It Protects | How |
 |---|---|---|
 | **PII sanitization** | Emails, US SSNs, US phone numbers, credit card numbers (Luhn-checked), IPv4 addresses, JWTs, AWS key IDs | Bidirectional replacement with `[PII_{CAT}_{TOKEN}]` placeholders (16 random hex chars) — provider never sees originals |
-| **Encrypted local audit** | Full interaction history | XChaCha20-Poly1305 + Argon2id, stored on your machine, not the provider's |
+| **Encrypted local audit** | Full interaction history | Every intercepted request and response, recorded before sanitization so you can see what was stripped. XChaCha20-Poly1305 + Argon2id, optional Merkle chaining, stored on your machine, not the provider's. Requires `audit_mode = "local"` and a passphrase |
 | **Session isolation** | Cross-session correlation | Each session gets a fresh credential — provider cannot link sessions to build a profile |
 | **Credential vault** | API keys, tokens passed through tool calls | Blind credential binding — provider sees the tool call but not the credential value |
 | **Stylometric resistance** | Writing style fingerprinting | Whitespace, punctuation, emoji, and filler word normalization so your writing patterns are not identifiable |

@@ -110,8 +110,10 @@ async fn main() -> Result<()> {
         .context("Failed to initialize audit chain — refusing to start")?;
     tracing::info!("Audit log: {}", audit_path.display());
 
-    // Set up encrypted audit store (only in local audit mode)
-    let mut _audit_manager = None;
+    // Set up encrypted audit store (only in local audit mode).
+    // Wired into the bridge below — without that, the store is created on disk
+    // and never written to.
+    let mut audit_manager = None;
     if policy_config.shield.enabled
         && !passphrase.is_empty()
         && policy_config.shield.audit_mode == "local"
@@ -132,7 +134,7 @@ async fn main() -> Result<()> {
         } else {
             manager
         };
-        _audit_manager = Some(manager);
+        audit_manager = Some(std::sync::Arc::new(tokio::sync::Mutex::new(manager)));
         tracing::info!("Encrypted audit store: ENABLED (local mode)");
     } else if policy_config.shield.enabled && policy_config.shield.audit_mode == "remote" {
         tracing::info!("Audit mode: remote — encrypted local store skipped");
@@ -404,8 +406,16 @@ async fn main() -> Result<()> {
         bridge = bridge.with_context_isolator(isolator);
     }
 
-    if policy_config.shield.traffic_padding {
-        tracing::info!("Traffic padding: ENABLED (HTTP transport only)");
+    // Wire the encrypted audit store into the bridge so intercepted requests
+    // and responses are actually recorded. Without this the store exists on
+    // disk and stays empty.
+    if let Some(manager) = audit_manager {
+        bridge = bridge
+            .with_shield_audit(manager)
+            .with_shield_audit_strict(policy_config.audit.strict_mode);
+        if policy_config.audit.strict_mode {
+            tracing::info!("Encrypted audit: STRICT (write failure blocks the request)");
+        }
     }
 
     tracing::info!(

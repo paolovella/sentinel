@@ -7,7 +7,11 @@ Consumer AI shield — privacy-preserving protection for end-user MCP interactio
 Protects individual users when interacting with AI agents and MCP tools:
 
 - **Bidirectional PII sanitization** — strips detected personal data before it reaches tools, restores on return
-- **Encrypted local audit** — XChaCha20-Poly1305 encrypted audit trail with Merkle proofs
+- **Encrypted local audit** — every intercepted request and response written to
+  an XChaCha20-Poly1305 store (Argon2id-derived key), with optional Merkle
+  chaining. Enabled by `shield.audit_mode = "local"` plus a passphrase; set
+  `audit.strict_mode` to refuse traffic that cannot be recorded. Separate from
+  the plaintext decision log, which records policy verdicts rather than content
 - **Session isolation** — per-session PII and context isolation
 - **Credential vault** — encrypted credential storage with epoch-based rotation
 - **Warrant canary** — verification of Ed25519-signed canaries (issuance not yet shipped)

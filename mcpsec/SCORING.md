@@ -14,14 +14,19 @@ overall score, so a tier says something the arithmetic supports.
 | 1 | 20-39% | — | Basic | Passes access-control tests and little else. Typical of allowlist-only gateways: no parameter inspection, injection detection, or audit integrity. |
 | 2 | 40-59% | — | Moderate | Passes some parameter-inspection or injection tests. Whole properties are likely at or near zero — read the breakdown. |
 | 3 | 60-79% | — | Strong | Passes most tests in the higher-weighted properties. One or more properties may still be entirely unaddressed. |
-| 4 | 80-94% | no property below 70% | Comprehensive | Every property has substantial coverage and none is absent. Individual tests fail in several properties. |
+| 4 | 80-94% | no property below 70% | Comprehensive | Every property is addressed and none is absent, but several have failing tests. |
 | 5 | 95-100% | no property below 90% | Hardened | Every property passes nearly all of its tests. This is a measurement against the 105 tests in this suite, not a judgment of fitness for any particular deployment. |
 
-A gateway that meets an overall threshold but misses the floor is assigned the
-next tier down. **Report the per-property breakdown with every score.** An
-overall percentage published without it is not a meaningful result, and no tier
-in this table certifies that a class of attack is "solved" — only that the tests
-in this suite for that class passed.
+A gateway that meets an overall threshold but misses the floor is demoted until
+it satisfies the band it lands in. A result scoring 96% overall with one
+property at 20% misses both floors and is assigned Tier 3, not Tier 5 — which is
+the case this rule exists to catch. Properties the suite does not exercise
+(`tests_total == 0`) are excluded from the floor rather than counted as zero.
+
+**Report the per-property breakdown with every score.** An overall percentage
+published without it is not a meaningful result, and no tier in this table
+certifies that a class of attack is "solved" — only that the tests in this suite
+for that class passed.
 
 ### What a tier does not mean
 

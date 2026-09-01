@@ -125,7 +125,7 @@ These invariants are enforced by concrete runtime capabilities:
 **Core guarantees:**
 - **Complete mediation** — request and response paths evaluated before tool execution and before model return
 - **Fail-closed** — errors, missing policies, and unresolved context all produce `Deny`
-- **Tamper-evident audit** — SHA-256 hash chain + Merkle proofs + Ed25519 signed checkpoints, with structured ACIS decision envelopes on every verdict
+- **Tamper-evident audit** — SHA-256 hash chain + Merkle proofs, with structured ACIS decision envelopes on every verdict. Ed25519 signed checkpoints are **opt-in**: enable them, set a persistent `VELLAVETO_SIGNING_KEY` (otherwise a fresh key is generated per process and checkpoints do not survive a restart), and pin `VELLAVETO_TRUSTED_KEY` when verifying. Timestamps come from the signing host's clock — signatures attest authorship, not time. See [Signing and timestamps](docs/SECURITY_MODEL.md#signing-and-timestamps).
 - **Content-bound attestation** — HMAC-SHA256 signed scan results on every response, cryptographically binding injection/DLP/schema verdicts to the response content hash. Consumers verify with `SDK.verify_attestation()`. Set `VELLAVETO_ATTESTATION_SECRET` to enable.
 - **Public security contract** — [Security Guarantees](docs/SECURITY_GUARANTEES.md) + [Assurance Case](docs/ASSURANCE_CASE.md) with reproducible evidence
 
@@ -395,7 +395,7 @@ VellaVeto is continuously exercised by internal adversarial audit sweeps mapped 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
 - **Broad automated coverage** — Rust, SDK, integration, benchmark, and fuzz suites back the core policy, proxy, and audit paths
-- **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) audit signatures, feature-gated behind `pqc-hybrid`
+- **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) signatures on audit checkpoints and rotation manifests, feature-gated behind `pqc-hybrid`. Not applied to evidence packs, warrant canaries, agent cards, or capability tokens.
 
 ### Formal Verification
 

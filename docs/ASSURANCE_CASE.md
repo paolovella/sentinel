@@ -46,9 +46,9 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | Field | Value |
 |-------|-------|
 | **Scope** | Append-only audit log with SHA-256 hash chain, Ed25519 checkpoint signatures, Merkle inclusion proofs |
-| **Assumptions** | Filesystem not actively compromised during writes; Ed25519/SHA-256 primitives are correct; signing key not compromised |
+| **Assumptions** | Filesystem not actively compromised during writes; Ed25519/SHA-256 primitives are correct; signing key not compromised; **the signing host's clock is trusted** — all timestamps come from `Utc::now()` on that host, with no RFC 3161 authority or external anchor |
 | **What "tamper-evident" means** | Tampering is *detected* on verification, not *prevented*. Truncation is detectable. Silent modification of individual entries breaks the hash chain. |
-| **What it does NOT mean** | An attacker with write access cannot be prevented from deleting the log entirely. Forward to external SIEM for tamper-resistant archival. |
+| **What it does NOT mean** | An attacker with write access cannot be prevented from deleting the log entirely. Forward to external SIEM for tamper-resistant archival. Entry timestamps are **not** attested: the chain proves the order entries were written, not the wall-clock times they claim, and the key holder can assign any non-decreasing sequence. See [Signing and timestamps](SECURITY_MODEL.md#where-signing-time-comes-from). |
 | **Test evidence** | `vellaveto-audit/src/tests.rs` — hash chain verification, corruption detection, checkpoint validation, Merkle proof verification; `vellaveto-integration/tests/` — audit integrity tests |
 | **Reproduce** | `cargo test -p vellaveto-audit -- chain && cargo test -p vellaveto-audit -- checkpoint && cargo test -p vellaveto-audit -- merkle` |
 

@@ -447,6 +447,23 @@ impl ProxyBridge {
         self
     }
 
+    /// Enable per-session PII isolation, replacing the process-global sanitizer.
+    ///
+    /// Each session gets its own mapping table, so a placeholder minted in one
+    /// session is meaningless in another. Takes precedence over
+    /// [`with_shield_sanitizer`] when both are set, since two mapping tables
+    /// would make desanitization consult the wrong one.
+    ///
+    /// [`with_shield_sanitizer`]: Self::with_shield_sanitizer
+    #[cfg(feature = "consumer-shield")]
+    pub fn with_session_isolator(
+        mut self,
+        isolator: Arc<vellaveto_mcp_shield::SessionIsolator>,
+    ) -> Self {
+        self.shield_session_isolator = Some(isolator);
+        self
+    }
+
     /// Set the encrypted local audit store for shield interaction history.
     ///
     /// Without this, a configured [`LocalAuditManager`] records nothing: the

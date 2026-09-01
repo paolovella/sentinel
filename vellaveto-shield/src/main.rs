@@ -141,7 +141,8 @@ async fn main() -> Result<()> {
     }
 
     // Set up shield sanitizer
-    let shield_sanitizer = if policy_config.shield.enabled && policy_config.shield.sanitize_queries
+    let (shield_sanitizer, shield_session_isolator) = if policy_config.shield.enabled
+        && policy_config.shield.sanitize_queries
     {
         let custom_patterns: Vec<vellaveto_audit::CustomPiiPattern> = policy_config
             .shield
@@ -152,12 +153,28 @@ async fn main() -> Result<()> {
                 pattern: p.pattern.clone(),
             })
             .collect();
-        let scanner = vellaveto_audit::PiiScanner::new(&custom_patterns);
-        let sanitizer = Arc::new(vellaveto_mcp_shield::QuerySanitizer::new(scanner));
-        tracing::info!("Shield sanitizer: ENABLED");
-        Some(sanitizer)
+        // With session isolation on, PII mappings are scoped per session
+        // instead of being shared process-wide. The two are alternatives: a
+        // second mapping table would make desanitization consult the wrong one,
+        // so exactly one of these is populated.
+        if policy_config.shield.session_isolation {
+            tracing::info!("Shield sanitizer: ENABLED (per-session isolation)");
+            (
+                None,
+                Some(Arc::new(
+                    vellaveto_mcp_shield::SessionIsolator::with_custom_patterns(custom_patterns),
+                )),
+            )
+        } else {
+            let scanner = vellaveto_audit::PiiScanner::new(&custom_patterns);
+            tracing::info!("Shield sanitizer: ENABLED (process-global mapping table)");
+            (
+                Some(Arc::new(vellaveto_mcp_shield::QuerySanitizer::new(scanner))),
+                None,
+            )
+        }
     } else {
-        None
+        (None, None)
     };
 
     // Optional: Verify warrant canary
@@ -300,9 +317,14 @@ async fn main() -> Result<()> {
         .with_sampling_config(policy_config.sampling.clone())
         .with_elicitation_config(policy_config.elicitation.clone());
 
-    // Wire shield sanitizer and desanitize flag
+    // Wire shield sanitizer and desanitize flag. Exactly one of these is set:
+    // the session isolator keeps a mapping table per session, the global
+    // sanitizer keeps one for the process.
     if let Some(sanitizer) = shield_sanitizer {
         bridge = bridge.with_shield_sanitizer(sanitizer);
+    }
+    if let Some(isolator) = shield_session_isolator {
+        bridge = bridge.with_session_isolator(isolator);
     }
     bridge = bridge.with_shield_desanitize_responses(policy_config.shield.desanitize_responses);
 

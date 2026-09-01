@@ -276,6 +276,21 @@ pub struct ProxyBridge {
     shield_session_unlinker: Option<Arc<tokio::sync::Mutex<vellaveto_mcp_shield::SessionUnlinker>>>,
 
     // ═══════════════════════════════════════════════════════════════════
+    // Consumer Shield: Per-Session PII Isolation
+    // ═══════════════════════════════════════════════════════════════════
+    /// When set, PII sanitization uses a mapping table scoped to the session
+    /// rather than the process-global `shield_sanitizer`. A placeholder minted
+    /// in one session cannot be restored in another, and restoration is bound
+    /// to the session's most recent outbound message so a server cannot probe
+    /// the table by replaying guessed placeholder IDs.
+    ///
+    /// Takes precedence over `shield_sanitizer` when both are set — they are
+    /// alternatives, not layers: running both would create two mapping tables
+    /// and desanitization would consult the wrong one.
+    #[cfg(feature = "consumer-shield")]
+    shield_session_isolator: Option<Arc<vellaveto_mcp_shield::SessionIsolator>>,
+
+    // ═══════════════════════════════════════════════════════════════════
     // Consumer Shield: Encrypted Local Audit
     // ═══════════════════════════════════════════════════════════════════
     /// When set, each intercepted request and response is written to the
@@ -404,6 +419,8 @@ impl ProxyBridge {
             shield_context_isolator: None,
             #[cfg(feature = "consumer-shield")]
             shield_session_unlinker: None,
+            #[cfg(feature = "consumer-shield")]
+            shield_session_isolator: None,
             #[cfg(feature = "consumer-shield")]
             shield_audit: None,
             #[cfg(feature = "consumer-shield")]

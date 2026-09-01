@@ -23,6 +23,36 @@ Finding IDs follow the pattern `FIND-R{round}-{number}` (e.g., `FIND-R116-001`).
 
 ---
 
+## Unwired-Feature Sweep (Sep 2026)
+
+A follow-up scan asked a sharper question than the documentation review below:
+**which advertised features have no production caller at all?** Seven findings.
+Unlike the round below, most were closed by wiring the feature rather than by
+softening the claim.
+
+| ID | Sev | Finding | Outcome |
+|----|-----|---------|---------|
+| **F1** | P1 | **Shield's encrypted local audit never wrote anything.** `vellaveto-shield/src/main.rs` built a `LocalAuditManager`, configured Merkle and ZK on it, bound it to `_audit_manager` (the "intentionally unused" convention) and never passed it to the bridge — while logging `"Encrypted audit store: ENABLED"` and `"ZK commitments: ENABLED"`. The real interaction history went to plaintext `shield-audit.log`. | **Fixed** — `with_shield_audit()` on the bridge, called at the outbound and inbound hook points beside the context isolator. Honours `audit.strict_mode`. |
+| **F2** | P2 | **`vellaveto-http-proxy-shield` was an unconsumed workspace crate.** Traffic padding and privacy header stripping were both advertised and inert; the stdio shield only printed `"Traffic padding: ENABLED (HTTP transport only)"`, impossible for a stdio proxy. | **Split.** Header stripping wired into the HTTP proxy behind `shield.strip_privacy_headers`. Padding deliberately **not** wired — see F2a. |
+| **F2a** | P2 | **Traffic padding cannot be enabled without breaking clients.** `pad_content` emits `[4-byte LE length][content][zero padding]`; a padded body is not valid JSON, so any standard MCP client fails to parse it. | **Open by design.** Needs peer negotiation (client advertises support, unpadded fallback for everyone else). Documented in `vellaveto-http-proxy-shield/README.md`. |
+| **F3** | P2 | **`DiscoveryEngine` was unfed on every transport except stdio.** Constructed in `vellaveto-http-proxy/src/main.rs`, stored in `ProxyState`, never read. Topology discovery silently indexed nothing over HTTP, SSE, WebSocket, or gRPC. | **Fixed** — `ingest_tools_for_discovery()` called at all four sites that already register output schemas from `tools/list`. |
+| **F4** | P3 | **`SessionIsolator` was dead code** while the bridge sanitized through one process-global `QuerySanitizer`. Harmless in the stdio shield (one session per process) but README invariant #4 calls no-cross-session-leakage a product invariant, and a guarantee that holds only by deployment accident is not one. | **Fixed** — wired behind `shield.session_isolation`. Required adding custom-pattern support (it hardcoded `PiiScanner::default()`, which would have silently dropped operator patterns) and a JSON API. |
+| **F5** | P3 | **`ContextIsolator`'s continuity claim was unimplementable safely.** Its doc said local history was "injected into the new session's prompt"; `get_recent_context()` had no caller. The only prompt-carrying message crossing a stdio proxy is a server-initiated `sampling/createMessage`, and the agent returns that completion **to the requesting server** — so injecting history there would let a malicious MCP server harvest it. | **Claim withdrawn, deliberately.** Wiring it as documented would have added an exfiltration channel. Per-session isolation (the real property) is kept and tested. |
+| **F6** | P4 | **`CLAUDE.md` was a major version stale** — 6.1.1 / 2026-03-30 against a 7.0.0 release, with test counts (11,571 vs 13,235), preset counts (12 vs 18) and formal counts all drifted. | **Fixed** — refreshed, and hand-maintained counts replaced with a pointer to the generated evidence block so they cannot drift again. |
+| **F7** | P4 | **Four dead `_requested_by` lookups** in `grpc/service.rs`, each carrying a `SECURITY` comment warning that without them self-approval prevention is bypassed. `create_pending_approval_with_context` derives the requester itself (`helpers.rs`), so they were redundant — but they read like an active control. | **Fixed** — removed, with a note pointing at where the derivation actually happens. |
+
+Verified healthy during the same sweep and deliberately left alone: zero
+`unwrap()`/`expect()` in library code; formal counts exact (Coq 45, Lean 32,
+Alloy 10, TLA+ 14 specs, Kani 129 ≥ 124 claimed) with no `Admitted`, `sorry`, or
+`verifier::external_body`; the 87 `assume(` calls are all `kani::assume` input
+constraints governed by `formal/tools/check-formal-trusted-assumptions.sh`; and
+fail-closed defaults correct at every site checked. The topology crawler and
+recrawl scheduler **are** wired (`vellaveto-server/src/main.rs`), and
+self-approval prevention **is** intact on gRPC — both looked broken on a first
+pass and are not.
+
+---
+
 ## Documentation Credibility Review (Mar 2026) — OPEN
 
 A review of published claims against the source found several places where the

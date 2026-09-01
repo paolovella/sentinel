@@ -79,7 +79,7 @@ restore path for a value they never saw.
 |---|---|---|
 | **PII sanitization** | Emails, US SSNs, US phone numbers, credit card numbers (Luhn-checked), IPv4 addresses, JWTs, AWS key IDs | Bidirectional replacement with `[PII_{CAT}_{TOKEN}]` placeholders (16 random hex chars) — provider never sees originals |
 | **Encrypted local audit** | Full interaction history | Every intercepted request and response, recorded before sanitization so you can see what was stripped. XChaCha20-Poly1305 + Argon2id, optional Merkle chaining, stored on your machine, not the provider's. Requires `audit_mode = "local"` and a passphrase |
-| **Session isolation** | Cross-session correlation | Each session gets a fresh credential — provider cannot link sessions to build a profile |
+| **Session isolation** | Cross-session correlation | Each session gets its own PII mapping table and a fresh credential, so a placeholder or credential from one session is meaningless in another. Enable with `shield.session_isolation` |
 | **Credential vault** | API keys, tokens passed through tool calls | Blind credential binding — provider sees the tool call but not the credential value |
 | **Stylometric resistance** | Writing style fingerprinting | Whitespace, punctuation, emoji, and filler word normalization so your writing patterns are not identifiable |
 | **Warrant canary** | Legal compulsion transparency | Verification for Ed25519-signed canaries. Issuance and publication are not yet shipped — see [Warrant canary](docs/SECURITY_MODEL.md#warrant-canary) for what a canary does and does not establish |
@@ -382,7 +382,7 @@ Lower crates never depend on higher crates. The boundary contract (`vellaveto-ty
 | **Approval Gates** | Bound, replay-safe, single-use approvals with session + fingerprint binding. Irreversible actions classified and gated. Human-readable fact summaries, lineage drift invalidation, structured containment context, trust/taint summaries, and risk scores preserved through pending, approve, and deny flows. | [Security Model](docs/SECURITY_MODEL.md) |
 | **Discovery** | Auto-discover MCP servers, tools, resources via topology graph. Detect drift, tool shadowing, namespace collisions. Topology guard as pre-policy filter. | [Architecture](#architecture) |
 | **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes, ZK proofs (Pedersen + Groth16), OTel-compatible span export, Annex IV documentation generator, Article 73 incident reports with cross-regulation deadlines, FRIA data export, evidence packs for 12 frameworks. | [Compliance](docs/COMPLIANCE.md) |
-| **Session Isolation** | Per-session credential rotation, context window isolation, stylometric normalization, traffic padding. Cross-session correlation is structurally prevented while users maintain full workflow continuity — context stays coherent and safe across sessions via deterministic action fingerprinting without leaking session boundaries. | [Consumer Shield](examples/presets/consumer-shield.toml) |
+| **Session Isolation** | Per-session PII mapping tables, credential rotation, context window isolation, and stylometric normalization, so a placeholder or credential from one session is meaningless in another. Correlation headers can be withheld from upstream (`shield.strip_privacy_headers`). Traffic padding is not yet wired — its framing needs peer negotiation. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Consumer Shield** | User-side PII sanitization, encrypted local audit (XChaCha20-Poly1305), credential vault, warrant canary. All boundary enforcement running client-side. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Deployment** | 6 modes: HTTP, stdio, WebSocket, gRPC, gateway, consumer shield. K8s operator (3 CRDs), Helm chart, Terraform provider, VS Code extension. | [Deployment](docs/DEPLOYMENT.md) |
 
@@ -415,9 +415,9 @@ Formal verification spans TLA+, Verus, Kani, Lean 4, Coq, and Alloy. Current cou
 <!-- VELLAVETO:EVIDENCE:START -->
 | Evidence item | Count |
 |---|---:|
-| Rust tests | 12919 |
+| Rust tests | 12939 |
 | SDK tests | 977 |
-| Total tests tracked by manifest | 13896 |
+| Total tests tracked by manifest | 13916 |
 | Verus verified items | 1046 |
 | Kani proof harnesses | 124 |
 | TLA+ specs | 13 |

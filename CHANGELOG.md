@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Consumer Shield: the encrypted local audit now records.** `LocalAuditManager`
+  was constructed, configured with Merkle and ZK, and never wired into the proxy
+  bridge, so the encrypted store was created on disk and stayed empty while the
+  binary logged `Encrypted audit store: ENABLED`. Every intercepted request and
+  response is now written to it, before sanitization so the local history shows
+  what was stripped. Honours `audit.strict_mode`: a write failure blocks the
+  request when strict, and on the response path returns an explicit error rather
+  than dropping the message.
+- **Topology discovery now runs on every transport.** The HTTP proxy constructed
+  a `DiscoveryEngine` and never fed it, so discovery indexed nothing outside the
+  stdio relay. `tools/list` responses are now ingested on the HTTP, SSE,
+  WebSocket, and gRPC paths as well.
+- Removed four redundant `_requested_by` session lookups in the gRPC service that
+  carried `SECURITY` comments but were dead — `create_pending_approval_with_context`
+  derives the requester itself. Self-approval prevention was never affected.
+
+### Added
+
+- **`shield.strip_privacy_headers`** (default `false`): withholds `traceparent`,
+  `tracestate`, and the `x-*-trace-id` family from upstream requests, which an
+  upstream operator would otherwise use to correlate a user's requests across
+  sessions. Applies to the HTTP proxy. Off by default because it also disables
+  distributed tracing through the proxy.
+
+### Changed
+
+- **`shield.session_isolation` now also selects per-session PII isolation.**
+  Previously it enabled only context-window isolation while PII sanitization used
+  one process-global mapping table. With it on, each session gets its own mapping
+  table and a placeholder minted in one session is meaningless in another. The
+  process-global sanitizer remains the path when the flag is off.
+  `SessionIsolator` gained custom-pattern support so operator-configured PII
+  patterns survive the switch, and a JSON API for the bridge.
+- Placeholder restoration binds against the session's whole bounded history
+  rather than only its most recent outbound message, so responses to pipelined
+  JSON-RPC requests no longer fail closed. A placeholder the session never
+  emitted is still refused.
+
+### Documentation
+
+- `ContextIsolator` no longer claims local history is injected into new sessions'
+  prompts. It never was, and it should not be: the only prompt-carrying message
+  crossing a stdio proxy is a server-initiated `sampling/createMessage`, whose
+  completion returns to that server — injecting history there would let a
+  malicious MCP server harvest it.
+- `vellaveto-http-proxy-shield` documents that traffic padding is not integrated
+  and why: `pad_content` emits a length-prefixed framing that is not valid JSON,
+  so it can only be applied where the peer has negotiated support.
+- `CLAUDE.md` refreshed from 6.1.1 to 7.0.0; hand-maintained test and proof
+  counts replaced with a pointer to the generated evidence block.
+
 ## [7.0.0] - 2026-08-04
 
 First release since 6.1.1 (2026-03-27). 273 commits.

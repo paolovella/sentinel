@@ -110,10 +110,6 @@ pub(super) fn make_jsonrpc_error(id: Option<&Value>, code: i64, message: &str) -
     (StatusCode::OK, Json(error_response)).into_response()
 }
 
-/// Forward a request to the upstream MCP server.
-///
-/// If OAuth pass-through is enabled, the original Authorization header is
-/// forwarded to upstream.
 /// Whether a header must be withheld from upstream for privacy.
 ///
 /// Consults [`PRIVACY_STRIP_HEADERS`] so the list stays the single source of
@@ -127,6 +123,10 @@ pub(super) fn strip_for_privacy(state: &ProxyState, header: &str) -> bool {
             .any(|stripped| stripped.eq_ignore_ascii_case(header))
 }
 
+/// Forward a request to the upstream MCP server.
+///
+/// If OAuth pass-through is enabled, the original Authorization header is
+/// forwarded to upstream.
 pub(super) async fn forward_to_upstream(
     state: &ProxyState,
     session_id: &str,

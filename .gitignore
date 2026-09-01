@@ -159,3 +159,6 @@ Thumbs.db
 *:Zone.Identifier
 packages/vellaveto-desktop/src-tauri/target/
 packages/vellaveto-desktop/node_modules/
+
+# Scratch capture files from local test runs
+*.out

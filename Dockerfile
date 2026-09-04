@@ -28,8 +28,12 @@ RUN apk upgrade --no-cache && apk add --no-cache musl-dev openssl-dev openssl-li
 # Create a non-root user for the build
 WORKDIR /build
 
-# Copy workspace manifests first for layer caching
+# Copy workspace manifests first for layer caching.
+# .cargo/ carries the [patch.crates-io] that Cargo.lock resolves against; without
+# it the builder would find a lockfile naming a source nothing declares and
+# silently re-resolve.
 COPY Cargo.toml Cargo.lock ./
+COPY .cargo .cargo/
 COPY vellaveto-types/Cargo.toml vellaveto-types/
 COPY vellaveto-engine/Cargo.toml vellaveto-engine/
 COPY vellaveto-audit/Cargo.toml vellaveto-audit/

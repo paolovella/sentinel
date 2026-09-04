@@ -5277,8 +5277,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.12.0"
-source = "git+https://github.com/Lokathor/tinyvec?rev=347ddc6463159eec38d3758a8881a22f44d50373#347ddc6463159eec38d3758a8881a22f44d50373"
+version = "1.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cf0ded5c4e56918d8f8a339e1bb67d038d3bc6d144ac407904015ba2e4cde9b"
 dependencies = [
  "tinyvec_macros",
 ]

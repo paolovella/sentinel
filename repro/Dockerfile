@@ -14,12 +14,8 @@ RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static perl m
 
 WORKDIR /app
 
-# Cache dependencies.
-# .cargo/ carries the [patch.crates-io] that Cargo.lock resolves against; the
-# real build below gets it via `COPY . .`, but the cache layer needs it too or
-# it re-resolves and throws the layer away.
+# Cache dependencies
 COPY Cargo.toml Cargo.lock ./
-COPY .cargo .cargo/
 COPY vellaveto-types/Cargo.toml vellaveto-types/Cargo.toml
 COPY vellaveto-engine/Cargo.toml vellaveto-engine/Cargo.toml
 COPY vellaveto-audit/Cargo.toml vellaveto-audit/Cargo.toml

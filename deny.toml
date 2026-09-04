@@ -64,16 +64,7 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # No git sources allowed. If a git dependency is temporarily needed, add it
 # here with a comment explaining when it can be removed.
-allow-git = [
-  # TEMPORARY — REVIEW BY 2026-12-01. Remove together with the
-  # [patch.crates-io] block in .cargo/config.toml as soon as tinyvec 1.13.1+
-  # is published or 1.13.0 is yanked. tinyvec 1.13.0 does not compile
-  # ("cannot find macro `vec` in this scope"), and cargo-semver-checks builds
-  # each crate in a generated placeholder project with its own lockfile, so
-  # the committed Cargo.lock cannot keep that job off the broken version.
-  # Pinned by commit, as required-git-spec below demands.
-  "https://github.com/Lokathor/tinyvec",
-]
+allow-git = []
 # If git sources are ever allowed, require a pinned revision (not branch/tag)
 # to prevent upstream mutations.
 required-git-spec = "rev"

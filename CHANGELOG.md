@@ -25,8 +25,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carried `SECURITY` comments but were dead — `create_pending_approval_with_context`
   derives the requester itself. Self-approval prevention was never affected.
 
+### Security
+
+- **Ed25519 signatures are now domain-separated** (DOC-CRED-2). Every signed
+  artifact hashed its fields into SHA-256 and signed the bare 32-byte digest, so
+  nothing in the signed bytes identified which artifact type they came from —
+  the safety of one key signing many types rested on an unstated assumption that
+  no two ever collide. `vellaveto_types::signing_domain` now seeds each digest
+  with a length-prefixed per-type constant. Migrated: audit checkpoints, evidence
+  packs, rotation manifests, capability tokens, accountability attestations, and
+  the warrant canary. Each type keeps its pre-separation content as a
+  verification-only fallback, so **no existing signed artifact stops verifying**.
+  This is defence in depth rather than a patched exploit: every verifier
+  recomputes the digest from the object being checked, so cross-type transfer
+  would have required a SHA-256 collision.
+
 ### Added
 
+- **Traffic padding, negotiated per client** (`shield.traffic_padding`).
+  Responses are padded to fixed size buckets only for clients that opt in with
+  `X-Vellaveto-Padding: v1`; padded responses carry
+  `X-Vellaveto-Padding-Applied: v1`. Any client that does not ask — which is
+  every standard MCP client — gets the unpadded body unchanged, because the
+  framing is not valid JSON. No shipped client negotiates it yet.
 - **`shield.strip_privacy_headers`** (default `false`): withholds `traceparent`,
   `tracestate`, and the `x-*-trace-id` family from upstream requests, which an
   upstream operator would otherwise use to correlate a user's requests across

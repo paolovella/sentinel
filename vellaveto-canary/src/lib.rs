@@ -217,7 +217,27 @@ pub fn create_canary(
     })
 }
 
-/// Verify a warrant canary's signature and expiration status.
+/// Verify a warrant canary's signature consistency and expiration status.
+///
+/// # This does NOT authenticate the signer
+///
+/// The signature is verified against [`WarrantCanary::verifying_key`] — a field
+/// of the canary itself. A `signature_valid: true` result therefore means the
+/// canary is *internally consistent*, not that it came from any particular
+/// publisher: anyone can generate a keypair, sign an arbitrary statement, and
+/// obtain a valid result.
+///
+/// Callers MUST compare `canary.verifying_key` against a publisher key obtained
+/// out of band before treating the statement as authentic.
+///
+/// # Timestamps are self-asserted
+///
+/// `signed_date` is written from the signer's own clock at day granularity
+/// (see [`create_canary`]). There is no RFC 3161 timestamp authority or other
+/// external anchor, so `expired` / `days_remaining` are computed by comparing
+/// two unattested dates against the *verifier's* clock. To bound when a canary
+/// was actually signed, the statement should quote a recent public
+/// unpredictable value (a news headline, a recent block hash).
 ///
 /// # Errors
 /// Returns an error string if the canary data is malformed (invalid hex,

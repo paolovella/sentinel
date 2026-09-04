@@ -656,7 +656,14 @@ jobs:
   coq-verification:
     name: Coq Formal Proofs
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 30, matching the `coq` job in formal-verification.yml, which installs the
+    # same package and builds the same proofs. `apt-get install coq` pulls
+    # 288 MB of archives (~1 GB installed), and when the Ubuntu mirror is slow
+    # that alone can consume a whole 10-minute budget: on #370 the install ran
+    # 07:09:26 -> 07:19:26 and the job was cancelled on timeout before a single
+    # proof was built, while the 30-minute job on the same commit passed. The
+    # proofs take seconds; the download does not.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
